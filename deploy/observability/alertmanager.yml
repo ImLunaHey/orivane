@@ -1,0 +1,12 @@
+route:
+  receiver: local-dashboard
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: local-dashboard
+
+# Add an authenticated email, PagerDuty, or webhook receiver in production.
+# This checked-in default deliberately has no external destination or secret.

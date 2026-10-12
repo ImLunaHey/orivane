@@ -25,6 +25,7 @@ impl BotModule for CountersModule {
         let guild = c.guild_id.parse::<u64>().context("invalid counter guild")?;
         let metrics = ctx.discord.guild_metrics(guild).await?;
         let mut outcomes = Vec::new();
+        let mut first_error = None;
         for counter in c
             .modules
             .counters
@@ -49,14 +50,36 @@ impl BotModule for CountersModule {
                 .chars()
                 .take(100)
                 .collect::<String>();
-            ctx.discord
-                .rename_channel(counter.channel_id.parse()?, &name, "Orivane counter update")
+            let channel_id = counter.channel_id.parse()?;
+            let result = ctx
+                .discord
+                .rename_channel(channel_id, &name, "Orivane counter update")
+                .await;
+            let error = result.as_ref().err().map(ToString::to_string);
+            ctx.services
+                .record_counter_run(
+                    guild,
+                    &counter.id,
+                    channel_id,
+                    count,
+                    &name,
+                    if result.is_ok() { "success" } else { "failure" },
+                    error.as_deref(),
+                )
                 .await?;
-            outcomes.push(ModuleEventOutcome {
-                action: "counter.updated".into(),
-                target_type: "channel".into(),
-                target_id: Some(counter.channel_id.clone()),
-            });
+            match result {
+                Ok(()) => outcomes.push(ModuleEventOutcome {
+                    action: "counter.updated".into(),
+                    target_type: "channel".into(),
+                    target_id: Some(counter.channel_id.clone()),
+                }),
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        if let Some(error) = first_error {
+            return Err(error.into());
         }
         Ok(outcomes)
     }

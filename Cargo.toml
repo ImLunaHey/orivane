@@ -6,6 +6,7 @@ members = [
     "crates/bot-discord",
     "crates/bot-test-support",
     "crates/bot-module-api",
+    "crates/bot-observability",
     "modules/utility",
     "modules/welcome",
     "modules/autorole",
@@ -41,6 +42,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
+publish = false
 rust-version = "1.94"
 
 [workspace.dependencies]
@@ -51,6 +53,7 @@ bot-core = { path = "crates/bot-core" }
 bot-discord = { path = "crates/bot-discord" }
 bot-test-support = { path = "crates/bot-test-support" }
 bot-module-api = { path = "crates/bot-module-api" }
+bot-observability = { path = "crates/bot-observability" }
 bot-module-utility = { path = "modules/utility" }
 bot-module-welcome = { path = "modules/welcome" }
 bot-module-autorole = { path = "modules/autorole" }
@@ -83,6 +86,7 @@ bot-module-counters = { path = "modules/counters" }
 chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+regex = "1.12"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

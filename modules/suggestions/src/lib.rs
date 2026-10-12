@@ -5,7 +5,9 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
     CommandResponse, ComponentInteraction, MessageButton, MessageButtonStyle,
 };
-use bot_module_api::{BotModule, ModuleContext, ModuleEventOutcome, SuggestionInput};
+use bot_module_api::{
+    BotModule, ModuleContext, ModuleEventOutcome, SuggestionInput, SuggestionResult,
+};
 
 pub struct SuggestionsModule;
 
@@ -144,6 +146,17 @@ impl BotModule for SuggestionsModule {
                 .await?;
             return Ok(None);
         };
+        if let Some(message_id) = result.message_id {
+            context
+                .discord
+                .edit_message_with_buttons(
+                    result.channel_id,
+                    message_id,
+                    &render_suggestion(&result),
+                    &suggestion_buttons(&result),
+                )
+                .await?;
+        }
         context
             .discord
             .respond_to_component(
@@ -225,34 +238,10 @@ async fn submit(
             content: content.to_owned(),
         })
         .await?;
-    let author = if anonymous {
-        "Anonymous".to_owned()
-    } else {
-        format!("<@{}>", interaction.actor_id)
-    };
-    let message = format!(
-        "**Suggestion #{}**\n{}\n\nSubmitted by: {author}\nStatus: Pending",
-        suggestion.id,
-        safe(content)
-    );
+    let message = render_suggestion(&suggestion);
     let message_id = context
         .discord
-        .send_message_with_buttons(
-            channel_id,
-            &message,
-            &[
-                MessageButton {
-                    custom_id: format!("{COMPONENT_PREFIX}{}:up", suggestion.id),
-                    label: "Upvote".into(),
-                    style: MessageButtonStyle::Success,
-                },
-                MessageButton {
-                    custom_id: format!("{COMPONENT_PREFIX}{}:down", suggestion.id),
-                    label: "Downvote".into(),
-                    style: MessageButtonStyle::Danger,
-                },
-            ],
-        )
+        .send_message_with_buttons(channel_id, &message, &suggestion_buttons(&suggestion))
         .await?;
     context
         .services
@@ -327,6 +316,17 @@ async fn update_status(
             .await?;
         return Ok(());
     };
+    if let Some(message_id) = result.message_id {
+        context
+            .discord
+            .edit_message_with_buttons(
+                result.channel_id,
+                message_id,
+                &render_suggestion(&result),
+                &suggestion_buttons(&result),
+            )
+            .await?;
+    }
     context
         .discord
         .respond_to_command(
@@ -342,6 +342,52 @@ async fn update_status(
 
 fn safe(value: &str) -> String {
     value.replace('@', "@\u{200b}")
+}
+
+fn render_suggestion(suggestion: &SuggestionResult) -> String {
+    let author = suggestion
+        .author_id
+        .map_or_else(|| "Anonymous".into(), |id| format!("<@{id}>"));
+    let note = suggestion
+        .staff_note
+        .as_deref()
+        .filter(|note| !note.is_empty())
+        .map(|note| format!("\nStaff note: {}", safe(note)))
+        .unwrap_or_default();
+    format!(
+        "**Suggestion #{}**\n{}\n\nSubmitted by: {author}\nStatus: {}\nVotes: {} up · {} down{note}",
+        suggestion.id,
+        safe(&suggestion.content),
+        title_status(&suggestion.status),
+        suggestion.upvotes,
+        suggestion.downvotes,
+    )
+}
+
+fn suggestion_buttons(suggestion: &SuggestionResult) -> Vec<MessageButton> {
+    if suggestion.status != "pending" {
+        return Vec::new();
+    }
+    vec![
+        MessageButton {
+            custom_id: format!("{COMPONENT_PREFIX}{}:up", suggestion.id),
+            label: format!("Upvote · {}", suggestion.upvotes),
+            style: MessageButtonStyle::Success,
+        },
+        MessageButton {
+            custom_id: format!("{COMPONENT_PREFIX}{}:down", suggestion.id),
+            label: format!("Downvote · {}", suggestion.downvotes),
+            style: MessageButtonStyle::Danger,
+        },
+    ]
+}
+
+fn title_status(status: &str) -> String {
+    let mut chars = status.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -430,6 +476,16 @@ mod tests {
                 ..
             }
         ));
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::EditMessageWithButtons {
+                channel_id: 20,
+                message_id: 50,
+                content,
+                buttons,
+            } if content.contains("Votes: 1 up · 0 down")
+                && buttons.iter().any(|button| button.label == "Upvote · 1")
+        )));
     }
 
     #[tokio::test]
@@ -470,5 +526,14 @@ mod tests {
             .await
             .unwrap();
         assert!(services.calls().iter().any(|call| matches!(call, ServiceCall::UpdateSuggestionStatus { suggestion_id: 7, status, .. } if status == "approved")));
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::EditMessageWithButtons {
+                channel_id: 20,
+                message_id: 50,
+                content,
+                buttons,
+            } if content.contains("Status: Approved") && buttons.is_empty()
+        )));
     }
 }

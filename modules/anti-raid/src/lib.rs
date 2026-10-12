@@ -166,6 +166,7 @@ impl BotModule for AntiRaidModule {
                 member_id: event.user_id,
                 action: format!("anti_raid_{}", policy.action),
                 reason: reason.clone(),
+                evidence_urls: Vec::new(),
             })
             .await?;
         if let Some(channel) = &policy.alert_channel_id {

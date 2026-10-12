@@ -67,6 +67,13 @@ pub struct InfrastructureHealth {
     pub services: Vec<DependencyHealth>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RuntimeMetrics {
+    pub database_pool_size: u32,
+    pub database_pool_idle: usize,
+    pub due_job_backlog: i64,
+}
+
 #[derive(Clone, Debug, Serialize, FromRow)]
 pub struct GuildMemberSummary {
     pub id: String,

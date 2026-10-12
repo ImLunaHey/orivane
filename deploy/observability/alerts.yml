@@ -1,0 +1,55 @@
+groups:
+  - name: orivane
+    rules:
+      - alert: OrivaneServiceDown
+        expr: up{job=~"orivane-.+"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} is unavailable"
+      - alert: OrivaneServiceNotReady
+        expr: orivane_service_ready == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.service }} is alive but not ready"
+      - alert: OrivaneApiErrorRate
+        expr: rate(orivane_http_request_failures_total[5m]) / clamp_min(rate(orivane_http_requests_total[5m]), 0.001) > 0.02
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "API 5xx rate is above 2%"
+      - alert: OrivaneInteractionFailures
+        expr: rate(orivane_discord_interaction_failures_total[5m]) / clamp_min(rate(orivane_discord_interactions_total[5m]), 0.001) > 0.02
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Discord interaction failure rate is above 2%"
+      - alert: OrivaneInteractionLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(orivane_discord_interaction_latency_seconds_bucket[10m]))) > 1.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Discord interaction p95 latency is above 1.5 seconds"
+      - alert: OrivaneGatewayErrors
+        expr: increase(orivane_gateway_errors_total[10m]) > 3
+        labels: { severity: warning }
+        annotations:
+          summary: "Gateway has repeatedly disconnected or failed"
+      - alert: OrivaneScheduledFailures
+        expr: increase(orivane_scheduler_failures_total[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "At least one scheduled worker operation failed"
+      - alert: OrivaneJobBacklog
+        expr: orivane_due_job_backlog > 25
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 25 due jobs are waiting"
+      - alert: OrivaneDatabasePoolSaturation
+        expr: orivane_database_pool_connections{state="idle"} / clamp_min(orivane_database_pool_connections{state="total"}, 1) < 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Fewer than 10% of database connections are idle"
