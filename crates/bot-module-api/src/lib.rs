@@ -48,6 +48,14 @@ pub struct XpProfile {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XpAdjustmentInput {
+    pub guild_id: u64,
+    pub user_id: u64,
+    pub amount: i64,
+    pub operation: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketRecordInput {
     pub guild_id: u64,
     pub opener_id: u64,
@@ -224,6 +232,7 @@ pub trait ModuleServices: Send + Sync {
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
     async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;
     async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>>;
+    async fn adjust_xp(&self, input: XpAdjustmentInput) -> Result<XpProfile>;
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>>;
     async fn ticket_panel(
         &self,
@@ -475,6 +484,17 @@ pub struct MessageCreate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VoiceStateChange {
+    pub guild_id: u64,
+    pub user_id: u64,
+    pub previous_channel_id: Option<u64>,
+    pub channel_id: Option<u64>,
+    pub previous_session_seconds: u64,
+    pub previous_session_eligible: bool,
+    pub user_is_bot: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReactionAdd {
     pub guild_id: u64,
     pub channel_id: u64,
@@ -526,6 +546,9 @@ pub trait BotModule: Send + Sync {
         false
     }
     fn handles_message_create(&self) -> bool {
+        false
+    }
+    fn handles_voice_state_change(&self) -> bool {
         false
     }
     fn handles_reaction_add(&self) -> bool {
@@ -594,6 +617,15 @@ pub trait BotModule: Send + Sync {
         _context: &ModuleContext,
         _config: &GuildConfig,
         _event: &MessageCreate,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        Ok(None)
+    }
+
+    async fn on_voice_state_change(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &VoiceStateChange,
     ) -> Result<Option<ModuleEventOutcome>> {
         Ok(None)
     }

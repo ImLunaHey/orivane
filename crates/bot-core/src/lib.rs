@@ -18,10 +18,11 @@ pub use config::{
     AntiRaidConfig, AutoDeleteConfig, AutoDeleteRule, AutomodConfig, AutomodRuleConfig,
     AutoresponderConfig, AutoresponseConfig, AutoroleConfig, CustomCommandConfig,
     CustomCommandsConfig, FormConfig, FormQuestionConfig, FormsConfig, GiveawaysConfig,
-    GuildConfig, LevelingConfig, LoggingConfig, ManagedEmbedsConfig, ModerationConfig,
-    ModulesConfig, ReactionRoleBinding, ReactionRoleOption, ReactionRolePanel, ReactionRolesConfig,
-    RemindersConfig, ScheduledMessageConfig, ScheduledMessagesConfig, StarboardConfig,
-    SuggestionsConfig, TicketsConfig, UtilityConfig, WarningThresholdConfig, WelcomeConfig,
+    GuildConfig, LevelRewardConfig, LevelingConfig, LoggingConfig, ManagedEmbedsConfig,
+    ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRoleOption, ReactionRolePanel,
+    ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig, ScheduledMessagesConfig,
+    StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig, WarningThresholdConfig,
+    WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,

@@ -22,7 +22,8 @@ use bot_module_api::{
     ManagedEmbedDeliveryInput, ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate,
     MessageDeletionJobResult, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
     ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
-    TicketPanelResult, TicketRecordInput, TicketResult, XpAwardInput, XpAwardResult, XpProfile,
+    TicketPanelResult, TicketRecordInput, TicketResult, VoiceStateChange, XpAdjustmentInput,
+    XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -592,6 +593,26 @@ impl ModuleServices for GatewayModuleServices {
             .collect()
     }
 
+    async fn adjust_xp(&self, input: XpAdjustmentInput) -> Result<XpProfile> {
+        let profile = self
+            .infrastructure
+            .adjust_member_xp(
+                &input.guild_id.to_string(),
+                &input.user_id.to_string(),
+                input.amount,
+                input.operation == "set",
+            )
+            .await?;
+        let total_xp = u64::try_from(profile.total_xp).unwrap_or_default();
+        Ok(XpProfile {
+            user_id: input.user_id,
+            total_xp,
+            level: level_for_xp(total_xp),
+            message_count: u64::try_from(profile.message_count).unwrap_or_default(),
+            rank: u64::try_from(profile.rank).unwrap_or_default(),
+        })
+    }
+
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>> {
         self.infrastructure
             .open_ticket_channel(&guild_id.to_string(), &opener_id.to_string())
@@ -953,7 +974,7 @@ async fn main() -> Result<()> {
         | Intents::GUILD_MESSAGE_REACTIONS
         | Intents::GUILD_VOICE_STATES;
     let mut shard = Shard::new(ShardId::ONE, token, intents);
-    let mut voice_channels: HashMap<(u64, u64), u64> = HashMap::new();
+    let mut voice_channels: HashMap<(u64, u64), (u64, Instant, bool)> = HashMap::new();
 
     tokio::spawn(run_scheduler(
         context.clone(),
@@ -1049,7 +1070,18 @@ async fn main() -> Result<()> {
                         if let Some(channel_id) = voice_state.channel_id {
                             voice_channels.insert(
                                 (guild.id.get(), voice_state.user_id.get()),
-                                channel_id.get(),
+                                (
+                                    channel_id.get(),
+                                    Instant::now(),
+                                    !voice_state.self_mute
+                                        && !voice_state.self_deaf
+                                        && !voice_state.mute
+                                        && !voice_state.deaf
+                                        && !voice_state
+                                            .member
+                                            .as_ref()
+                                            .is_some_and(|member| member.user.bot),
+                                ),
                             );
                         }
                     }
@@ -1605,14 +1637,23 @@ async fn main() -> Result<()> {
                     continue;
                 };
                 let key = (guild_id.get(), voice.user_id.get());
-                let previous_channel_id = match voice.channel_id {
-                    Some(channel_id) => voice_channels.insert(key, channel_id.get()),
+                let user_is_bot = voice.member.as_ref().is_some_and(|member| member.user.bot);
+                let eligible = !user_is_bot
+                    && !voice.self_mute
+                    && !voice.self_deaf
+                    && !voice.mute
+                    && !voice.deaf;
+                let previous = match voice.channel_id {
+                    Some(channel_id) => {
+                        voice_channels.insert(key, (channel_id.get(), Instant::now(), eligible))
+                    }
                     None => voice_channels.remove(&key),
                 };
+                let previous_channel_id = previous.map(|(channel_id, _, _)| channel_id);
+                let previous_session_seconds =
+                    previous.map_or(0, |(_, started, _)| started.elapsed().as_secs());
+                let previous_session_eligible = previous.is_some_and(|(_, _, eligible)| eligible);
                 let next_channel_id = voice.channel_id.map(|id| id.get());
-                if previous_channel_id == next_channel_id {
-                    continue;
-                }
                 let config = match infrastructure.guild_config(&guild_id.to_string()).await {
                     Ok(config) => config,
                     Err(error) => {
@@ -1620,6 +1661,46 @@ async fn main() -> Result<()> {
                         continue;
                     }
                 };
+                let voice_event = VoiceStateChange {
+                    guild_id: guild_id.get(),
+                    user_id: voice.user_id.get(),
+                    previous_channel_id,
+                    channel_id: next_channel_id,
+                    previous_session_seconds,
+                    previous_session_eligible,
+                    user_is_bot,
+                };
+                for module in modules
+                    .iter()
+                    .filter(|module| module.handles_voice_state_change() && module.enabled(&config))
+                {
+                    match module
+                        .on_voice_state_change(&context, &config, &voice_event)
+                        .await
+                    {
+                        Ok(Some(outcome)) => {
+                            let mut audit = NewAuditEvent::guild(
+                                &guild_id.to_string(),
+                                "system",
+                                outcome.action,
+                            );
+                            audit.actor_kind = "system".into();
+                            audit.source = "discord_gateway".into();
+                            audit.target_type = outcome.target_type;
+                            audit.target_id = outcome.target_id;
+                            if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                                tracing::error!(%error, "failed to persist voice module audit");
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::error!(module = module.name(), %error, "voice-state module failed")
+                        }
+                    }
+                }
+                if previous_channel_id == next_channel_id {
+                    continue;
+                }
                 let (action, title, summary) = match (previous_channel_id, next_channel_id) {
                     (None, Some(channel_id)) => (
                         "discord.voice.joined",

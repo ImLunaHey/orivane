@@ -55,6 +55,7 @@ export async function getGuildChannels(guildId: string): Promise<GuildChannel[]>
     { id: '100000000000000003', name: 'bot-logs', kind: 'GuildText', position: 2, parent_id: '100000000000000001' },
     { id: '100000000000000004', name: 'Community', kind: 'GuildCategory', position: 3, parent_id: null },
     { id: '100000000000000005', name: 'general', kind: 'GuildText', position: 4, parent_id: '100000000000000004' },
+    { id: '100000000000000006', name: 'Lounge', kind: 'GuildVoice', position: 5, parent_id: '100000000000000004' },
   ]
   return request<GuildChannel[]>(`/v1/guilds/${guildId}/channels`)
 }

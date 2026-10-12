@@ -119,6 +119,24 @@ describe('module configuration pages', () => {
     expect(rule).toMatchObject({ id: 'rapidspam', kind: 'rapid_spam', action: 'timeout', threshold: 6, window_seconds: 12 })
   })
 
+  it('configures leveling anti-farm, role rewards, voice XP, and rank cards', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/leveling`)
+    await screen.findByRole('heading', { name: 'Leveling settings' })
+    fireEvent.change(screen.getByLabelText(/^Minimum message length/), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add reward' }))
+    fireEvent.change(screen.getByLabelText(/^Required level/), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reward role' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Member' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Voice XP' }))
+    fireEvent.change(screen.getByLabelText(/^Voice XP per minute/), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+    const leveling = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.leveling
+    expect(leveling).toMatchObject({ minimum_message_length: 12, voice_xp_enabled: true, voice_xp_per_minute: 4 })
+    expect(leveling.role_rewards).toEqual([{ level: 5, role_id: '100000000000000103' }])
+  })
+
   it('uses dedicated ticket inbox, panel editor, and ticket detail pages', async () => {
     renderDashboard()
     await navigateTo(`/servers/${serverId}/modules/tickets`)

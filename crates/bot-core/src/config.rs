@@ -120,6 +120,32 @@ pub struct LevelingConfig {
     pub announcement_channel_id: Option<String>,
     #[serde(default = "default_level_up_message")]
     pub announcement_message: String,
+    #[serde(default)]
+    pub role_rewards: Vec<LevelRewardConfig>,
+    #[serde(default)]
+    pub remove_previous_rewards: bool,
+    #[serde(default = "default_minimum_message_length")]
+    pub minimum_message_length: u16,
+    #[serde(default = "default_duplicate_message_window")]
+    pub duplicate_message_window_seconds: u16,
+    #[serde(default)]
+    pub voice_xp_enabled: bool,
+    #[serde(default = "default_voice_xp_per_minute")]
+    pub voice_xp_per_minute: u16,
+    #[serde(default = "default_voice_xp_session_limit")]
+    pub voice_xp_max_session_minutes: u16,
+    #[serde(default)]
+    pub ignored_voice_channel_ids: Vec<String>,
+    #[serde(default = "default_rank_card_color")]
+    pub rank_card_color: u32,
+    #[serde(default = "default_rank_card_footer")]
+    pub rank_card_footer: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct LevelRewardConfig {
+    pub level: u32,
+    pub role_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -705,6 +731,26 @@ impl GuildConfig {
         }
         if invalid_snowflake_list(&leveling.ignored_channel_ids, 100)
             || invalid_snowflake_list(&leveling.ignored_role_ids, 100)
+            || invalid_snowflake_list(&leveling.ignored_voice_channel_ids, 100)
+            || leveling.minimum_message_length > 500
+            || leveling.duplicate_message_window_seconds > 3_600
+            || leveling.role_rewards.len() > 100
+            || leveling
+                .role_rewards
+                .iter()
+                .enumerate()
+                .any(|(index, reward)| {
+                    reward.level == 0
+                        || !valid_snowflake(&reward.role_id)
+                        || leveling.role_rewards[..index].iter().any(|other| {
+                            other.level == reward.level || other.role_id == reward.role_id
+                        })
+                })
+            || (leveling.voice_xp_enabled
+                && (!(1..=1_000).contains(&leveling.voice_xp_per_minute)
+                    || !(1..=1_440).contains(&leveling.voice_xp_max_session_minutes)))
+            || leveling.rank_card_color > 0xFF_FF_FF
+            || leveling.rank_card_footer.chars().count() > 100
             || (leveling.announce_level_up
                 && leveling
                     .announcement_channel_id
@@ -1244,6 +1290,16 @@ impl Default for LevelingConfig {
             announce_level_up: true,
             announcement_channel_id: None,
             announcement_message: default_level_up_message(),
+            role_rewards: Vec::new(),
+            remove_previous_rewards: false,
+            minimum_message_length: default_minimum_message_length(),
+            duplicate_message_window_seconds: default_duplicate_message_window(),
+            voice_xp_enabled: false,
+            voice_xp_per_minute: default_voice_xp_per_minute(),
+            voice_xp_max_session_minutes: default_voice_xp_session_limit(),
+            ignored_voice_channel_ids: Vec::new(),
+            rank_card_color: default_rank_card_color(),
+            rank_card_footer: default_rank_card_footer(),
         }
     }
 }
@@ -1292,6 +1348,24 @@ const fn default_xp_cooldown() -> u16 {
 }
 fn default_level_up_message() -> String {
     "Congratulations {user}, you reached level {level}!".to_owned()
+}
+const fn default_minimum_message_length() -> u16 {
+    5
+}
+const fn default_duplicate_message_window() -> u16 {
+    300
+}
+const fn default_voice_xp_per_minute() -> u16 {
+    2
+}
+const fn default_voice_xp_session_limit() -> u16 {
+    240
+}
+const fn default_rank_card_color() -> u32 {
+    0x58_65_F2
+}
+fn default_rank_card_footer() -> String {
+    "Keep participating to reach the next level.".into()
 }
 fn default_welcome_message() -> String {
     "Welcome {user} to {server}!".to_owned()

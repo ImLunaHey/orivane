@@ -13,7 +13,7 @@ use bot_module_api::{
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedResult,
     MessageDeletionJobResult, ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult,
     SuggestionInput, SuggestionResult, TicketPanelResult, TicketRecordInput, TicketResult,
-    XpAwardInput, XpAwardResult, XpProfile,
+    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,6 +184,7 @@ pub enum ServiceCall {
         window_seconds: u16,
     },
     AwardXp(XpAwardInput),
+    AdjustXp(XpAdjustmentInput),
     XpProfile {
         guild_id: u64,
         user_id: u64,
@@ -943,6 +944,21 @@ impl ModuleServices for FakeModuleServices {
             message_count: 50,
             rank: 1,
         }])
+    }
+
+    async fn adjust_xp(&self, input: XpAdjustmentInput) -> anyhow::Result<XpProfile> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::AdjustXp(input.clone()));
+        let total_xp = u64::try_from(input.amount.max(0)).unwrap_or_default();
+        Ok(XpProfile {
+            user_id: input.user_id,
+            total_xp,
+            level: bot_core::level_for_xp(total_xp),
+            message_count: 0,
+            rank: 1,
+        })
     }
 
     async fn open_ticket_channel(

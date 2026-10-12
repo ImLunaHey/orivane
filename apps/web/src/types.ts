@@ -27,6 +27,16 @@ export type GuildConfig = {
       announce_level_up: boolean
       announcement_channel_id: string | null
       announcement_message: string
+      role_rewards: { level:number; role_id:string }[]
+      remove_previous_rewards: boolean
+      minimum_message_length: number
+      duplicate_message_window_seconds: number
+      voice_xp_enabled: boolean
+      voice_xp_per_minute: number
+      voice_xp_max_session_minutes: number
+      ignored_voice_channel_ids: string[]
+      rank_card_color: number
+      rank_card_footer: string
     }
     welcome: {
       enabled: boolean

@@ -1173,6 +1173,23 @@ impl Infrastructure {
         .map_err(StoreError::from)
     }
 
+    pub async fn adjust_member_xp(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        amount: i64,
+        set: bool,
+    ) -> Result<MemberXpProfile, StoreError> {
+        if set {
+            sqlx::query("INSERT INTO member_xp (guild_id,user_id,xp,message_count) VALUES ($1,$2,$3,0) ON CONFLICT (guild_id,user_id) DO UPDATE SET xp=EXCLUDED.xp,updated_at=now()")
+                .bind(guild_id).bind(user_id).bind(amount.max(0)).execute(&self.pool).await?;
+        } else {
+            sqlx::query("INSERT INTO member_xp (guild_id,user_id,xp,message_count) VALUES ($1,$2,$3,0) ON CONFLICT (guild_id,user_id) DO UPDATE SET xp=GREATEST(0,member_xp.xp + EXCLUDED.xp),updated_at=now()")
+                .bind(guild_id).bind(user_id).bind(amount).execute(&self.pool).await?;
+        }
+        self.member_xp_profile(guild_id, user_id).await
+    }
+
     pub async fn open_ticket_channel(
         &self,
         guild_id: &str,

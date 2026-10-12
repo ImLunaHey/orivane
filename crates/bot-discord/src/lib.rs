@@ -140,6 +140,7 @@ impl CommandInteraction {
 pub struct CommandResponse {
     pub content: String,
     pub ephemeral: bool,
+    pub embed: Option<RichEmbed>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -274,6 +275,7 @@ impl CommandResponse {
         Self {
             content: content.into(),
             ephemeral: false,
+            embed: None,
         }
     }
 
@@ -281,6 +283,15 @@ impl CommandResponse {
         Self {
             content: content.into(),
             ephemeral: true,
+            embed: None,
+        }
+    }
+
+    pub fn public_embed(embed: RichEmbed) -> Self {
+        Self {
+            content: String::new(),
+            ephemeral: false,
+            embed: Some(embed),
         }
     }
 }
@@ -642,6 +653,9 @@ impl DiscordApi for TwilightDiscord {
         response: CommandResponse,
     ) -> Result<(), DiscordError> {
         let mut data = InteractionResponseDataBuilder::new().content(response.content);
+        if let Some(embed) = response.embed.as_ref() {
+            data = data.embeds([discord_embed(embed)?]);
+        }
         if response.ephemeral {
             data = data.flags(MessageFlags::EPHEMERAL);
         }
