@@ -52,6 +52,63 @@ pub struct ModulesConfig {
     pub managed_embeds: ManagedEmbedsConfig,
     #[serde(default)]
     pub temporary_voice: TemporaryVoiceConfig,
+    #[serde(default)]
+    pub economy: EconomyConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EconomyConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_currency_name")]
+    pub currency_name: String,
+    #[serde(default = "default_currency_symbol")]
+    pub currency_symbol: String,
+    #[serde(default = "default_daily_amount")]
+    pub daily_amount: u64,
+    #[serde(default = "default_work_min")]
+    pub work_min: u64,
+    #[serde(default = "default_work_max")]
+    pub work_max: u64,
+    #[serde(default = "default_work_cooldown")]
+    pub work_cooldown_seconds: u32,
+    #[serde(default)]
+    pub transfer_tax_percent: u8,
+    #[serde(default = "default_true")]
+    pub games_enabled: bool,
+    #[serde(default = "default_minimum_wager")]
+    pub minimum_wager: u64,
+    #[serde(default = "default_maximum_wager")]
+    pub maximum_wager: u64,
+    #[serde(default)]
+    pub shop_items: Vec<EconomyShopItem>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EconomyShopItem {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub price: u64,
+    pub role_id: Option<String>,
+}
+impl Default for EconomyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            currency_name: default_currency_name(),
+            currency_symbol: default_currency_symbol(),
+            daily_amount: default_daily_amount(),
+            work_min: default_work_min(),
+            work_max: default_work_max(),
+            work_cooldown_seconds: default_work_cooldown(),
+            transfer_tax_percent: 0,
+            games_enabled: true,
+            minimum_wager: default_minimum_wager(),
+            maximum_wager: default_maximum_wager(),
+            shop_items: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -666,6 +723,8 @@ pub enum ConfigValidationError {
     InvalidAutoDelete,
     #[error("temporary voice lobby, category, name, limit, or deletion delay is invalid")]
     InvalidTemporaryVoice,
+    #[error("economy currency, rewards, cooldowns, wagers, tax, or shop items are invalid")]
+    InvalidEconomy,
 }
 
 impl GuildConfig {
@@ -812,6 +871,46 @@ impl GuildConfig {
                     || temporary_voice.lobby_channel_id == temporary_voice.category_id))
         {
             return Err(ConfigValidationError::InvalidTemporaryVoice);
+        }
+        let economy = &self.modules.economy;
+        if economy.currency_name.trim().is_empty()
+            || economy.currency_name.chars().count() > 32
+            || economy.currency_symbol.trim().is_empty()
+            || economy.currency_symbol.chars().count() > 8
+            || economy.daily_amount > 1_000_000
+            || economy.work_min == 0
+            || economy.work_min > economy.work_max
+            || economy.work_max > 1_000_000
+            || !(60..=86_400).contains(&economy.work_cooldown_seconds)
+            || economy.transfer_tax_percent > 50
+            || economy.minimum_wager == 0
+            || economy.minimum_wager > economy.maximum_wager
+            || economy.maximum_wager > 1_000_000_000
+            || economy.shop_items.len() > 100
+            || economy.shop_items.iter().enumerate().any(|(index, item)| {
+                item.id.is_empty()
+                    || item.id.len() > 32
+                    || !item.id.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                            || character == '_'
+                    })
+                    || economy.shop_items[..index]
+                        .iter()
+                        .any(|other| other.id == item.id)
+                    || item.name.trim().is_empty()
+                    || item.name.chars().count() > 100
+                    || item.description.chars().count() > 500
+                    || item.price == 0
+                    || item.price > i64::MAX as u64
+                    || item
+                        .role_id
+                        .as_deref()
+                        .is_some_and(|id| !valid_snowflake(id))
+            })
+        {
+            return Err(ConfigValidationError::InvalidEconomy);
         }
         let moderation = &self.modules.moderation;
         let mut warning_counts = std::collections::HashSet::new();
@@ -1427,6 +1526,30 @@ fn default_temporary_voice_name() -> String {
 const fn default_temporary_voice_delete_delay() -> u16 {
     5
 }
+fn default_currency_name() -> String {
+    "credits".into()
+}
+fn default_currency_symbol() -> String {
+    "◈".into()
+}
+const fn default_daily_amount() -> u64 {
+    250
+}
+const fn default_work_min() -> u64 {
+    25
+}
+const fn default_work_max() -> u64 {
+    100
+}
+const fn default_work_cooldown() -> u32 {
+    3_600
+}
+const fn default_minimum_wager() -> u64 {
+    10
+}
+const fn default_maximum_wager() -> u64 {
+    100_000
+}
 fn default_welcome_message() -> String {
     "Welcome {user} to {server}!".to_owned()
 }
@@ -1624,6 +1747,34 @@ mod tests {
         assert_eq!(
             config.validate(),
             Err(ConfigValidationError::InvalidAutoDelete)
+        );
+    }
+
+    #[test]
+    fn economy_requires_bounded_wagers_and_unique_shop_items() {
+        let mut config = GuildConfig::for_guild("123");
+        config.modules.economy.shop_items.push(EconomyShopItem {
+            id: "vip".into(),
+            name: "VIP".into(),
+            description: "Unlock the VIP role".into(),
+            price: 5_000,
+            role_id: Some("456".into()),
+        });
+        assert_eq!(config.validate(), Ok(()));
+        config
+            .modules
+            .economy
+            .shop_items
+            .push(config.modules.economy.shop_items[0].clone());
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidEconomy)
+        );
+        config.modules.economy.shop_items.pop();
+        config.modules.economy.maximum_wager = config.modules.economy.minimum_wager - 1;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidEconomy)
         );
     }
 }

@@ -66,6 +66,7 @@ export type GuildConfig = {
     auto_delete: { enabled: boolean; rules: AutoDeleteRule[] }
     managed_embeds: { enabled: boolean }
     temporary_voice: { enabled:boolean;lobby_channel_id:string|null;category_id:string|null;default_name:string;user_limit:number;delete_delay_seconds:number;owner_controls:boolean }
+    economy: { enabled:boolean;currency_name:string;currency_symbol:string;daily_amount:number;work_min:number;work_max:number;work_cooldown_seconds:number;transfer_tax_percent:number;games_enabled:boolean;minimum_wager:number;maximum_wager:number;shop_items:{id:string;name:string;description:string;price:number;role_id:string|null}[] }
   }
 }
 
@@ -187,3 +188,5 @@ export type ModerationCase = {
 
 export type NewModerationCase = Pick<ModerationCase, 'member_id' | 'action' | 'reason'>
 export type TemporaryVoiceChannel = { id:number;guild_id:string;channel_id:string;owner_id:string;name:string;user_limit:number;locked:boolean;status:string;created_at:string;updated_at:string;deleted_at:string|null;delete_after:string|null }
+export type EconomyAccount = { guild_id:string;user_id:string;balance:number;lifetime_earned:number;lifetime_spent:number;updated_at:string }
+export type EconomyTransaction = { id:number;guild_id:string;user_id:string;counterparty_id:string|null;amount:number;kind:string;reference:string;metadata:Record<string,unknown>;created_at:string }

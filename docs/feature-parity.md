@@ -34,6 +34,7 @@ Reference feature sets:
 | Reminders | Live | `/remind`, `/reminders`, and `/reminder-cancel`; channel or DM delivery, per-member limits, durable claiming, exponential retries, terminal failure state, dashboard directory/details and analytics | Natural-language dates, repeating reminders and cross-server personal inbox |
 | Auto-delete | Live | Per-channel delayed deletion rules, bot/role exclusions, durable content-free queue, retries and crash recovery, `/purge`, queue analytics | Attachment/type filters and calendar-based purge windows |
 | Managed embeds | Live | Reusable rich embed templates, Discord-style preview, variable autocomplete, fields/media/author/footer/timestamp controls, `/embed-send`, dashboard sends, synchronized edits, durable delivery history and analytics | Attachments, webhook identity overrides and scheduled template delivery |
+| Economy and games | Live | Durable per-server balances and immutable transaction ledger; `/balance`, `/daily`, `/work`, taxed `/pay`, `/economy-leaderboard`; configurable role shop with purchase refunds; bounded `/coinflip` and `/slots`; permission-gated add/remove/set administration; dashboard policy, shop, account and ledger views | Inventory collectibles and seasonal resets are optional future depth |
 
 ## Popular-bot areas not yet implemented
 
@@ -41,7 +42,6 @@ These are not represented as fake or configuration-only cards in the dashboard.
 
 | Capability family | Seen in | Orivane status |
 | --- | --- | --- |
-| Economy, points, games and tags | Dyno and MEE6-class bots | Not built |
 | AFK and keyword highlights | Dyno | Not built |
 
 Social-feed integrations are intentionally out of scope for Orivane and are not part of the parity backlog.

@@ -90,6 +90,7 @@ export const defaultConfig: GuildConfig = {
     auto_delete: { enabled: false, rules: [] },
     managed_embeds: { enabled: false },
     temporary_voice: { enabled: false, lobby_channel_id: null, category_id: null, default_name: "{username}'s channel", user_limit: 0, delete_delay_seconds: 5, owner_controls: true },
+    economy: { enabled: false, currency_name: 'credits', currency_symbol: '◈', daily_amount: 250, work_min: 25, work_max: 100, work_cooldown_seconds: 3600, transfer_tax_percent: 0, games_enabled: true, minimum_wager: 10, maximum_wager: 100000, shop_items: [] },
   },
 }
 

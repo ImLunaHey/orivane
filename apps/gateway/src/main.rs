@@ -8,9 +8,9 @@ use std::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{
-    Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery, NewFormSubmission,
-    NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket, Reminder, Suggestion,
-    TemporaryVoiceChannel, level_for_xp,
+    EconomyAccount, Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery,
+    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket,
+    Reminder, Suggestion, TemporaryVoiceChannel, level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -18,18 +18,20 @@ use bot_discord::{
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, DiscordLogEvent, FormSubmissionInput, GiveawayInput, GiveawayResult,
-    ManagedEmbedDeliveryInput, ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate,
-    MessageDeletionJobResult, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
-    ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
-    TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult, VoiceStateChange,
-    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
+    AuditNotice, BotModule, DiscordLogEvent, EconomyClaimResult, EconomyProfile,
+    FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedDeliveryInput,
+    ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate, MessageDeletionJobResult,
+    ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd, ReminderInput, ReminderResult,
+    ScheduledTick, SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult,
+    TicketRecordInput, TicketResult, VoiceStateChange, XpAdjustmentInput, XpAwardInput,
+    XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
 use bot_module_autorole::AutoroleModule;
 use bot_module_custom_commands::CustomCommandsModule;
+use bot_module_economy::EconomyModule;
 use bot_module_forms::FormsModule;
 use bot_module_giveaways::GiveawaysModule;
 use bot_module_leveling::LevelingModule;
@@ -736,6 +738,96 @@ impl ModuleServices for GatewayModuleServices {
             .map(temporary_voice_result)
             .collect()
     }
+    async fn economy_profile(&self, guild_id: u64, user_id: u64) -> Result<EconomyProfile> {
+        economy_profile(
+            &self
+                .infrastructure
+                .economy_account(&guild_id.to_string(), &user_id.to_string())
+                .await?,
+        )
+    }
+    async fn economy_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<EconomyProfile>> {
+        self.infrastructure
+            .economy_accounts(&guild_id.to_string(), i64::from(limit))
+            .await?
+            .iter()
+            .map(economy_profile)
+            .collect()
+    }
+    async fn economy_change_balance(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        amount: i64,
+        kind: &str,
+        reference: &str,
+    ) -> Result<EconomyProfile> {
+        economy_profile(
+            &self
+                .infrastructure
+                .economy_change_balance(
+                    &guild_id.to_string(),
+                    &user_id.to_string(),
+                    amount,
+                    kind,
+                    reference,
+                    None,
+                    &serde_json::json!({}),
+                )
+                .await?,
+        )
+    }
+    async fn economy_claim(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        kind: &str,
+        amount: u64,
+        cooldown_seconds: u64,
+        reference: &str,
+    ) -> Result<EconomyClaimResult> {
+        let (profile, retry) = self
+            .infrastructure
+            .economy_claim(
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                kind,
+                amount,
+                cooldown_seconds,
+                reference,
+            )
+            .await?;
+        Ok(EconomyClaimResult {
+            profile: profile.as_ref().map(economy_profile).transpose()?,
+            retry_after_seconds: retry,
+        })
+    }
+    async fn economy_transfer(
+        &self,
+        guild_id: u64,
+        from: u64,
+        to: u64,
+        amount: u64,
+        tax_percent: u8,
+        reference: &str,
+    ) -> Result<(EconomyProfile, EconomyProfile, u64)> {
+        let (from_profile, to_profile, tax) = self
+            .infrastructure
+            .economy_transfer(
+                &guild_id.to_string(),
+                &from.to_string(),
+                &to.to_string(),
+                amount,
+                tax_percent,
+                reference,
+            )
+            .await?;
+        Ok((
+            economy_profile(&from_profile)?,
+            economy_profile(&to_profile)?,
+            tax,
+        ))
+    }
 
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>> {
         self.infrastructure
@@ -1081,6 +1173,7 @@ async fn main() -> Result<()> {
         Arc::new(AutoDeleteModule),
         Arc::new(ManagedEmbedsModule),
         Arc::new(TemporaryVoiceModule),
+        Arc::new(EconomyModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -2429,6 +2522,17 @@ fn temporary_voice_result(channel: &TemporaryVoiceChannel) -> Result<TemporaryVo
         name: channel.name.clone(),
         user_limit: u8::try_from(channel.user_limit).unwrap_or_default(),
         locked: channel.locked,
+    })
+}
+fn economy_profile(account: &EconomyAccount) -> Result<EconomyProfile> {
+    Ok(EconomyProfile {
+        user_id: account
+            .user_id
+            .parse()
+            .context("stored economy user is invalid")?,
+        balance: u64::try_from(account.balance).unwrap_or_default(),
+        lifetime_earned: u64::try_from(account.lifetime_earned).unwrap_or_default(),
+        lifetime_spent: u64::try_from(account.lifetime_spent).unwrap_or_default(),
     })
 }
 

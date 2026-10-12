@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
+import type { AuditEvent, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -77,6 +77,15 @@ export async function getTemporaryVoiceChannels(guildId:string):Promise<Temporar
 export async function deleteTemporaryVoiceChannel(guildId:string,channelId:string):Promise<void>{
   if(isDemoMode){const channels=await getTemporaryVoiceChannels(guildId);localStorage.setItem(temporaryVoiceKey(guildId),JSON.stringify(channels.filter(channel=>channel.channel_id!==channelId)));return}
   return request(`/v1/guilds/${guildId}/temporary-voice/${channelId}`,{method:'DELETE'})
+}
+
+export async function getEconomyAccounts(guildId:string):Promise<EconomyAccount[]>{
+  if(isDemoMode)return [{guild_id:guildId,user_id:'118742006320914432',balance:12500,lifetime_earned:18200,lifetime_spent:5700,updated_at:new Date().toISOString()},{guild_id:guildId,user_id:'312058643210567680',balance:8400,lifetime_earned:9100,lifetime_spent:700,updated_at:new Date(Date.now()-3600000).toISOString()}]
+  return request(`/v1/guilds/${guildId}/economy/accounts`)
+}
+export async function getEconomyTransactions(guildId:string):Promise<EconomyTransaction[]>{
+  if(isDemoMode)return [{id:1,guild_id:guildId,user_id:'118742006320914432',counterparty_id:null,amount:250,kind:'daily',reference:'daily:demo',metadata:{},created_at:new Date().toISOString()}]
+  return request(`/v1/guilds/${guildId}/economy/transactions`)
 }
 
 export async function saveGuildConfig(config: GuildConfig): Promise<GuildConfig> {

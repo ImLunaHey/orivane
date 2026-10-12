@@ -523,13 +523,39 @@ mod tests {
     #[tokio::test]
     async fn empty_channels_are_deleted_by_the_scheduled_worker() {
         let (context, discord, services) = context();
-        services.register_temporary_voice(10, 50, 40, "luna", 0).await.unwrap();
+        services
+            .register_temporary_voice(10, 50, 40, "luna", 0)
+            .await
+            .unwrap();
         services.temporary_voice_member_join(50, 40).await.unwrap();
-        let event = VoiceStateChange { guild_id:10,user_id:40,previous_channel_id:Some(50),channel_id:None,previous_session_seconds:60,previous_session_eligible:true,user_is_bot:false,username:"luna".into() };
-        TemporaryVoiceModule.on_voice_state_change(&context,&config(),&event).await.unwrap();
-        let outcomes=TemporaryVoiceModule.on_scheduled_tick(&context,&config(),&ScheduledTick{now_unix:100}).await.unwrap();
-        assert_eq!(outcomes[0].action,"temporary_voice.deleted");
-        assert!(discord.calls().iter().any(|call|matches!(call,DiscordCall::DeleteChannel{channel_id:50,..})));
-        assert!(services.calls().iter().any(|call|matches!(call,ServiceCall::UnregisterTemporaryVoice{channel_id:50,..})));
+        let event = VoiceStateChange {
+            guild_id: 10,
+            user_id: 40,
+            previous_channel_id: Some(50),
+            channel_id: None,
+            previous_session_seconds: 60,
+            previous_session_eligible: true,
+            user_is_bot: false,
+            username: "luna".into(),
+        };
+        TemporaryVoiceModule
+            .on_voice_state_change(&context, &config(), &event)
+            .await
+            .unwrap();
+        let outcomes = TemporaryVoiceModule
+            .on_scheduled_tick(&context, &config(), &ScheduledTick { now_unix: 100 })
+            .await
+            .unwrap();
+        assert_eq!(outcomes[0].action, "temporary_voice.deleted");
+        assert!(
+            discord
+                .calls()
+                .iter()
+                .any(|call| matches!(call, DiscordCall::DeleteChannel { channel_id: 50, .. }))
+        );
+        assert!(services.calls().iter().any(|call| matches!(
+            call,
+            ServiceCall::UnregisterTemporaryVoice { channel_id: 50, .. }
+        )));
     }
 }

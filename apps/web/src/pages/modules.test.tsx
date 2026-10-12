@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(21)
+    expect(screen.getAllByText('Live')).toHaveLength(22)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })

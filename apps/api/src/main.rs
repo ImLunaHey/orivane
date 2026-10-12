@@ -14,12 +14,13 @@ use axum::{
     routing::get,
 };
 use bot_core::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, EmbedDelivery, EmbedPayload, EmbedTemplate,
-    FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats,
-    GuildMemberSummary, Infrastructure, InfrastructureHealth, MessageDeletionJob, ModerationCase,
-    NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate, NewGiveaway, NewModerationCase,
-    NewTicketPanel, Reminder, Suggestion, TemporaryVoiceChannel, Ticket, TicketAnalytics,
-    TicketEvent, TicketNote, TicketPanel, UserGuildContext,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, EconomyAccount, EconomyTransaction,
+    EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry,
+    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
+    InfrastructureHealth, MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery,
+    NewEmbedTemplate, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion,
+    TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
+    UserGuildContext,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -205,6 +206,14 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/temporary-voice/{channel_id}",
             axum::routing::delete(delete_temporary_voice_channel),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/economy/accounts",
+            get(get_economy_accounts),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/economy/transactions",
+            get(get_economy_transactions),
         )
         .route(
             "/v1/guilds/{guild_id}/ticket-panels",
@@ -595,6 +604,7 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_auto_delete::COMMANDS,
         bot_module_managed_embeds::COMMANDS,
         bot_module_temporary_voice::COMMANDS,
+        bot_module_economy::COMMANDS,
     ];
     groups
         .iter()
@@ -734,6 +744,52 @@ async fn get_temporary_voice_channels(
     )
     .await;
     Ok(Json(channels))
+}
+
+async fn get_economy_accounts(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EconomyAccount>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let accounts = state
+        .infrastructure
+        .economy_accounts(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "economy.accounts.viewed",
+    )
+    .await;
+    Ok(Json(accounts))
+}
+
+async fn get_economy_transactions(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EconomyTransaction>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let transactions = state
+        .infrastructure
+        .economy_transactions(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "economy.transactions.viewed",
+    )
+    .await;
+    Ok(Json(transactions))
 }
 
 async fn delete_temporary_voice_channel(

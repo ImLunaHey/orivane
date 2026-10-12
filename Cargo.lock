@@ -802,6 +802,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-economy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-forms"
 version = "0.1.0"
 dependencies = [
@@ -1648,6 +1661,7 @@ dependencies = [
  "bot-module-auto-delete",
  "bot-module-autorole",
  "bot-module-custom-commands",
+ "bot-module-economy",
  "bot-module-forms",
  "bot-module-giveaways",
  "bot-module-leveling",
@@ -1687,6 +1701,7 @@ dependencies = [
  "bot-module-autoresponder",
  "bot-module-autorole",
  "bot-module-custom-commands",
+ "bot-module-economy",
  "bot-module-forms",
  "bot-module-giveaways",
  "bot-module-leveling",

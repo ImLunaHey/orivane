@@ -5,13 +5,14 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use thiserror::Error;
 
 use crate::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, EmbedDelivery,
-    EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig,
-    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile,
-    MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate,
-    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket,
-    NewTicketPanel, Reminder, Suggestion, TemporaryVoiceChannel, Ticket, TicketAnalytics,
-    TicketEvent, TicketNote, TicketPanel, UserGuildContext, config::ConfigValidationError,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, EconomyAccount,
+    EconomyTransaction, EmbedDelivery, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry,
+    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, InfrastructureHealth,
+    MemberXpAward, MemberXpProfile, MessageDeletionJob, ModerationCase, NewAuditEvent,
+    NewEmbedDelivery, NewEmbedTemplate, NewFormSubmission, NewGiveaway, NewModerationCase,
+    NewReminder, NewSuggestion, NewTicket, NewTicketPanel, Reminder, Suggestion,
+    TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
+    UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -39,9 +40,202 @@ pub enum StoreError {
     InvalidConfig(#[from] ConfigValidationError),
     #[error("stored configuration is malformed: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("insufficient economy balance")]
+    InsufficientFunds,
 }
 
 impl Infrastructure {
+    pub async fn economy_account(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<EconomyAccount, StoreError> {
+        let account =
+            sqlx::query_as("SELECT * FROM economy_accounts WHERE guild_id=$1 AND user_id=$2")
+                .bind(guild_id)
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(account.unwrap_or_else(|| EconomyAccount {
+            guild_id: guild_id.into(),
+            user_id: user_id.into(),
+            balance: 0,
+            lifetime_earned: 0,
+            lifetime_spent: 0,
+            updated_at: chrono::Utc::now(),
+        }))
+    }
+    pub async fn economy_accounts(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<EconomyAccount>, StoreError> {
+        sqlx::query_as("SELECT * FROM economy_accounts WHERE guild_id=$1 ORDER BY balance DESC,updated_at ASC LIMIT $2").bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+    pub async fn economy_transactions(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<EconomyTransaction>, StoreError> {
+        sqlx::query_as("SELECT * FROM economy_transactions WHERE guild_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2").bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+    pub async fn economy_change_balance(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        amount: i64,
+        kind: &str,
+        reference: &str,
+        counterparty_id: Option<&str>,
+        metadata: &serde_json::Value,
+    ) -> Result<EconomyAccount, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO economy_accounts(guild_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        let current: i64 = sqlx::query_scalar(
+            "SELECT balance FROM economy_accounts WHERE guild_id=$1 AND user_id=$2 FOR UPDATE",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if sqlx::query_scalar::<_, i64>("SELECT id FROM economy_transactions WHERE reference=$1")
+            .bind(reference)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_none()
+        {
+            let next = current
+                .checked_add(amount)
+                .ok_or(StoreError::InsufficientFunds)?;
+            if next < 0 {
+                return Err(StoreError::InsufficientFunds);
+            }
+            sqlx::query("UPDATE economy_accounts SET balance=$3,lifetime_earned=lifetime_earned+GREATEST($4,0),lifetime_spent=lifetime_spent+GREATEST(-$4,0),updated_at=now() WHERE guild_id=$1 AND user_id=$2").bind(guild_id).bind(user_id).bind(next).bind(amount).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO economy_transactions(guild_id,user_id,counterparty_id,amount,kind,reference,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(guild_id).bind(user_id).bind(counterparty_id).bind(amount).bind(kind).bind(reference).bind(metadata).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        self.economy_account(guild_id, user_id).await
+    }
+    pub async fn economy_claim(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        kind: &str,
+        amount: u64,
+        cooldown_seconds: u64,
+        reference: &str,
+    ) -> Result<(Option<EconomyAccount>, u64), StoreError> {
+        let amount = i64::try_from(amount).map_err(|_| StoreError::InsufficientFunds)?;
+        let mut tx = self.pool.begin().await?;
+        if sqlx::query_scalar::<_, i64>("SELECT id FROM economy_transactions WHERE reference=$1")
+            .bind(reference)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some()
+        {
+            let account =
+                sqlx::query_as("SELECT * FROM economy_accounts WHERE guild_id=$1 AND user_id=$2")
+                    .bind(guild_id)
+                    .bind(user_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            tx.commit().await?;
+            return Ok((Some(account), cooldown_seconds));
+        }
+        let now = chrono::Utc::now();
+        let next:Option<chrono::DateTime<chrono::Utc>>=sqlx::query_scalar("SELECT next_claim_at FROM economy_claims WHERE guild_id=$1 AND user_id=$2 AND kind=$3 FOR UPDATE").bind(guild_id).bind(user_id).bind(kind).fetch_optional(&mut *tx).await?;
+        if let Some(next) = next {
+            if next > now {
+                return Ok((
+                    None,
+                    u64::try_from((next - now).num_seconds()).unwrap_or_default(),
+                ));
+            }
+        }
+        let next =
+            now + chrono::Duration::seconds(i64::try_from(cooldown_seconds).unwrap_or(i64::MAX));
+        sqlx::query("INSERT INTO economy_claims(guild_id,user_id,kind,next_claim_at) VALUES($1,$2,$3,$4) ON CONFLICT(guild_id,user_id,kind) DO UPDATE SET next_claim_at=EXCLUDED.next_claim_at").bind(guild_id).bind(user_id).bind(kind).bind(next).execute(&mut *tx).await?;
+        sqlx::query(
+            "INSERT INTO economy_accounts(guild_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE economy_accounts SET balance=balance+$3,lifetime_earned=lifetime_earned+$3,updated_at=now() WHERE guild_id=$1 AND user_id=$2")
+            .bind(guild_id).bind(user_id).bind(amount).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO economy_transactions(guild_id,user_id,amount,kind,reference) VALUES($1,$2,$3,$4,$5)")
+            .bind(guild_id).bind(user_id).bind(amount).bind(kind).bind(reference).execute(&mut *tx).await?;
+        let account =
+            sqlx::query_as("SELECT * FROM economy_accounts WHERE guild_id=$1 AND user_id=$2")
+                .bind(guild_id)
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        tx.commit().await?;
+        Ok((Some(account), cooldown_seconds))
+    }
+    pub async fn economy_transfer(
+        &self,
+        guild_id: &str,
+        from: &str,
+        to: &str,
+        amount: u64,
+        tax_percent: u8,
+        reference: &str,
+    ) -> Result<(EconomyAccount, EconomyAccount, u64), StoreError> {
+        let amount = i64::try_from(amount).map_err(|_| StoreError::InsufficientFunds)?;
+        let tax = amount.saturating_mul(i64::from(tax_percent)) / 100;
+        let received = amount.saturating_sub(tax);
+        let mut tx = self.pool.begin().await?;
+        for user in [from, to] {
+            sqlx::query("INSERT INTO economy_accounts(guild_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING").bind(guild_id).bind(user).execute(&mut *tx).await?;
+        }
+        let mut users = vec![from, to];
+        users.sort_unstable();
+        for user in users {
+            let _: i64 = sqlx::query_scalar(
+                "SELECT balance FROM economy_accounts WHERE guild_id=$1 AND user_id=$2 FOR UPDATE",
+            )
+            .bind(guild_id)
+            .bind(user)
+            .fetch_one(&mut *tx)
+            .await?;
+        }
+        let debit_ref = format!("{reference}:debit");
+        if sqlx::query_scalar::<_, i64>("SELECT id FROM economy_transactions WHERE reference=$1")
+            .bind(&debit_ref)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_none()
+        {
+            let balance: i64 = sqlx::query_scalar(
+                "SELECT balance FROM economy_accounts WHERE guild_id=$1 AND user_id=$2",
+            )
+            .bind(guild_id)
+            .bind(from)
+            .fetch_one(&mut *tx)
+            .await?;
+            if balance < amount {
+                return Err(StoreError::InsufficientFunds);
+            }
+            sqlx::query("UPDATE economy_accounts SET balance=balance-$3,lifetime_spent=lifetime_spent+$3,updated_at=now() WHERE guild_id=$1 AND user_id=$2").bind(guild_id).bind(from).bind(amount).execute(&mut *tx).await?;
+            sqlx::query("UPDATE economy_accounts SET balance=balance+$3,lifetime_earned=lifetime_earned+$3,updated_at=now() WHERE guild_id=$1 AND user_id=$2").bind(guild_id).bind(to).bind(received).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO economy_transactions(guild_id,user_id,counterparty_id,amount,kind,reference,metadata) VALUES($1,$2,$3,$4,'transfer_sent',$5,$6),($1,$3,$2,$7,'transfer_received',$8,$6)").bind(guild_id).bind(from).bind(to).bind(-amount).bind(&debit_ref).bind(serde_json::json!({"tax":tax})).bind(received).bind(format!("{reference}:credit")).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok((
+            self.economy_account(guild_id, from).await?,
+            self.economy_account(guild_id, to).await?,
+            u64::try_from(tax).unwrap_or_default(),
+        ))
+    }
     pub async fn temporary_voice_channels(
         &self,
         guild_id: &str,

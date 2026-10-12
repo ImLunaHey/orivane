@@ -63,6 +63,18 @@ pub struct TemporaryVoiceResult {
     pub user_limit: u8,
     pub locked: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EconomyProfile {
+    pub user_id: u64,
+    pub balance: u64,
+    pub lifetime_earned: u64,
+    pub lifetime_spent: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EconomyClaimResult {
+    pub profile: Option<EconomyProfile>,
+    pub retry_after_seconds: u64,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketRecordInput {
@@ -284,6 +296,34 @@ pub trait ModuleServices: Send + Sync {
         guild_id: u64,
         now_unix: u64,
     ) -> Result<Vec<TemporaryVoiceResult>>;
+    async fn economy_profile(&self, guild_id: u64, user_id: u64) -> Result<EconomyProfile>;
+    async fn economy_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<EconomyProfile>>;
+    async fn economy_change_balance(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        amount: i64,
+        kind: &str,
+        reference: &str,
+    ) -> Result<EconomyProfile>;
+    async fn economy_claim(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        kind: &str,
+        amount: u64,
+        cooldown_seconds: u64,
+        reference: &str,
+    ) -> Result<EconomyClaimResult>;
+    async fn economy_transfer(
+        &self,
+        guild_id: u64,
+        from: u64,
+        to: u64,
+        amount: u64,
+        tax_percent: u8,
+        reference: &str,
+    ) -> Result<(EconomyProfile, EconomyProfile, u64)>;
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>>;
     async fn ticket_panel(
         &self,

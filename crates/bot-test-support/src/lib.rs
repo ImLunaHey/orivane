@@ -10,10 +10,11 @@ use bot_discord::{
     ModalSubmitInteraction, RichEmbed, RolePanelComponents,
 };
 use bot_module_api::{
-    FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedResult,
-    MessageDeletionJobResult, ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult,
-    SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput,
-    TicketResult, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
+    EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput, GiveawayResult,
+    ManagedEmbedResult, MessageDeletionJobResult, ModerationCaseInput, ModuleServices,
+    ReminderInput, ReminderResult, SuggestionInput, SuggestionResult, TemporaryVoiceResult,
+    TicketPanelResult, TicketRecordInput, TicketResult, XpAdjustmentInput, XpAwardInput,
+    XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,6 +227,19 @@ pub enum ServiceCall {
         guild_id: u64,
         channel_id: u64,
     },
+    EconomyChange {
+        guild_id: u64,
+        user_id: u64,
+        amount: i64,
+        kind: String,
+        reference: String,
+    },
+    EconomyTransfer {
+        guild_id: u64,
+        from: u64,
+        to: u64,
+        amount: u64,
+    },
     XpProfile {
         guild_id: u64,
         user_id: u64,
@@ -386,6 +400,8 @@ pub struct FakeModuleServices {
     temporary_voice: Arc<Mutex<HashMap<(u64, u64), TemporaryVoiceResult>>>,
     temporary_voice_members: Arc<Mutex<HashMap<u64, HashSet<u64>>>>,
     temporary_voice_due: Arc<Mutex<HashSet<(u64, u64)>>>,
+    economy_balances: Arc<Mutex<HashMap<(u64, u64), u64>>>,
+    economy_claims: Arc<Mutex<HashSet<(u64, u64, String)>>>,
 }
 
 impl FakeModuleServices {
@@ -1173,6 +1189,150 @@ impl ModuleServices for FakeModuleServices {
             .filter(|(stored, _)| *stored == guild_id)
             .filter_map(|key| channels.get(key).cloned())
             .collect())
+    }
+
+    async fn economy_profile(&self, guild_id: u64, user_id: u64) -> anyhow::Result<EconomyProfile> {
+        let balance = *self
+            .economy_balances
+            .lock()
+            .expect("fake lock poisoned")
+            .get(&(guild_id, user_id))
+            .unwrap_or(&0);
+        Ok(EconomyProfile {
+            user_id,
+            balance,
+            lifetime_earned: balance,
+            lifetime_spent: 0,
+        })
+    }
+    async fn economy_leaderboard(
+        &self,
+        guild_id: u64,
+        limit: u8,
+    ) -> anyhow::Result<Vec<EconomyProfile>> {
+        let mut values = self
+            .economy_balances
+            .lock()
+            .expect("fake lock poisoned")
+            .iter()
+            .filter(|((stored, _), _)| *stored == guild_id)
+            .map(|((_, user), balance)| EconomyProfile {
+                user_id: *user,
+                balance: *balance,
+                lifetime_earned: *balance,
+                lifetime_spent: 0,
+            })
+            .collect::<Vec<_>>();
+        values.sort_by_key(|profile| std::cmp::Reverse(profile.balance));
+        values.truncate(limit.into());
+        Ok(values)
+    }
+    async fn economy_change_balance(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        amount: i64,
+        kind: &str,
+        reference: &str,
+    ) -> anyhow::Result<EconomyProfile> {
+        let mut balances = self.economy_balances.lock().expect("fake lock poisoned");
+        let balance = balances.entry((guild_id, user_id)).or_default();
+        if amount < 0 && *balance < amount.unsigned_abs() {
+            anyhow::bail!("insufficient economy balance")
+        };
+        *balance = balance.saturating_add_signed(amount);
+        let result = EconomyProfile {
+            user_id,
+            balance: *balance,
+            lifetime_earned: *balance,
+            lifetime_spent: 0,
+        };
+        drop(balances);
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::EconomyChange {
+                guild_id,
+                user_id,
+                amount,
+                kind: kind.into(),
+                reference: reference.into(),
+            });
+        Ok(result)
+    }
+    async fn economy_claim(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        kind: &str,
+        amount: u64,
+        _: u64,
+        reference: &str,
+    ) -> anyhow::Result<EconomyClaimResult> {
+        let key = (guild_id, user_id, kind.to_owned());
+        if !self
+            .economy_claims
+            .lock()
+            .expect("fake lock poisoned")
+            .insert(key)
+        {
+            return Ok(EconomyClaimResult {
+                profile: None,
+                retry_after_seconds: 60,
+            });
+        }
+        let profile = self
+            .economy_change_balance(
+                guild_id,
+                user_id,
+                i64::try_from(amount).unwrap_or(i64::MAX),
+                kind,
+                reference,
+            )
+            .await?;
+        Ok(EconomyClaimResult {
+            profile: Some(profile),
+            retry_after_seconds: 0,
+        })
+    }
+    async fn economy_transfer(
+        &self,
+        guild_id: u64,
+        from: u64,
+        to: u64,
+        amount: u64,
+        tax_percent: u8,
+        _: &str,
+    ) -> anyhow::Result<(EconomyProfile, EconomyProfile, u64)> {
+        let tax = amount * u64::from(tax_percent) / 100;
+        let from_profile = self
+            .economy_change_balance(
+                guild_id,
+                from,
+                -i64::try_from(amount).unwrap_or(i64::MAX),
+                "transfer_sent",
+                "fake-transfer-debit",
+            )
+            .await?;
+        let to_profile = self
+            .economy_change_balance(
+                guild_id,
+                to,
+                i64::try_from(amount - tax).unwrap_or(i64::MAX),
+                "transfer_received",
+                "fake-transfer-credit",
+            )
+            .await?;
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::EconomyTransfer {
+                guild_id,
+                from,
+                to,
+                amount,
+            });
+        Ok((from_profile, to_profile, tax))
     }
 
     async fn open_ticket_channel(
