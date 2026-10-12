@@ -885,17 +885,18 @@ async fn get_guild_member(
         .infrastructure
         .guild_member(&guild_id, &member_id)
         .await
-        .map_err(internal_error)?
-        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "guild member not found".to_owned()))?;
+        .map_err(internal_error)?;
     let xp = state
         .infrastructure
         .member_xp_profile(&guild_id, &member_id)
         .await
         .map_err(internal_error)?;
 
-    let mut username = stored.username;
-    let mut display_name = stored.display_name;
-    let mut avatar_url = stored.avatar_url;
+    let mut username = stored.as_ref().and_then(|member| member.username.clone());
+    let mut display_name = stored
+        .as_ref()
+        .and_then(|member| member.display_name.clone());
+    let mut avatar_url = stored.as_ref().and_then(|member| member.avatar_url.clone());
     let mut bot = None;
     let mut joined_at = None;
     let mut role_ids = Vec::new();
@@ -944,6 +945,13 @@ async fn get_guild_member(
         }
     }
 
+    if stored.is_none() && discord_profile_status != "live" {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "guild member not found".to_owned(),
+        ));
+    }
+
     record_read(
         &state,
         Some(&guild_id),
@@ -953,7 +961,7 @@ async fn get_guild_member(
     )
     .await;
     Ok(Json(GuildMemberDetail {
-        id: stored.id,
+        id: member_id,
         username,
         display_name,
         avatar_url,
@@ -963,9 +971,9 @@ async fn get_guild_member(
         roles,
         pending,
         discord_profile_status,
-        commands_30d: stored.commands_30d,
-        cases: stored.cases,
-        last_seen: stored.last_seen,
+        commands_30d: stored.as_ref().map_or(0, |member| member.commands_30d),
+        cases: stored.as_ref().map_or(0, |member| member.cases),
+        last_seen: stored.and_then(|member| member.last_seen),
         tracked_messages: xp.message_count,
         total_xp: xp.total_xp,
         xp_rank: xp.rank,
