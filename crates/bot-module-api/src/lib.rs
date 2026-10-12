@@ -247,6 +247,7 @@ pub struct ManagedEmbedDeliveryInput {
     pub error: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn set_afk_status(
@@ -268,6 +269,8 @@ pub trait ModuleServices: Send + Sync {
     async fn create_poll(
         &self,
         _guild_id: u64,
+        _channel_id: u64,
+        _creator_id: u64,
         _question: &str,
         _options: &[String],
         _anonymous: bool,
@@ -290,9 +293,44 @@ pub trait ModuleServices: Send + Sync {
     async fn attribute_invite(
         &self,
         _guild_id: u64,
+        _joined_user_id: u64,
         _invites: &[InviteUsageInput],
     ) -> Result<Option<InviteAttributionResult>> {
         Ok(None)
+    }
+    async fn record_verification_attempt(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _outcome: &str,
+        _reason: Option<&str>,
+        _account_age_days: u64,
+        _has_avatar: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn record_counter_run(
+        &self,
+        _guild_id: u64,
+        _counter_id: &str,
+        _channel_id: u64,
+        _value: u64,
+        _rendered_name: &str,
+        _outcome: &str,
+        _error: Option<&str>,
+    ) -> Result<()> {
+        Ok(())
+    }
+    async fn record_voice_link_event(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _voice_channel_id: u64,
+        _text_channel_id: u64,
+        _action: &str,
+    ) -> Result<()> {
+        Ok(())
     }
     async fn claim_appeal_cooldown(
         &self,

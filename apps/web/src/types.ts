@@ -167,6 +167,15 @@ export type ResourceDiagnostics = {
   issues: ResourceIssue[]
 }
 
+export type PollRecord = { id:number; guild_id:string; channel_id:string; creator_id:string; creator_username:string|null; creator_display_name:string|null; question:string; options:string[]; counts:number[]; total_votes:number; anonymous:boolean; status:'active'|'closed'|'expired'; ends_at:string; closed_at:string|null; created_at:string }
+export type InviteAttributionRecord = { id:number; guild_id:string; joined_user_id:string; joined_username:string|null; joined_display_name:string|null; invite_code:string; inviter_id:string|null; inviter_username:string|null; inviter_display_name:string|null; attributed_at:string }
+export type InviteLeaderboardRecord = { inviter_id:string; username:string|null; display_name:string|null; attributed_joins:number; latest_attribution:string }
+export type AfkStatusRecord = { guild_id:string; user_id:string; username:string|null; display_name:string|null; reason:string; set_at:string; expires_at:string }
+export type VerificationAttemptRecord = { id:number; guild_id:string; user_id:string; username:string|null; display_name:string|null; outcome:'pending'|'verified'|'rejected'|'failed'; reason:string|null; account_age_days:number; has_avatar:boolean; occurred_at:string }
+export type CounterRunRecord = { id:number; guild_id:string; counter_id:string; channel_id:string; value:number; rendered_name:string; outcome:'success'|'failure'; error:string|null; occurred_at:string }
+export type VoiceLinkEventRecord = { id:number; guild_id:string; user_id:string; username:string|null; display_name:string|null; voice_channel_id:string; text_channel_id:string; action:'joined'|'left'; occurred_at:string }
+export type OperationalRecord = FormSubmission | PollRecord | InviteAttributionRecord | InviteLeaderboardRecord | AfkStatusRecord | VerificationAttemptRecord | CounterRunRecord | VoiceLinkEventRecord
+
 export type AnalyticsEvent = {
   id: string
   event: string

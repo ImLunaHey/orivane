@@ -176,6 +176,13 @@ nav { margin-top: 22px; }
 .resource-health-banner code { color: #fff0c8; overflow-wrap: anywhere; }
 .resource-health-banner button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 11px; border: 1px solid #765b25; background: #18140c; color: #ffe1a0; font: inherit; cursor: pointer; }
 .resource-health-banner button:disabled { opacity: .6; cursor: wait; }
+.operational-link-panel { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; }
+.operational-link-panel h3 { margin: 3px 0 0; font-size: 17px; }
+.operational-link-panel p:last-child { margin: 5px 0 0; color: #aaaab3; font-size: 14px; }
+.poll-results { display: grid; gap: 15px; }
+.poll-results article > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: 14px; }
+.poll-results article > div:last-child { height: 8px; background: #25252b; overflow: hidden; }
+.poll-results article > div:last-child span { display: block; height: 100%; background: #8c6dff; }
 .success-banner { padding: 12px 14px; border: 1px solid #245c46; border-radius: 2px; color: #8ce4bd; background: #143326; font-size: 14px; }
 .module-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .module-card { min-height: 191px; padding: 17px; display: flex; flex-direction: column; transition: .15s ease; }

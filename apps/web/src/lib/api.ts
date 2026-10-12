@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, ResourceDiagnostics, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
+import type { AfkStatusRecord, AuditEvent, CounterRunRecord, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, InviteAttributionRecord, InviteLeaderboardRecord, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, OperationalRecord, PollRecord, Reminder, ResourceDiagnostics, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel, VerificationAttemptRecord, VoiceLinkEventRecord } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -73,6 +73,48 @@ export async function getResourceDiagnostics(guildId: string): Promise<ResourceD
   if (isDemoMode) return { status: 'healthy', channels_available: true, roles_available: true, issues: [] }
   return request<ResourceDiagnostics>(`/v1/guilds/${guildId}/resources/diagnostics`)
 }
+
+export type OperationalModule = 'moderation_appeals'|'polls'|'invite_tracking'|'verification'|'counters'|'afk'|'voice_text_linking'
+const demoOperationalNow = '2026-10-12T17:45:00Z'
+let demoPolls: PollRecord[] = [{ id: 7, guild_id: demoGuildId, channel_id: '100000000000000005', creator_id: demoActorId, creator_username: 'imlunahey', creator_display_name: 'luna', question: 'Which event should we run next?', options: ['Game night', 'Project showcase'], counts: [18, 12], total_votes: 30, anonymous: false, status: 'active', ends_at: '2026-10-13T17:45:00Z', closed_at: null, created_at: demoOperationalNow }]
+let demoAfkStatuses: AfkStatusRecord[] = [{ guild_id: demoGuildId, user_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', reason: 'Away for dinner', set_at: demoOperationalNow, expires_at: '2026-10-12T20:45:00Z' }]
+
+function demoOperationalRecords(guildId: string, module: OperationalModule): OperationalRecord[] {
+  switch (module) {
+    case 'moderation_appeals': return demoSubmissions.filter((item) => item.form_id === 'moderation-appeals').map((item) => ({ ...item, guild_id: guildId }))
+    case 'polls': return demoPolls.map((item) => ({ ...item, guild_id: guildId }))
+    case 'invite_tracking': return [{ id: 3, guild_id: guildId, joined_user_id: '227843117431025543', joined_username: 'northstar', joined_display_name: 'Northstar', invite_code: 'orivane', inviter_id: '118742006320914432', inviter_username: 'silver.arc', inviter_display_name: 'Silver', attributed_at: demoOperationalNow }]
+    case 'verification': return [{ id: 4, guild_id: guildId, user_id: '227843117431025543', username: 'northstar', display_name: 'Northstar', outcome: 'verified', reason: null, account_age_days: 820, has_avatar: true, occurred_at: demoOperationalNow }]
+    case 'counters': return [{ id: 5, guild_id: guildId, counter_id: 'members', channel_id: '100000000000000006', value: 1284, rendered_name: 'Members: 1,284', outcome: 'success', error: null, occurred_at: demoOperationalNow }]
+    case 'afk': return demoAfkStatuses.map((item) => ({ ...item, guild_id: guildId }))
+    case 'voice_text_linking': return [{ id: 6, guild_id: guildId, user_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', voice_channel_id: '100000000000000006', text_channel_id: '100000000000000005', action: 'joined', occurred_at: demoOperationalNow }]
+  }
+}
+
+export async function getOperationalRecords(guildId:string,module:OperationalModule):Promise<OperationalRecord[]>{
+  if(isDemoMode)return demoOperationalRecords(guildId,module)
+  switch(module){
+    case 'moderation_appeals': return request<FormSubmission[]>(`/v1/guilds/${guildId}/appeals`)
+    case 'polls': return request<PollRecord[]>(`/v1/guilds/${guildId}/polls`)
+    case 'invite_tracking': return request<InviteAttributionRecord[]>(`/v1/guilds/${guildId}/invites/attributions`)
+    case 'verification': return request<VerificationAttemptRecord[]>(`/v1/guilds/${guildId}/verification/attempts`)
+    case 'counters': return request<CounterRunRecord[]>(`/v1/guilds/${guildId}/counters/runs`)
+    case 'afk': return request<AfkStatusRecord[]>(`/v1/guilds/${guildId}/afk`)
+    case 'voice_text_linking': return request<VoiceLinkEventRecord[]>(`/v1/guilds/${guildId}/voice-links/events`)
+  }
+}
+export async function getInviteLeaderboard(guildId:string):Promise<InviteLeaderboardRecord[]>{if(isDemoMode)return [{ inviter_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', attributed_joins: 14, latest_attribution: demoOperationalNow }];return request(`/v1/guilds/${guildId}/invites/leaderboard`)}
+export async function getAppeal(guildId:string,id:string):Promise<FormSubmission>{
+  if(isDemoMode){const item=demoSubmissions.find((submission)=>String(submission.id)===id&&submission.form_id==='moderation-appeals');if(!item)throw new Error('Appeal not found');return {...item,guild_id:guildId}}
+  return request(`/v1/guilds/${guildId}/appeals/${id}`)
+}
+export async function reviewAppeal(guildId:string,id:string,status:Exclude<FormSubmission['status'],'submitted'>,note:string):Promise<FormSubmission>{
+  if(isDemoMode){const current=await getAppeal(guildId,id);const updated={...current,status,reviewer_id:demoActorId,review_note:note||null,reviewed_at:new Date().toISOString()};demoSubmissions=demoSubmissions.map((item)=>item.id===updated.id&&item.form_id==='moderation-appeals'?updated:item);return updated}
+  return request(`/v1/guilds/${guildId}/appeals/${id}`,{method:'PATCH',body:JSON.stringify({status,note:note||null})})
+}
+export async function getPoll(guildId:string,id:string):Promise<PollRecord>{if(isDemoMode){const item=demoPolls.find((poll)=>String(poll.id)===id);if(!item)throw new Error('Poll not found');return {...item,guild_id:guildId}}return request(`/v1/guilds/${guildId}/polls/${id}`)}
+export async function closePoll(guildId:string,id:string):Promise<void>{if(isDemoMode){demoPolls=demoPolls.map((poll)=>String(poll.id)===id?{...poll,status:'closed',closed_at:new Date().toISOString()}:poll);return}return request(`/v1/guilds/${guildId}/polls/${id}/close`,{method:'POST'})}
+export async function clearAfkStatus(guildId:string,userId:string):Promise<void>{if(isDemoMode){demoAfkStatuses=demoAfkStatuses.filter((item)=>item.user_id!==userId);return}return request(`/v1/guilds/${guildId}/afk/${userId}`,{method:'DELETE'})}
 
 const temporaryVoiceKey=(guildId:string)=>`orivane:temporary-voice:${guildId}`
 export async function getTemporaryVoiceChannels(guildId:string):Promise<TemporaryVoiceChannel[]>{

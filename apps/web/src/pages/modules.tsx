@@ -101,6 +101,7 @@ export function ModuleDetailPage() {
   return <div className="page-stack">
     <Link className="back-link" to="/servers/$serverId/modules" params={{ serverId }}><ArrowLeft size={16} />All modules</Link>
     <section className="page-intro module-detail-intro"><div><p className="eyebrow">{meta.runtime} module</p><h2><span className={`module-icon ${meta.tone}`}><Icon size={21} /></span>{meta.title}</h2><p>{meta.description}</p></div><Badge tone={module.enabled ? 'green' : 'neutral'}>{module.enabled ? 'Module active' : 'Module disabled'}</Badge></section>
+    {isOperationalModule(moduleKey) && <Panel className="operational-link-panel"><div><p className="eyebrow">Operations</p><h3>Activity and management</h3><p>Inspect durable records, outcomes, and administrative actions for this module.</p></div><Link className="button primary-action" to="/servers/$serverId/modules/$moduleId/operations" params={{serverId,moduleId:moduleKey}}>Open operations →</Link></Panel>}
     {mutation.isError && <div className="error-banner" role="alert">{mutation.error.message}</div>}
     <Panel className="settings-panel">
       <div className="panel-heading"><div><p className="eyebrow">Configuration</p><h3>{meta.title} settings</h3></div><Badge tone={module.enabled ? 'green' : 'neutral'}>{module.enabled ? 'Active' : 'Disabled'}</Badge></div>
@@ -114,6 +115,8 @@ export function ModuleDetailPage() {
     <div className="bottom-save-bar"><div className="module-save-toggle"><Toggle label={`Enable ${meta.title}`} checked={module.enabled} onChange={(enabled) => updateModule(moduleKey, { ...module, enabled } as GuildConfig['modules'][typeof moduleKey])} /><span><strong>{meta.title} module</strong><small>{module.enabled ? 'Discord behavior is enabled for this server.' : 'Discord behavior is disabled for this server.'}</small></span></div><div className="save-row">{mutation.isSuccess && !hasChanges && <span className="saved-label"><Check size={15} />Saved</span>}<Button disabled={!hasChanges || mutation.isPending} onClick={() => mutation.mutate(draft)}>{mutation.isPending && <LoaderCircle className="spin" size={16} />}Save changes</Button></div></div>
   </div>
 }
+
+function isOperationalModule(key:ModuleKey){return ['moderation_appeals','polls','invite_tracking','verification','counters','afk','voice_text_linking'].includes(key)}
 
 function ModuleSettings({ moduleKey, config, update, channels, channelsPending, channelsError, roles, rolesPending, rolesError, serverName }: { moduleKey: ModuleKey; config: GuildConfig; update: <K extends ModuleKey>(key: K, value: GuildConfig['modules'][K]) => void; channels: GuildChannel[]; channelsPending: boolean; channelsError: boolean; roles: GuildRole[]; rolesPending: boolean; rolesError: boolean; serverName: string }) {
   const modules = config.modules

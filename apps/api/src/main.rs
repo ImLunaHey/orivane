@@ -22,13 +22,14 @@ use axum::{
     routing::get,
 };
 use bot_core::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, EconomyAccount, EconomyTransaction,
-    EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry,
-    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
-    InfrastructureHealth, MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery,
-    NewEmbedTemplate, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion,
+    AfkStatus, AuditEvent, CommandVolumeBucket, ConnectedGuild, CounterRun, EconomyAccount,
+    EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway,
+    GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
+    Infrastructure, InfrastructureHealth, InviteAttribution, InviteLeaderboardEntry,
+    MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate,
+    NewGiveaway, NewModerationCase, NewTicketPanel, Poll, Reminder, Suggestion,
     TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
-    UserGuildContext,
+    UserGuildContext, VerificationAttempt, VoiceLinkEvent,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -257,6 +258,39 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/resources/diagnostics",
             get(get_resource_diagnostics),
+        )
+        .route("/v1/guilds/{guild_id}/appeals", get(get_appeals))
+        .route(
+            "/v1/guilds/{guild_id}/appeals/{appeal_id}",
+            get(get_appeal).patch(review_appeal),
+        )
+        .route("/v1/guilds/{guild_id}/polls", get(get_polls))
+        .route("/v1/guilds/{guild_id}/polls/{poll_id}", get(get_poll))
+        .route(
+            "/v1/guilds/{guild_id}/polls/{poll_id}/close",
+            axum::routing::post(close_poll_dashboard),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/invites/attributions",
+            get(get_invite_attributions),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/invites/leaderboard",
+            get(get_invite_leaderboard),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/verification/attempts",
+            get(get_verification_attempts),
+        )
+        .route("/v1/guilds/{guild_id}/afk", get(get_afk_statuses))
+        .route(
+            "/v1/guilds/{guild_id}/afk/{user_id}",
+            axum::routing::delete(clear_afk_status_dashboard),
+        )
+        .route("/v1/guilds/{guild_id}/counters/runs", get(get_counter_runs))
+        .route(
+            "/v1/guilds/{guild_id}/voice-links/events",
+            get(get_voice_link_events),
         )
         .route(
             "/v1/guilds/{guild_id}/temporary-voice",
@@ -1153,6 +1187,356 @@ fn discord_resource_message(resource: &str, error: &str) -> String {
     } else {
         format!("Discord's {resource} service could not be reached. Retry shortly.")
     }
+}
+
+async fn get_appeals(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<FormSubmission>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .form_submissions(&guild_id, "moderation-appeals", params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "moderation_appeals.list.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+
+async fn get_appeal(
+    State(state): State<AppState>,
+    Path((guild_id, appeal_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<FormSubmission>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .form_submission(&guild_id, "moderation-appeals", appeal_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "moderation_appeal.viewed",
+    )
+    .await;
+    Ok(Json(item))
+}
+
+async fn review_appeal(
+    State(state): State<AppState>,
+    Path((guild_id, appeal_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<ReviewFormSubmission>,
+) -> Result<Json<FormSubmission>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    if appeal_id <= 0
+        || !matches!(input.status.as_str(), "approved" | "rejected" | "closed")
+        || input
+            .note
+            .as_ref()
+            .is_some_and(|note| note.chars().count() > 1000)
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid appeal decision".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .form_submission(&guild_id, "moderation-appeals", appeal_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    let mut event = NewAuditEvent::guild(
+        &guild_id,
+        &actor.discord_user_id,
+        "moderation_appeal.reviewed",
+    );
+    event.source = "dashboard_api".into();
+    event.target_type = "moderation_appeal".into();
+    event.target_id = Some(appeal_id.to_string());
+    event.before_state = Some(serde_json::json!({"status":before.status}));
+    event.after_state = Some(serde_json::json!({"status":input.status,"note":input.note}));
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    let item = state
+        .infrastructure
+        .review_form_submission_audited(
+            &guild_id,
+            "moderation-appeals",
+            appeal_id,
+            &input.status,
+            &actor.discord_user_id,
+            input.note.as_deref(),
+            &event,
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    Ok(Json(item))
+}
+
+async fn get_polls(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<Poll>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .polls(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "polls.list.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_poll(
+    State(state): State<AppState>,
+    Path((guild_id, poll_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Poll>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .poll(&guild_id, poll_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "poll not found".into()))?;
+    record_read(&state, Some(&guild_id), &actor, &headers, "poll.viewed").await;
+    Ok(Json(item))
+}
+async fn close_poll_dashboard(
+    State(state): State<AppState>,
+    Path((guild_id, poll_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .poll(&guild_id, poll_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "poll not found".into()))?;
+    if !state
+        .infrastructure
+        .close_poll(&guild_id, poll_id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "poll is already closed".into(),
+        ));
+    }
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "poll.closed");
+    event.source = "dashboard_api".into();
+    event.target_type = "poll".into();
+    event.target_id = Some(poll_id.to_string());
+    event.before_state = serde_json::to_value(before).ok();
+    event.after_state = Some(serde_json::json!({"status":"closed"}));
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_invite_attributions(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<InviteAttribution>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .invite_attributions(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "invites.attributions.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_invite_leaderboard(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<InviteLeaderboardEntry>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .invite_leaderboard(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "invites.leaderboard.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_verification_attempts(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<VerificationAttempt>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .verification_attempts(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "verification.attempts.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_afk_statuses(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<AfkStatus>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .afk_statuses(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "afk.statuses.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn clear_afk_status_dashboard(
+    State(state): State<AppState>,
+    Path((guild_id, user_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_snowflake(&user_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if !state
+        .infrastructure
+        .clear_afk_status(&guild_id, &user_id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "AFK status not found".into(),
+        ));
+    }
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "afk.status.cleared");
+    event.source = "dashboard_api".into();
+    event.target_type = "member".into();
+    event.target_id = Some(user_id);
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn get_counter_runs(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<CounterRun>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .counter_runs(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "counters.runs.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_voice_link_events(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<VoiceLinkEvent>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .voice_link_events(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "voice_links.events.viewed",
+    )
+    .await;
+    Ok(Json(items))
 }
 
 async fn get_temporary_voice_channels(

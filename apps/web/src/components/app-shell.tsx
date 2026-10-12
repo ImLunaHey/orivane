@@ -179,6 +179,8 @@ function pageTitle(pathname: string) {
   if (pathname.endsWith('/modules/auto_delete')) return 'Auto-delete'
   if (/\/modules\/managed_embeds\/[^/]+$/.test(pathname)) return 'Embed editor'
   if (pathname.endsWith('/modules/managed_embeds')) return 'Managed embeds'
+  if (/\/modules\/[^/]+\/operations\/[^/]+$/.test(pathname)) return 'Operation details'
+  if (/\/modules\/[^/]+\/operations$/.test(pathname)) return 'Module operations'
   if (/\/moderation\/[^/]+$/.test(pathname)) return 'Moderation case details'
   if (pathname.includes('/members/')) return 'Member details'
   if (pathname.includes('/analytics/')) return 'Analytics report'

@@ -1,6 +1,7 @@
 mod audit;
 mod auto_delete;
 mod cases;
+mod community;
 mod config;
 mod economy;
 mod fleet;
@@ -16,6 +17,10 @@ mod tickets;
 pub use audit::{AuditEvent, NewAuditEvent};
 pub use auto_delete::MessageDeletionJob;
 pub use cases::{ModerationCase, NewModerationCase};
+pub use community::{
+    AfkStatus, CounterRun, InviteAttribution, InviteLeaderboardEntry, Poll, VerificationAttempt,
+    VoiceLinkEvent,
+};
 pub use config::{
     AntiRaidConfig, AutoDeleteConfig, AutoDeleteRule, AutomodConfig, AutomodRuleConfig,
     AutoresponderConfig, AutoresponseConfig, AutoroleConfig, CustomCommandConfig,

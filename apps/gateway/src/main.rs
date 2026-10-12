@@ -77,6 +77,7 @@ struct GatewayModuleServices {
     infrastructure: Infrastructure,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
     async fn set_afk_status(&self, g: u64, u: u64, r: &str, n: u64, t: u64) -> Result<()> {
@@ -105,6 +106,8 @@ impl ModuleServices for GatewayModuleServices {
     async fn create_poll(
         &self,
         g: u64,
+        c: u64,
+        creator: u64,
         q: &str,
         o: &[String],
         a: bool,
@@ -112,7 +115,15 @@ impl ModuleServices for GatewayModuleServices {
     ) -> Result<bot_module_api::PollResult> {
         let id = self
             .infrastructure
-            .create_poll(&g.to_string(), q, o, a, t)
+            .create_poll(
+                &g.to_string(),
+                &c.to_string(),
+                &creator.to_string(),
+                q,
+                o,
+                a,
+                t,
+            )
             .await?;
         Ok(bot_module_api::PollResult {
             id,
@@ -152,6 +163,7 @@ impl ModuleServices for GatewayModuleServices {
     async fn attribute_invite(
         &self,
         g: u64,
+        joined: u64,
         i: &[bot_module_api::InviteUsageInput],
     ) -> Result<Option<bot_module_api::InviteAttributionResult>> {
         let values = i
@@ -160,7 +172,7 @@ impl ModuleServices for GatewayModuleServices {
             .collect::<Vec<_>>();
         Ok(self
             .infrastructure
-            .attribute_invite(&g.to_string(), &values)
+            .attribute_invite(&g.to_string(), &joined.to_string(), &values)
             .await?
             .map(
                 |(code, inviter_id, inviter_total)| bot_module_api::InviteAttributionResult {
@@ -169,6 +181,69 @@ impl ModuleServices for GatewayModuleServices {
                     inviter_total,
                 },
             ))
+    }
+    async fn record_verification_attempt(
+        &self,
+        g: u64,
+        u: u64,
+        outcome: &str,
+        reason: Option<&str>,
+        age: u64,
+        avatar: bool,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .record_verification_attempt(
+                &g.to_string(),
+                &u.to_string(),
+                outcome,
+                reason,
+                age,
+                avatar,
+            )
+            .await?)
+    }
+    async fn record_counter_run(
+        &self,
+        g: u64,
+        id: &str,
+        c: u64,
+        value: u64,
+        name: &str,
+        outcome: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .record_counter_run(
+                &g.to_string(),
+                id,
+                &c.to_string(),
+                value,
+                name,
+                outcome,
+                error,
+            )
+            .await?)
+    }
+    async fn record_voice_link_event(
+        &self,
+        g: u64,
+        u: u64,
+        voice: u64,
+        text: u64,
+        action: &str,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .record_voice_link_event(
+                &g.to_string(),
+                &u.to_string(),
+                &voice.to_string(),
+                &text.to_string(),
+                action,
+            )
+            .await?)
     }
     async fn claim_appeal_cooldown(&self, g: u64, u: u64, s: u64) -> Result<bool> {
         Ok(self

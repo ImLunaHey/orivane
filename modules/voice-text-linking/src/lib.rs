@@ -42,6 +42,10 @@ impl BotModule for VoiceTextLinkingModule {
                     &format!("<@{}> joined <#{}>.", event.user_id, joined),
                 )
                 .await?;
+            context
+                .services
+                .record_voice_link_event(event.guild_id, event.user_id, joined, channel, "joined")
+                .await?;
         }
         if let Some(left) = event.previous_channel_id
             && let Some(link) = settings
@@ -53,6 +57,10 @@ impl BotModule for VoiceTextLinkingModule {
             context
                 .discord
                 .send_message(channel, &format!("<@{}> left <#{}>.", event.user_id, left))
+                .await?;
+            context
+                .services
+                .record_voice_link_event(event.guild_id, event.user_id, left, channel, "left")
                 .await?;
         }
         Ok(Some(ModuleEventOutcome {

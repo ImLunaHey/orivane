@@ -1,18 +1,19 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use redis::{AsyncCommands as _, aio::ConnectionManager};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
 use thiserror::Error;
 
 use crate::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, EconomyAccount,
-    EconomyTransaction, EmbedDelivery, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry,
-    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, InfrastructureHealth,
-    MemberXpAward, MemberXpProfile, MessageDeletionJob, ModerationCase, NewAuditEvent,
-    NewEmbedDelivery, NewEmbedTemplate, NewFormSubmission, NewGiveaway, NewModerationCase,
-    NewReminder, NewSuggestion, NewTicket, NewTicketPanel, Reminder, RuntimeMetrics, Suggestion,
+    AfkStatus, AuditEvent, CommandVolumeBucket, ConnectedGuild, CounterRun, DependencyHealth,
+    EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedTemplate, FormSubmission, Giveaway,
+    GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
+    InfrastructureHealth, InviteAttribution, InviteLeaderboardEntry, MemberXpAward,
+    MemberXpProfile, MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery,
+    NewEmbedTemplate, NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder,
+    NewSuggestion, NewTicket, NewTicketPanel, Poll, Reminder, RuntimeMetrics, Suggestion,
     TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
-    UserGuildContext, config::ConfigValidationError,
+    UserGuildContext, VerificationAttempt, VoiceLinkEvent, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -21,6 +22,7 @@ const GIVEAWAY_SELECT_ONE: &str = "SELECT g.id, g.guild_id, g.channel_id, g.mess
 const TICKET_SELECT_LIST: &str = "SELECT t.id,t.guild_id,t.panel_id,t.opener_id,d.username AS opener_username,d.display_name AS opener_display_name,t.channel_id,t.subject,t.opening_note,t.status,t.claimed_by,t.assigned_to,t.closed_by,t.closed_reason,t.transcript,t.priority,t.tags,t.first_response_at,t.last_activity_at,t.opened_at,t.closed_at,t.reopened_at,t.updated_at FROM tickets t LEFT JOIN discord_identities d ON d.user_id=t.opener_id WHERE t.guild_id=$1 ORDER BY t.updated_at DESC,t.id DESC LIMIT $2";
 const TICKET_SELECT_ONE: &str = "SELECT t.id,t.guild_id,t.panel_id,t.opener_id,d.username AS opener_username,d.display_name AS opener_display_name,t.channel_id,t.subject,t.opening_note,t.status,t.claimed_by,t.assigned_to,t.closed_by,t.closed_reason,t.transcript,t.priority,t.tags,t.first_response_at,t.last_activity_at,t.opened_at,t.closed_at,t.reopened_at,t.updated_at FROM tickets t LEFT JOIN discord_identities d ON d.user_id=t.opener_id WHERE t.guild_id=$1 AND t.id=$2";
 const TICKET_SELECT_CHANNEL: &str = "SELECT t.id,t.guild_id,t.panel_id,t.opener_id,d.username AS opener_username,d.display_name AS opener_display_name,t.channel_id,t.subject,t.opening_note,t.status,t.claimed_by,t.assigned_to,t.closed_by,t.closed_reason,t.transcript,t.priority,t.tags,t.first_response_at,t.last_activity_at,t.opened_at,t.closed_at,t.reopened_at,t.updated_at FROM tickets t LEFT JOIN discord_identities d ON d.user_id=t.opener_id WHERE t.guild_id=$1 AND t.channel_id=$2 ORDER BY t.id DESC LIMIT 1";
+const POLL_SELECT: &str = "SELECT p.id,p.guild_id,p.channel_id,p.creator_id,d.username AS creator_username,d.display_name AS creator_display_name,p.question,p.options,(SELECT COALESCE(jsonb_agg(COALESCE(v.votes,0) ORDER BY series.option_index),'[]'::jsonb) FROM generate_series(0,jsonb_array_length(p.options)-1) AS series(option_index) LEFT JOIN (SELECT option_index,count(*)::bigint AS votes FROM poll_votes WHERE poll_id=p.id GROUP BY option_index) v ON v.option_index=series.option_index) AS counts,(SELECT count(*) FROM poll_votes WHERE poll_id=p.id)::bigint AS total_votes,p.anonymous,p.status,p.ends_at,p.closed_at,p.created_at FROM polls p LEFT JOIN discord_identities d ON d.user_id=p.creator_id";
 
 #[derive(Clone)]
 pub struct Infrastructure {
@@ -53,15 +55,13 @@ impl Infrastructure {
         set_at_unix: u64,
         ttl_seconds: u64,
     ) -> Result<(), StoreError> {
-        let mut cache = self.redis.clone();
-        let value = serde_json::json!({"reason":reason,"set_at_unix":set_at_unix}).to_string();
-        redis::cmd("SET")
-            .arg(format!("afk:{guild_id}:{user_id}"))
-            .arg(value)
-            .arg("EX")
-            .arg(ttl_seconds.max(1))
-            .query_async::<()>(&mut cache)
-            .await?;
+        let set_at =
+            chrono::DateTime::from_timestamp(i64::try_from(set_at_unix).unwrap_or(i64::MAX), 0)
+                .unwrap_or_else(chrono::Utc::now);
+        let expires_at = set_at
+            + chrono::Duration::seconds(i64::try_from(ttl_seconds.max(1)).unwrap_or(i64::MAX));
+        sqlx::query("INSERT INTO afk_statuses(guild_id,user_id,reason,set_at,expires_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(guild_id,user_id) DO UPDATE SET reason=EXCLUDED.reason,set_at=EXCLUDED.set_at,expires_at=EXCLUDED.expires_at")
+            .bind(guild_id).bind(user_id).bind(reason).bind(set_at).bind(expires_at).execute(&self.pool).await?;
         Ok(())
     }
     pub async fn afk_status(
@@ -69,61 +69,54 @@ impl Infrastructure {
         guild_id: &str,
         user_id: &str,
     ) -> Result<Option<(String, u64)>, StoreError> {
-        let mut cache = self.redis.clone();
-        let value: Option<String> = redis::cmd("GET")
-            .arg(format!("afk:{guild_id}:{user_id}"))
-            .query_async(&mut cache)
-            .await?;
-        Ok(value
-            .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
-            .map(|value| {
-                (
-                    value["reason"].as_str().unwrap_or("Away").to_owned(),
-                    value["set_at_unix"].as_u64().unwrap_or_default(),
-                )
-            }))
+        sqlx::query(
+            "DELETE FROM afk_statuses WHERE guild_id=$1 AND user_id=$2 AND expires_at <= now()",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        let value: Option<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+            "SELECT reason,set_at FROM afk_statuses WHERE guild_id=$1 AND user_id=$2 AND expires_at > now()",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(value.map(|(reason, set_at)| {
+            (
+                reason,
+                u64::try_from(set_at.timestamp()).unwrap_or_default(),
+            )
+        }))
     }
     pub async fn clear_afk_status(
         &self,
         guild_id: &str,
         user_id: &str,
     ) -> Result<bool, StoreError> {
-        let mut cache = self.redis.clone();
-        let removed: u64 = redis::cmd("DEL")
-            .arg(format!("afk:{guild_id}:{user_id}"))
-            .query_async(&mut cache)
+        let result = sqlx::query("DELETE FROM afk_statuses WHERE guild_id=$1 AND user_id=$2")
+            .bind(guild_id)
+            .bind(user_id)
+            .execute(&self.pool)
             .await?;
-        Ok(removed > 0)
+        Ok(result.rows_affected() > 0)
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_poll(
         &self,
         guild_id: &str,
+        channel_id: &str,
+        creator_id: &str,
         question: &str,
         options: &[String],
         anonymous: bool,
         ttl_seconds: u64,
     ) -> Result<i64, StoreError> {
-        let mut cache = self.redis.clone();
-        let id: i64 = redis::cmd("INCR")
-            .arg(format!("poll-sequence:{guild_id}"))
-            .query_async(&mut cache)
-            .await?;
-        let key = format!("poll:{guild_id}:{id}");
-        redis::cmd("HSET")
-            .arg(&key)
-            .arg("question")
-            .arg(question)
-            .arg("options")
-            .arg(serde_json::to_string(options)?)
-            .arg("anonymous")
-            .arg(if anonymous { "1" } else { "0" })
-            .query_async::<()>(&mut cache)
-            .await?;
-        redis::cmd("EXPIRE")
-            .arg(&key)
-            .arg(ttl_seconds.max(60))
-            .query_async::<()>(&mut cache)
-            .await?;
+        let ends_at = chrono::Utc::now()
+            + chrono::Duration::seconds(i64::try_from(ttl_seconds.max(60)).unwrap_or(i64::MAX));
+        let id: i64 = sqlx::query_scalar("INSERT INTO polls(guild_id,channel_id,creator_id,question,options,anonymous,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id")
+            .bind(guild_id).bind(channel_id).bind(creator_id).bind(question).bind(serde_json::to_value(options)?).bind(anonymous).bind(ends_at).fetch_one(&self.pool).await?;
         Ok(id)
     }
     pub async fn vote_poll(
@@ -133,69 +126,48 @@ impl Infrastructure {
         user_id: &str,
         option: usize,
     ) -> Result<Option<(String, Vec<String>, Vec<u64>, bool)>, StoreError> {
-        let mut cache = self.redis.clone();
-        let key = format!("poll:{guild_id}:{poll_id}");
-        let values: Vec<Option<String>> = redis::cmd("HMGET")
-            .arg(&key)
-            .arg("question")
-            .arg("options")
-            .arg("anonymous")
-            .query_async(&mut cache)
-            .await?;
-        let Some(question) = values.first().and_then(Clone::clone) else {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE polls SET status='expired',closed_at=COALESCE(closed_at,now()) WHERE guild_id=$1 AND id=$2 AND status='active' AND ends_at <= now()")
+            .bind(guild_id).bind(poll_id).execute(&mut *tx).await?;
+        let value: Option<(String, serde_json::Value, bool)> = sqlx::query_as(
+            "SELECT question,options,anonymous FROM polls WHERE guild_id=$1 AND id=$2 AND status='active' AND ends_at > now() FOR UPDATE",
+        ).bind(guild_id).bind(poll_id).fetch_optional(&mut *tx).await?;
+        let Some((question, options_value, anonymous)) = value else {
+            tx.commit().await?;
             return Ok(None);
         };
-        let options: Vec<String> =
-            serde_json::from_str(values.get(1).and_then(|v| v.as_deref()).unwrap_or("[]"))?;
+        let options: Vec<String> = serde_json::from_value(options_value)?;
         if option >= options.len() {
+            tx.rollback().await?;
             return Ok(None);
         }
-        let votes_key = format!("{key}:votes");
-        redis::cmd("HSET")
-            .arg(&votes_key)
-            .arg(user_id)
-            .arg(option)
-            .query_async::<()>(&mut cache)
-            .await?;
-        let ttl: i64 = redis::cmd("TTL").arg(&key).query_async(&mut cache).await?;
-        if ttl > 0 {
-            redis::cmd("EXPIRE")
-                .arg(&votes_key)
-                .arg(ttl)
-                .query_async::<()>(&mut cache)
+        sqlx::query("INSERT INTO poll_votes(poll_id,user_id,option_index) VALUES($1,$2,$3) ON CONFLICT(poll_id,user_id) DO UPDATE SET option_index=EXCLUDED.option_index,updated_at=now()")
+            .bind(poll_id).bind(user_id).bind(i32::try_from(option).unwrap_or(i32::MAX)).execute(&mut *tx).await?;
+        let raw: Vec<i32> =
+            sqlx::query_scalar("SELECT option_index FROM poll_votes WHERE poll_id=$1")
+                .bind(poll_id)
+                .fetch_all(&mut *tx)
                 .await?;
-        }
-        let raw: Vec<String> = redis::cmd("HVALS")
-            .arg(&votes_key)
-            .query_async(&mut cache)
-            .await?;
+        tx.commit().await?;
         let mut counts = vec![0; options.len()];
         for item in raw {
-            if let Ok(index) = item.parse::<usize>()
+            if let Ok(index) = usize::try_from(item)
                 && let Some(count) = counts.get_mut(index)
             {
                 *count += 1;
             }
         }
-        Ok(Some((
-            question,
-            options,
-            counts,
-            values.get(2).and_then(|v| v.as_deref()) == Some("1"),
-        )))
+        Ok(Some((question, options, counts, anonymous)))
     }
     pub async fn close_poll(&self, guild_id: &str, poll_id: i64) -> Result<bool, StoreError> {
-        let mut cache = self.redis.clone();
-        let removed: u64 = redis::cmd("DEL")
-            .arg(format!("poll:{guild_id}:{poll_id}"))
-            .arg(format!("poll:{guild_id}:{poll_id}:votes"))
-            .query_async(&mut cache)
-            .await?;
-        Ok(removed > 0)
+        let result = sqlx::query("UPDATE polls SET status='closed',closed_at=now() WHERE guild_id=$1 AND id=$2 AND status='active'")
+            .bind(guild_id).bind(poll_id).execute(&self.pool).await?;
+        Ok(result.rows_affected() > 0)
     }
     pub async fn attribute_invite(
         &self,
         guild_id: &str,
+        joined_user_id: &str,
         invites: &[(String, Option<u64>, u64)],
     ) -> Result<Option<(String, Option<u64>, u64)>, StoreError> {
         let mut cache = self.redis.clone();
@@ -226,15 +198,144 @@ impl Infrastructure {
         let Some((_, code, inviter)) = chosen else {
             return Ok(None);
         };
-        let total = if let Some(inviter) = inviter {
-            redis::cmd("INCR")
-                .arg(format!("invite-total:{guild_id}:{inviter}"))
-                .query_async(&mut cache)
-                .await?
+        let inviter_id = inviter.map(|id| id.to_string());
+        sqlx::query("INSERT INTO invite_attributions(guild_id,joined_user_id,invite_code,inviter_id) VALUES($1,$2,$3,$4)")
+            .bind(guild_id).bind(joined_user_id).bind(code).bind(&inviter_id).execute(&self.pool).await?;
+        let total: i64 = if let Some(inviter_id) = &inviter_id {
+            sqlx::query_scalar(
+                "SELECT count(*) FROM invite_attributions WHERE guild_id=$1 AND inviter_id=$2",
+            )
+            .bind(guild_id)
+            .bind(inviter_id)
+            .fetch_one(&self.pool)
+            .await?
         } else {
             0
         };
-        Ok(Some((code.clone(), *inviter, total)))
+        Ok(Some((
+            code.clone(),
+            *inviter,
+            u64::try_from(total).unwrap_or_default(),
+        )))
+    }
+    pub async fn polls(&self, guild_id: &str, limit: i64) -> Result<Vec<Poll>, StoreError> {
+        sqlx::query("UPDATE polls SET status='expired',closed_at=COALESCE(closed_at,now()) WHERE guild_id=$1 AND status='active' AND ends_at <= now()")
+            .bind(guild_id).execute(&self.pool).await?;
+        sqlx::query_as::<_, Poll>(AssertSqlSafe(format!(
+            "{POLL_SELECT} WHERE p.guild_id=$1 ORDER BY p.id DESC LIMIT $2"
+        )))
+        .bind(guild_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+    pub async fn poll(&self, guild_id: &str, poll_id: i64) -> Result<Option<Poll>, StoreError> {
+        sqlx::query("UPDATE polls SET status='expired',closed_at=COALESCE(closed_at,now()) WHERE guild_id=$1 AND id=$2 AND status='active' AND ends_at <= now()")
+            .bind(guild_id).bind(poll_id).execute(&self.pool).await?;
+        sqlx::query_as::<_, Poll>(AssertSqlSafe(format!(
+            "{POLL_SELECT} WHERE p.guild_id=$1 AND p.id=$2"
+        )))
+        .bind(guild_id)
+        .bind(poll_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+    pub async fn invite_attributions(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<InviteAttribution>, StoreError> {
+        sqlx::query_as::<_,InviteAttribution>("SELECT a.id,a.guild_id,a.joined_user_id,j.username AS joined_username,j.display_name AS joined_display_name,a.invite_code,a.inviter_id,i.username AS inviter_username,i.display_name AS inviter_display_name,a.attributed_at FROM invite_attributions a LEFT JOIN discord_identities j ON j.user_id=a.joined_user_id LEFT JOIN discord_identities i ON i.user_id=a.inviter_id WHERE a.guild_id=$1 ORDER BY a.id DESC LIMIT $2")
+            .bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+    pub async fn invite_leaderboard(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<InviteLeaderboardEntry>, StoreError> {
+        sqlx::query_as::<_,InviteLeaderboardEntry>("SELECT a.inviter_id,d.username,d.display_name,count(*)::bigint AS attributed_joins,max(a.attributed_at) AS latest_attribution FROM invite_attributions a LEFT JOIN discord_identities d ON d.user_id=a.inviter_id WHERE a.guild_id=$1 AND a.inviter_id IS NOT NULL GROUP BY a.inviter_id,d.username,d.display_name ORDER BY attributed_joins DESC,latest_attribution DESC LIMIT $2")
+            .bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+    pub async fn afk_statuses(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AfkStatus>, StoreError> {
+        sqlx::query("DELETE FROM afk_statuses WHERE expires_at <= now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query_as::<_,AfkStatus>("SELECT a.guild_id,a.user_id,d.username,d.display_name,a.reason,a.set_at,a.expires_at FROM afk_statuses a LEFT JOIN discord_identities d ON d.user_id=a.user_id WHERE a.guild_id=$1 ORDER BY a.set_at DESC LIMIT $2")
+            .bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+    pub async fn record_verification_attempt(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        outcome: &str,
+        reason: Option<&str>,
+        account_age_days: u64,
+        has_avatar: bool,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO verification_attempts(guild_id,user_id,outcome,reason,account_age_days,has_avatar) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(guild_id).bind(user_id).bind(outcome).bind(reason).bind(i32::try_from(account_age_days).unwrap_or(i32::MAX)).bind(has_avatar).execute(&self.pool).await?;
+        Ok(())
+    }
+    pub async fn verification_attempts(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<VerificationAttempt>, StoreError> {
+        sqlx::query_as::<_,VerificationAttempt>("SELECT v.id,v.guild_id,v.user_id,d.username,d.display_name,v.outcome,v.reason,v.account_age_days,v.has_avatar,v.occurred_at FROM verification_attempts v LEFT JOIN discord_identities d ON d.user_id=v.user_id WHERE v.guild_id=$1 ORDER BY v.id DESC LIMIT $2")
+            .bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_counter_run(
+        &self,
+        guild_id: &str,
+        counter_id: &str,
+        channel_id: &str,
+        value: u64,
+        rendered_name: &str,
+        outcome: &str,
+        error: Option<&str>,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO counter_runs(guild_id,counter_id,channel_id,value,rendered_name,outcome,error) VALUES($1,$2,$3,$4,$5,$6,$7)")
+            .bind(guild_id).bind(counter_id).bind(channel_id).bind(i64::try_from(value).unwrap_or(i64::MAX)).bind(rendered_name).bind(outcome).bind(error).execute(&self.pool).await?;
+        Ok(())
+    }
+    pub async fn counter_runs(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<CounterRun>, StoreError> {
+        sqlx::query_as::<_, CounterRun>(
+            "SELECT * FROM counter_runs WHERE guild_id=$1 ORDER BY id DESC LIMIT $2",
+        )
+        .bind(guild_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+    pub async fn record_voice_link_event(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        voice_channel_id: &str,
+        text_channel_id: &str,
+        action: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO voice_link_events(guild_id,user_id,voice_channel_id,text_channel_id,action) VALUES($1,$2,$3,$4,$5)").bind(guild_id).bind(user_id).bind(voice_channel_id).bind(text_channel_id).bind(action).execute(&self.pool).await?;
+        Ok(())
+    }
+    pub async fn voice_link_events(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<VoiceLinkEvent>, StoreError> {
+        sqlx::query_as::<_,VoiceLinkEvent>("SELECT v.id,v.guild_id,v.user_id,d.username,d.display_name,v.voice_channel_id,v.text_channel_id,v.action,v.occurred_at FROM voice_link_events v LEFT JOIN discord_identities d ON d.user_id=v.user_id WHERE v.guild_id=$1 ORDER BY v.id DESC LIMIT $2").bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
     }
     pub async fn claim_appeal_cooldown(
         &self,
@@ -2133,7 +2234,8 @@ impl Infrastructure {
             "SELECT \
                 (SELECT count(*) FROM message_deletion_jobs WHERE status='scheduled' AND due_at <= now()) + \
                 (SELECT count(*) FROM reminders WHERE status='scheduled' AND next_attempt_at <= now()) + \
-                (SELECT count(*) FROM giveaways WHERE status='active' AND ends_at <= now())"
+                (SELECT count(*) FROM giveaways WHERE status='active' AND ends_at <= now()) + \
+                (SELECT count(*) FROM polls WHERE status='active' AND ends_at <= now())"
         )
         .fetch_one(&self.pool)
         .await?;
