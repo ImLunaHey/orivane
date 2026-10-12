@@ -698,6 +698,37 @@ impl ModuleServices for GatewayModuleServices {
             .is_some())
     }
 
+    async fn touch_ticket_activity(&self, guild_id: u64, channel_id: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .touch_ticket_channel(&guild_id.to_string(), &channel_id.to_string())
+            .await?)
+    }
+
+    async fn due_inactive_tickets(&self, guild_id: u64, limit: u8) -> Result<Vec<TicketResult>> {
+        self.infrastructure
+            .due_inactive_tickets(&guild_id.to_string(), i64::from(limit))
+            .await?
+            .into_iter()
+            .map(|ticket| {
+                Ok(TicketResult {
+                    id: ticket.id,
+                    panel_id: ticket.panel_id,
+                    opener_id: ticket.opener_id.parse()?,
+                    channel_id: ticket.channel_id.parse()?,
+                    status: ticket.status,
+                })
+            })
+            .collect()
+    }
+
+    async fn purge_expired_ticket_transcripts(&self) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .purge_expired_ticket_transcripts()
+            .await?)
+    }
+
     async fn close_ticket_channel(
         &self,
         guild_id: u64,

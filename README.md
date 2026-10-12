@@ -66,7 +66,7 @@ Update configuration with `PUT /v1/guilds/:guildId/config` and the same JSON sha
 
 Every feature implements the shared `BotModule` boundary; persistence belongs in `bot-core`, while Discord protocol handling stays in the gateway app.
 
-Each feature lives in its own crate under `modules/`. The gateway only assembles the registry and dispatches normalized commands and events through `bot-module-api`. Current live crates are `utility`, `welcome`, `autorole`, and `logging`; moderation, automod, leveling, starboard, tickets, and custom commands already have isolated crates and validated server configuration ready for their event handlers.
+Each feature lives in its own crate under `modules/`. The gateway only assembles the registry and dispatches normalized commands and events through `bot-module-api`. The module crates listed in the workspace are live Discord implementations rather than dashboard-only configuration shells; their exact depth and remaining work are tracked in [docs/feature-parity.md](docs/feature-parity.md).
 
 The full design—including the Vite/React/Tailwind/TanStack dashboard, logging, metrics, tracing, and analytics roadmap—is in [docs/architecture.md](docs/architecture.md). The current dashboard includes bot-wide and guild-scoped navigation, accessible shared charts, TanStack tables, audit detail pages, live dependency health, and explicit demo/live data modes.
 

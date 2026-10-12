@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header::CONTENT_TYPE},
+    http::{
+        HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
+        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
+    },
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -15,7 +18,8 @@ use bot_core::{
     FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats,
     GuildMemberSummary, Infrastructure, InfrastructureHealth, MessageDeletionJob, ModerationCase,
     NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate, NewGiveaway, NewModerationCase,
-    NewTicketPanel, Reminder, Suggestion, Ticket, TicketEvent, TicketPanel, UserGuildContext,
+    NewTicketPanel, Reminder, Suggestion, Ticket, TicketAnalytics, TicketEvent, TicketNote,
+    TicketPanel, UserGuildContext,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -114,7 +118,19 @@ struct SaveTicketPanelRequest {
     intake_enabled: bool,
     intake_label: String,
     max_open_per_user: i16,
+    #[serde(default)]
+    auto_close_hours: i32,
+    #[serde(default = "default_ticket_retention")]
+    transcript_retention_days: i32,
+    #[serde(default = "default_ticket_priority")]
+    default_priority: String,
     enabled: bool,
+}
+fn default_ticket_retention() -> i32 {
+    90
+}
+fn default_ticket_priority() -> String {
+    "normal".into()
 }
 #[derive(Deserialize)]
 struct TicketReasonRequest {
@@ -124,6 +140,16 @@ struct TicketReasonRequest {
 #[derive(Deserialize)]
 struct TicketTransferRequest {
     user_id: String,
+}
+#[derive(Deserialize)]
+struct UpdateTicketMetadataRequest {
+    priority: String,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+#[derive(Deserialize)]
+struct CreateTicketNoteRequest {
+    body: String,
 }
 
 #[tokio::main]
@@ -187,7 +213,14 @@ async fn main() -> Result<()> {
             axum::routing::post(deploy_ticket_panel),
         )
         .route("/v1/guilds/{guild_id}/tickets", get(get_tickets))
-        .route("/v1/guilds/{guild_id}/tickets/{ticket_id}", get(get_ticket))
+        .route(
+            "/v1/guilds/{guild_id}/tickets/analytics",
+            get(get_ticket_analytics),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}",
+            get(get_ticket).patch(update_ticket_metadata),
+        )
         .route(
             "/v1/guilds/{guild_id}/tickets/{ticket_id}/events",
             get(get_ticket_events),
@@ -207,6 +240,14 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/tickets/{ticket_id}/transfer",
             axum::routing::post(transfer_ticket),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/notes",
+            get(get_ticket_notes).post(create_ticket_note),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/transcript",
+            get(download_ticket_transcript),
         )
         .route("/v1/guilds/{guild_id}/stats", get(get_guild_stats))
         .route("/v1/guilds/{guild_id}/members", get(get_guild_members))
@@ -1488,6 +1529,12 @@ fn ticket_panel_input(
         || input.intake_label.trim().is_empty()
         || input.max_open_per_user < 1
         || input.max_open_per_user > 5
+        || !(0..=8760).contains(&input.auto_close_hours)
+        || !(1..=3650).contains(&input.transcript_retention_days)
+        || !matches!(
+            input.default_priority.as_str(),
+            "low" | "normal" | "high" | "urgent"
+        )
     {
         return Err(ApiError(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -1521,6 +1568,9 @@ fn ticket_panel_input(
             intake_enabled: input.intake_enabled,
             intake_label: input.intake_label,
             max_open_per_user: input.max_open_per_user,
+            auto_close_hours: input.auto_close_hours,
+            transcript_retention_days: input.transcript_retention_days,
+            default_priority: input.default_priority,
             enabled: input.enabled,
             created_by: actor.discord_user_id.clone(),
         },
@@ -1783,6 +1833,28 @@ async fn get_tickets(
     record_read(&state, Some(&guild_id), &actor, &headers, "tickets.viewed").await;
     Ok(Json(items))
 }
+async fn get_ticket_analytics(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<TicketAnalytics>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let analytics = state
+        .infrastructure
+        .ticket_analytics(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "tickets.analytics.viewed",
+    )
+    .await;
+    Ok(Json(analytics))
+}
 async fn get_ticket(
     State(state): State<AppState>,
     Path((guild_id, id)): Path<(String, i64)>,
@@ -1797,6 +1869,59 @@ async fn get_ticket(
         .map_err(internal_error)?
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket not found".into()))?;
     record_read(&state, Some(&guild_id), &actor, &headers, "ticket.viewed").await;
+    Ok(Json(item))
+}
+async fn update_ticket_metadata(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<UpdateTicketMetadataRequest>,
+) -> Result<Json<Ticket>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    if !matches!(
+        input.priority.as_str(),
+        "low" | "normal" | "high" | "urgent"
+    ) || input.tags.len() > 10
+        || input
+            .tags
+            .iter()
+            .any(|tag| tag.trim().is_empty() || tag.chars().count() > 32)
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid ticket priority or tags".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let mut tags: Vec<String> = input
+        .tags
+        .into_iter()
+        .map(|tag| tag.trim().to_lowercase())
+        .collect();
+    tags.sort();
+    tags.dedup();
+    let item = state
+        .infrastructure
+        .update_ticket_metadata(
+            &guild_id,
+            id,
+            &actor.discord_user_id,
+            &input.priority,
+            &serde_json::json!(tags),
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket not found".into()))?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.metadata.updated",
+        id,
+        serde_json::json!({"priority": item.priority, "tags": item.tags}),
+    )
+    .await;
     Ok(Json(item))
 }
 async fn get_ticket_events(
@@ -1820,6 +1945,111 @@ async fn get_ticket_events(
     )
     .await;
     Ok(Json(items))
+}
+async fn get_ticket_notes(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<TicketNote>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .ticket_notes(&guild_id, id)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "ticket.notes.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn create_ticket_note(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<CreateTicketNoteRequest>,
+) -> Result<(StatusCode, Json<TicketNote>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    if input.body.trim().is_empty() || input.body.chars().count() > 2000 {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ticket note must contain between 1 and 2000 characters".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if state
+        .infrastructure
+        .ticket(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .is_none()
+    {
+        return Err(ApiError(StatusCode::NOT_FOUND, "ticket not found".into()));
+    }
+    let note = state
+        .infrastructure
+        .add_ticket_note(&guild_id, id, &actor.discord_user_id, &input.body)
+        .await
+        .map_err(internal_error)?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.note.created",
+        id,
+        serde_json::json!({"note_id": note.id}),
+    )
+    .await;
+    Ok((StatusCode::CREATED, Json(note)))
+}
+async fn download_ticket_transcript(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .ticket(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket not found".into()))?;
+    let transcript = item.transcript.ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            "this ticket does not have a captured transcript".into(),
+        )
+    })?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "ticket.transcript.downloaded",
+    )
+    .await;
+    Ok((
+        [
+            (
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/plain; charset=utf-8"),
+            ),
+            (
+                CONTENT_DISPOSITION,
+                HeaderValue::from_str(&format!("attachment; filename=ticket-{id}.txt"))
+                    .map_err(internal_error)?,
+            ),
+        ],
+        transcript,
+    )
+        .into_response())
 }
 async fn claim_ticket(
     State(state): State<AppState>,

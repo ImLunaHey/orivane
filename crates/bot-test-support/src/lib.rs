@@ -163,6 +163,15 @@ pub enum ServiceCall {
         channel_id: u64,
         closed_by: u64,
     },
+    TouchTicketActivity {
+        guild_id: u64,
+        channel_id: u64,
+    },
+    DueInactiveTickets {
+        guild_id: u64,
+        limit: u8,
+    },
+    PurgeExpiredTicketTranscripts,
     ClaimStarboardPost {
         guild_id: u64,
         source_message_id: u64,
@@ -291,11 +300,16 @@ pub struct FakeModuleServices {
     raid_counts: Arc<Mutex<HashMap<u64, u64>>>,
     lockdowns: Arc<Mutex<HashSet<u64>>>,
     scheduled_claims: Arc<Mutex<HashSet<(u64, String, u64)>>>,
+    due_tickets: Arc<Mutex<Vec<TicketResult>>>,
 }
 
 impl FakeModuleServices {
     pub fn calls(&self) -> Vec<ServiceCall> {
         self.calls.lock().expect("fake lock poisoned").clone()
+    }
+
+    pub fn set_due_tickets(&self, tickets: Vec<TicketResult>) {
+        *self.due_tickets.lock().expect("fake lock poisoned") = tickets;
     }
 }
 
@@ -348,6 +362,34 @@ impl ModuleServices for FakeModuleServices {
     }
     async fn close_ticket(&self, _: u64, _: i64, _: u64, _: &str, _: &str) -> anyhow::Result<bool> {
         Ok(true)
+    }
+    async fn touch_ticket_activity(&self, guild_id: u64, channel_id: u64) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::TouchTicketActivity {
+                guild_id,
+                channel_id,
+            });
+        Ok(channel_id == 90)
+    }
+    async fn due_inactive_tickets(
+        &self,
+        guild_id: u64,
+        limit: u8,
+    ) -> anyhow::Result<Vec<TicketResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::DueInactiveTickets { guild_id, limit });
+        Ok(self.due_tickets.lock().expect("fake lock poisoned").clone())
+    }
+    async fn purge_expired_ticket_transcripts(&self) -> anyhow::Result<u64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::PurgeExpiredTicketTranscripts);
+        Ok(0)
     }
     async fn managed_embed(
         &self,

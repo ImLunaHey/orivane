@@ -20,6 +20,9 @@ pub struct TicketPanel {
     pub intake_enabled: bool,
     pub intake_label: String,
     pub max_open_per_user: i16,
+    pub auto_close_hours: i32,
+    pub transcript_retention_days: i32,
+    pub default_priority: String,
     pub enabled: bool,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
@@ -41,6 +44,9 @@ pub struct NewTicketPanel {
     pub intake_enabled: bool,
     pub intake_label: String,
     pub max_open_per_user: i16,
+    pub auto_close_hours: i32,
+    pub transcript_retention_days: i32,
+    pub default_priority: String,
     pub enabled: bool,
     pub created_by: String,
 }
@@ -62,6 +68,10 @@ pub struct Ticket {
     pub closed_by: Option<String>,
     pub closed_reason: Option<String>,
     pub transcript: Option<String>,
+    pub priority: String,
+    pub tags: Value,
+    pub first_response_at: Option<DateTime<Utc>>,
+    pub last_activity_at: DateTime<Utc>,
     pub opened_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
     pub reopened_at: Option<DateTime<Utc>>,
@@ -87,4 +97,25 @@ pub struct TicketEvent {
     pub action: String,
     pub metadata: Value,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, FromRow)]
+pub struct TicketNote {
+    pub id: i64,
+    pub ticket_id: i64,
+    pub guild_id: String,
+    pub author_id: String,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, FromRow)]
+pub struct TicketAnalytics {
+    pub total: i64,
+    pub open: i64,
+    pub closed: i64,
+    pub unassigned: i64,
+    pub overdue: i64,
+    pub median_first_response_minutes: Option<f64>,
+    pub median_resolution_minutes: Option<f64>,
 }

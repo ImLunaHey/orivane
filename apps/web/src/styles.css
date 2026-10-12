@@ -380,6 +380,25 @@ small { font-size: 14px !important; line-height: 1.45; }
 .discord-channel-option-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .discord-channel-option-name svg { flex: none; color: #9692a2; }
 .discord-channel-check { flex: none; color: #a78bfa; }
+.discord-member-menu { max-height: 390px; }
+.discord-member-search { position: sticky; z-index: 1; top: -6px; display: flex; align-items: center; gap: 8px; padding: 8px; background: #111114; }
+.discord-member-search svg { flex: none; color: #9692a2; }
+.discord-member-search input { width: 100%; min-height: 40px; padding: 8px 9px; border: 1px solid #3b3b43; border-radius: 2px; color: #e5e5e7; background: #17171a; font: inherit; font-size: 15px; }
+.discord-member-search input:focus { border-color: #8b6fe2; outline: none; box-shadow: 0 0 0 3px #7657ca33; }
+.discord-member-menu .discord-channel-option-name > span { display: flex; flex-direction: column; min-width: 0; }
+.discord-member-menu .discord-channel-option-name small { color: #9692a2; font-size: 13px; }
+.discord-member-empty { margin: 8px; color: #9692a2; font-size: 14px; }
+.field-action { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 7px; }
+.field-action > span { font-size: 14px; font-weight: 600; }
+.ticket-notes { display: grid; gap: 14px; }
+.ticket-notes > label { display: grid; gap: 7px; }
+.ticket-notes textarea { min-height: 100px; padding: 10px 11px; border: 1px solid #3b3b43; border-radius: 2px; color: #e5e5e7; background: #17171a; font: inherit; font-size: 16px; resize: vertical; }
+.ticket-notes > article { display: grid; grid-template-columns: minmax(180px, auto) 1fr auto; align-items: start; gap: 16px; padding: 14px; border: 1px solid #302f36; background: #141417; }
+.ticket-notes article p { margin: 6px 0 0; white-space: pre-wrap; }
+.ticket-notes article time, .muted-copy { color: #9692a2; font-size: 14px; }
+.ticket-transcript-actions { display: grid; gap: 14px; }
+.ticket-transcript-actions pre { max-height: 520px; margin: 0; overflow: auto; white-space: pre-wrap; }
+.ticket-transcript-actions .button { justify-self: start; }
 .discord-role-field { position: relative; display: flex; flex-direction: column; min-width: 0; }
 .discord-role-field > span { font-size: 14px; font-weight: 600; }
 .discord-role-field > small { margin: 3px 0 7px; color: #9999a3; font-size: 14px; }

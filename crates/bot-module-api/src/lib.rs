@@ -250,6 +250,15 @@ pub trait ModuleServices: Send + Sync {
     ) -> Result<bool> {
         Ok(false)
     }
+    async fn touch_ticket_activity(&self, _guild_id: u64, _channel_id: u64) -> Result<bool> {
+        Ok(false)
+    }
+    async fn due_inactive_tickets(&self, _guild_id: u64, _limit: u8) -> Result<Vec<TicketResult>> {
+        Ok(Vec::new())
+    }
+    async fn purge_expired_ticket_transcripts(&self) -> Result<u64> {
+        Ok(0)
+    }
     async fn close_ticket_channel(
         &self,
         guild_id: u64,

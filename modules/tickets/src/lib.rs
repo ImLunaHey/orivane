@@ -7,7 +7,8 @@ use bot_discord::{
     ModalFieldDefinition, ModalFieldStyle, ModalSubmitInteraction,
 };
 use bot_module_api::{
-    BotModule, ModuleContext, ModuleEventOutcome, TicketPanelResult, TicketRecordInput,
+    BotModule, MessageCreate, ModuleContext, ModuleEventOutcome, ScheduledTick, TicketPanelResult,
+    TicketRecordInput,
 };
 
 pub struct TicketsModule;
@@ -65,6 +66,94 @@ impl BotModule for TicketsModule {
     }
     fn handles_modal_submit(&self, custom_id: &str) -> bool {
         custom_id.starts_with(INTAKE_PREFIX) || custom_id.starts_with(CLOSE_MODAL_PREFIX)
+    }
+    fn handles_message_create(&self) -> bool {
+        true
+    }
+    fn handles_scheduled_tick(&self) -> bool {
+        true
+    }
+
+    async fn on_message_create(
+        &self,
+        context: &ModuleContext,
+        _config: &GuildConfig,
+        event: &MessageCreate,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        if context
+            .services
+            .touch_ticket_activity(event.guild_id, event.channel_id)
+            .await?
+        {
+            return Ok(Some(ModuleEventOutcome {
+                action: "ticket.activity.recorded".into(),
+                target_type: "ticket_channel".into(),
+                target_id: Some(event.channel_id.to_string()),
+            }));
+        }
+        Ok(None)
+    }
+
+    async fn on_scheduled_tick(
+        &self,
+        context: &ModuleContext,
+        config: &GuildConfig,
+        _event: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        let guild_id = config
+            .guild_id
+            .parse::<u64>()
+            .context("guild ID is invalid")?;
+        let tickets = context.services.due_inactive_tickets(guild_id, 25).await?;
+        let mut outcomes = Vec::with_capacity(tickets.len());
+        for ticket in tickets {
+            let transcript = context
+                .discord
+                .channel_transcript(ticket.channel_id)
+                .await
+                .unwrap_or_else(|error| format!("Transcript capture failed: {error}"));
+            if !context
+                .services
+                .close_ticket(
+                    guild_id,
+                    ticket.id,
+                    0,
+                    "Automatically closed after inactivity",
+                    &transcript,
+                )
+                .await?
+            {
+                continue;
+            }
+            context
+                .discord
+                .set_ticket_member_writable(
+                    ticket.channel_id,
+                    ticket.opener_id,
+                    false,
+                    "Ticket automatically closed after inactivity",
+                )
+                .await?;
+            if let Some(channel) = config.modules.tickets.transcript_channel_id.as_deref() {
+                context
+                    .discord
+                    .send_message(
+                        channel.parse().context("transcript channel is invalid")?,
+                        &format!(
+                            "Ticket #{} (<#{}>) automatically closed after inactivity.",
+                            ticket.id, ticket.channel_id
+                        ),
+                    )
+                    .await?;
+            }
+            outcomes.push(ModuleEventOutcome {
+                action: "ticket.auto_closed".into(),
+                target_type: "ticket".into(),
+                target_id: Some(ticket.id.to_string()),
+            });
+        }
+        context.services.purge_expired_ticket_transcripts().await?;
+        Ok(outcomes)
     }
 
     async fn on_command(
@@ -838,5 +927,79 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[tokio::test]
+    async fn records_ticket_channel_activity() {
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(FakeDiscord::new()),
+            services: Arc::new(services.clone()),
+        };
+        let outcome = TicketsModule
+            .on_message_create(
+                &context,
+                &GuildConfig::for_guild("10"),
+                &MessageCreate {
+                    guild_id: 10,
+                    channel_id: 90,
+                    message_id: 100,
+                    author_id: 40,
+                    author_is_bot: false,
+                    role_ids: vec![],
+                    mention_count: 0,
+                    content: "Still need help".into(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.unwrap().action, "ticket.activity.recorded");
+        assert_eq!(
+            services.calls(),
+            vec![ServiceCall::TouchTicketActivity {
+                guild_id: 10,
+                channel_id: 90,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_closes_inactive_tickets_and_purges_expired_transcripts() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        services.set_due_tickets(vec![bot_module_api::TicketResult {
+            id: 7,
+            panel_id: Some(1),
+            opener_id: 40,
+            channel_id: 90,
+            status: "open".into(),
+        }]);
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.tickets.enabled = true;
+        config.modules.tickets.transcript_channel_id = Some("70".into());
+        let outcomes = TicketsModule
+            .on_scheduled_tick(&context, &config, &ScheduledTick { now_unix: 100 })
+            .await
+            .unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].action, "ticket.auto_closed");
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::SetTicketMemberWritable {
+                channel_id: 90,
+                member_id: 40,
+                writable: false,
+                ..
+            }
+        )));
+        assert!(
+            services
+                .calls()
+                .contains(&ServiceCall::PurgeExpiredTicketTranscripts)
+        );
     }
 }

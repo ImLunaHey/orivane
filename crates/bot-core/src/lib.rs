@@ -34,4 +34,6 @@ pub use managed_embeds::{
 pub use reminders::{NewReminder, Reminder};
 pub use store::{Infrastructure, StoreError, level_for_xp};
 pub use suggestions::{NewSuggestion, Suggestion};
-pub use tickets::{NewTicket, NewTicketPanel, Ticket, TicketEvent, TicketPanel};
+pub use tickets::{
+    NewTicket, NewTicketPanel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
+};
