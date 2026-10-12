@@ -33,7 +33,6 @@ services:
       context: .
       dockerfile: Dockerfile.rust
       args:
-        PACKAGE: discord-bot-api
         BINARY: discord-bot-api
     env_file:
       - .env
@@ -61,7 +60,6 @@ services:
       context: .
       dockerfile: Dockerfile.rust
       args:
-        PACKAGE: discord-bot-gateway
         BINARY: discord-bot-gateway
     env_file:
       - .env

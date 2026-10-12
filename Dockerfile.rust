@@ -1,7 +1,5 @@
 FROM rust:1.94-bookworm AS builder
 
-ARG PACKAGE
-ARG BINARY
 WORKDIR /workspace
 
 COPY Cargo.toml Cargo.lock ./
@@ -9,8 +7,13 @@ COPY apps ./apps
 COPY crates ./crates
 COPY modules ./modules
 
-RUN cargo build --locked --release --package "${PACKAGE}" \
-    && cp "target/release/${BINARY}" /orivane-service
+RUN --mount=type=cache,id=orivane-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=orivane-rust-target,target=/workspace/target \
+    cargo build --locked --release \
+      --package discord-bot-api \
+      --package discord-bot-gateway \
+    && mkdir /orivane-binaries \
+    && cp target/release/discord-bot-api target/release/discord-bot-gateway /orivane-binaries/
 
 FROM debian:bookworm-slim AS runtime
 
@@ -19,7 +22,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 orivane
 
-COPY --from=builder /orivane-service /usr/local/bin/orivane-service
+ARG BINARY
+COPY --from=builder /orivane-binaries/${BINARY} /usr/local/bin/orivane-service
 
 USER orivane
 ENTRYPOINT ["/usr/local/bin/orivane-service"]
