@@ -161,6 +161,9 @@ pub trait BotModule: Send + Sync {
     fn handles_reaction_add(&self) -> bool {
         false
     }
+    fn handles_reaction_remove(&self) -> bool {
+        false
+    }
 
     async fn on_command(
         &self,
@@ -208,6 +211,15 @@ pub trait BotModule: Send + Sync {
     }
 
     async fn on_reaction_add(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &ReactionAdd,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        Ok(None)
+    }
+
+    async fn on_reaction_remove(
         &self,
         _context: &ModuleContext,
         _config: &GuildConfig,

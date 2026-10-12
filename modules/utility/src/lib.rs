@@ -59,6 +59,7 @@ impl BotModule for UtilityModule {
             config.modules.starboard.enabled,
             config.modules.tickets.enabled,
             config.modules.custom_commands.enabled,
+            config.modules.reaction_roles.enabled,
         ]
         .into_iter()
         .filter(|enabled| *enabled)

@@ -21,6 +21,7 @@ bot-module-leveling.workspace = true
 bot-module-starboard.workspace = true
 bot-module-tickets.workspace = true
 bot-module-custom-commands.workspace = true
+bot-module-reaction-roles.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

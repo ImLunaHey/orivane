@@ -17,6 +17,7 @@ use bot_module_custom_commands::CustomCommandsModule;
 use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_moderation::ModerationModule;
+use bot_module_reaction_roles::ReactionRolesModule;
 use bot_module_starboard::StarboardModule;
 use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
@@ -191,6 +192,7 @@ async fn main() -> Result<()> {
         Arc::new(StarboardModule),
         Arc::new(TicketsModule),
         Arc::new(CustomCommandsModule),
+        Arc::new(ReactionRolesModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -484,6 +486,70 @@ async fn main() -> Result<()> {
                                 infrastructure.record_audit_event(&audit).await
                             {
                                 tracing::error!(%store_error, "failed to persist reaction module failure");
+                            }
+                        }
+                    }
+                }
+            }
+            Event::ReactionRemove(reaction) => {
+                let Some(guild_id) = reaction.guild_id else {
+                    continue;
+                };
+                let guild_id_string = guild_id.to_string();
+                let config = match infrastructure.guild_config(&guild_id_string).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for removed reaction");
+                        continue;
+                    }
+                };
+                let event = ReactionAdd {
+                    guild_id: guild_id.get(),
+                    channel_id: reaction.channel_id.get(),
+                    message_id: reaction.message_id.get(),
+                    reactor_id: reaction.user_id.get(),
+                    message_author_id: None,
+                    emoji: match &reaction.emoji {
+                        EmojiReactionType::Unicode { name } => name.clone(),
+                        EmojiReactionType::Custom { id, .. } => id.to_string(),
+                    },
+                };
+                for module in modules
+                    .iter()
+                    .filter(|module| module.handles_reaction_remove() && module.enabled(&config))
+                {
+                    match module.on_reaction_remove(&context, &config, &event).await {
+                        Ok(Some(outcome)) => {
+                            let mut audit = NewAuditEvent::guild(
+                                &guild_id_string,
+                                event.reactor_id.to_string(),
+                                outcome.action,
+                            );
+                            audit.source = "discord_gateway".to_owned();
+                            audit.target_type = outcome.target_type;
+                            audit.target_id = outcome.target_id;
+                            audit.metadata = serde_json::json!({ "module": module.name(), "channel_id": event.channel_id.to_string() });
+                            if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                                tracing::error!(%error, "failed to persist removed-reaction module audit event");
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::error!(module = module.name(), %error, "removed-reaction module failed");
+                            let mut audit = NewAuditEvent::guild(
+                                &guild_id_string,
+                                event.reactor_id.to_string(),
+                                format!("module.{}.reaction_remove.failed", module.name()),
+                            );
+                            audit.source = "discord_gateway".to_owned();
+                            audit.target_type = "message".to_owned();
+                            audit.target_id = Some(event.message_id.to_string());
+                            audit.outcome = "failure".to_owned();
+                            audit.reason = Some(error.to_string());
+                            if let Err(store_error) =
+                                infrastructure.record_audit_event(&audit).await
+                            {
+                                tracing::error!(%store_error, "failed to persist removed-reaction module failure");
                             }
                         }
                     }

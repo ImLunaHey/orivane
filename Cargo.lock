@@ -802,6 +802,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-reaction-roles"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-starboard"
 version = "0.1.0"
 dependencies = [
@@ -1530,6 +1542,7 @@ dependencies = [
  "bot-module-leveling",
  "bot-module-logging",
  "bot-module-moderation",
+ "bot-module-reaction-roles",
  "bot-module-starboard",
  "bot-module-tickets",
  "bot-module-utility",

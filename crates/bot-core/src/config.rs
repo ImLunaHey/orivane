@@ -30,6 +30,8 @@ pub struct ModulesConfig {
     pub tickets: TicketsConfig,
     #[serde(default)]
     pub custom_commands: CustomCommandsConfig,
+    #[serde(default)]
+    pub reaction_roles: ReactionRolesConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -196,6 +198,21 @@ pub struct CustomCommandConfig {
     pub allowed_channel_ids: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ReactionRolesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub bindings: Vec<ReactionRoleBinding>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ReactionRoleBinding {
+    pub message_id: String,
+    pub emoji: String,
+    pub role_id: String,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -228,6 +245,8 @@ pub enum ConfigValidationError {
     InvalidCustomCommandLimit,
     #[error("custom command names, responses, channel restrictions, or count are invalid")]
     InvalidCustomCommands,
+    #[error("reaction-role mappings must be unique and contain valid messages, roles, and emoji")]
+    InvalidReactionRoles,
 }
 
 impl GuildConfig {
@@ -398,6 +417,21 @@ impl GuildConfig {
             })
         {
             return Err(ConfigValidationError::InvalidCustomCommands);
+        }
+
+        let reaction_roles = &self.modules.reaction_roles;
+        let mut mappings = std::collections::HashSet::new();
+        if (reaction_roles.enabled && reaction_roles.bindings.is_empty())
+            || reaction_roles.bindings.len() > 100
+            || reaction_roles.bindings.iter().any(|binding| {
+                !valid_snowflake(&binding.message_id)
+                    || !valid_snowflake(&binding.role_id)
+                    || binding.emoji.trim().is_empty()
+                    || binding.emoji.chars().count() > 64
+                    || !mappings.insert((binding.message_id.clone(), binding.emoji.clone()))
+            })
+        {
+            return Err(ConfigValidationError::InvalidReactionRoles);
         }
 
         Ok(())

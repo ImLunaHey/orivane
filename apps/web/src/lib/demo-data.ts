@@ -48,6 +48,7 @@ export const defaultConfig: GuildConfig = {
     starboard: { enabled: false, channel_id: null, emoji: '⭐', threshold: 3, allow_self_stars: false, ignored_channel_ids: [] },
     tickets: { enabled: false, category_id: null, support_role_ids: [], transcript_channel_id: null, welcome_message: 'Welcome {user}. Please describe what you need help with. A member of {support_roles} will respond soon.', channel_name: 'ticket-{user_id}' },
     custom_commands: { enabled: false, max_commands: 25, commands: [] },
+    reaction_roles: { enabled: false, bindings: [] },
   },
 }
 

@@ -47,8 +47,11 @@ export type GuildConfig = {
     starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[] }
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
+    reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[] }
   }
 }
+
+export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }
 
 export type CustomCommand = {
   enabled: boolean

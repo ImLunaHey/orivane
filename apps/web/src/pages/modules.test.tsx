@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(10)
+    expect(screen.getAllByText('Live')).toHaveLength(11)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -48,6 +48,7 @@ describe('module configuration pages', () => {
       ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
       ['tickets', 'Tickets settings', 'Support roles', null, null],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
+      ['reaction_roles', 'Reaction roles settings', 'Enable Reaction roles', 'switch', true],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -104,6 +105,18 @@ describe('module configuration pages', () => {
     fireEvent.change(screen.getByLabelText(/^Removal delay/), { target: { value: '3600' } })
     fireEvent.click(screen.getByRole('switch', { name: 'Only one self-assignable role' }))
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+  })
+
+  it('creates and removes a reaction-role mapping', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/reaction_roles`)
+    await screen.findByRole('heading', { name: 'Reaction roles settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }))
+    fireEvent.change(screen.getByLabelText(/^Message ID/), { target: { value: 'message 123456789012345678' } })
+    fireEvent.change(screen.getByLabelText(/^Emoji/), { target: { value: '🌙' } })
+    expect(screen.getByLabelText(/^Message ID/)).toHaveValue('123456789012345678')
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('No reaction mappings yet')).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {
