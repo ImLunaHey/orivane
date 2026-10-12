@@ -52,6 +52,31 @@ pub struct TicketRecordInput {
     pub guild_id: u64,
     pub opener_id: u64,
     pub channel_id: u64,
+    pub panel_id: Option<i64>,
+    pub subject: String,
+    pub opening_note: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TicketPanelResult {
+    pub id: i64,
+    pub category_id: u64,
+    pub support_role_ids: Vec<u64>,
+    pub welcome_message: String,
+    pub channel_name: String,
+    pub intake_enabled: bool,
+    pub intake_label: String,
+    pub max_open_per_user: u8,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TicketResult {
+    pub id: i64,
+    pub panel_id: Option<i64>,
+    pub opener_id: u64,
+    pub channel_id: u64,
+    pub status: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,7 +211,42 @@ pub trait ModuleServices: Send + Sync {
     async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;
     async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>>;
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>>;
+    async fn ticket_panel(
+        &self,
+        _guild_id: u64,
+        _panel_id: i64,
+    ) -> Result<Option<TicketPanelResult>> {
+        Ok(None)
+    }
+    async fn open_ticket_count(
+        &self,
+        _guild_id: u64,
+        _panel_id: Option<i64>,
+        _opener_id: u64,
+    ) -> Result<u8> {
+        Ok(0)
+    }
     async fn record_open_ticket(&self, input: TicketRecordInput) -> Result<()>;
+    async fn ticket_by_channel(
+        &self,
+        _guild_id: u64,
+        _channel_id: u64,
+    ) -> Result<Option<TicketResult>> {
+        Ok(None)
+    }
+    async fn claim_ticket(&self, _guild_id: u64, _ticket_id: i64, _actor_id: u64) -> Result<bool> {
+        Ok(false)
+    }
+    async fn close_ticket(
+        &self,
+        _guild_id: u64,
+        _ticket_id: i64,
+        _actor_id: u64,
+        _reason: &str,
+        _transcript: &str,
+    ) -> Result<bool> {
+        Ok(false)
+    }
     async fn close_ticket_channel(
         &self,
         guild_id: u64,

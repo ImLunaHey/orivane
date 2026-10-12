@@ -29,6 +29,10 @@ use twilight_model::{
     http::interaction::{
         InteractionResponse as TwilightInteractionResponse, InteractionResponseType,
     },
+    http::permission_overwrite::{
+        PermissionOverwrite as HttpPermissionOverwrite,
+        PermissionOverwriteType as HttpPermissionOverwriteType,
+    },
     id::{
         Id,
         marker::{
@@ -343,6 +347,12 @@ pub trait DiscordApi: Send + Sync {
         modal: ModalDefinition,
     ) -> Result<(), DiscordError>;
 
+    async fn open_component_modal(
+        &self,
+        interaction: &ComponentInteraction,
+        modal: ModalDefinition,
+    ) -> Result<(), DiscordError>;
+
     async fn respond_to_modal(
         &self,
         interaction: &ModalSubmitInteraction,
@@ -453,6 +463,22 @@ pub trait DiscordApi: Send + Sync {
     ) -> Result<u64, DiscordError>;
 
     async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError>;
+    async fn channel_transcript(&self, _channel_id: u64) -> Result<String, DiscordError> {
+        Err(DiscordError::Request(
+            "transcript capture unavailable".into(),
+        ))
+    }
+    async fn set_ticket_member_writable(
+        &self,
+        _channel_id: u64,
+        _member_id: u64,
+        _writable: bool,
+        _reason: &str,
+    ) -> Result<(), DiscordError> {
+        Err(DiscordError::Request(
+            "ticket permission updates unavailable".into(),
+        ))
+    }
 
     async fn message_reaction_summary(
         &self,
@@ -538,6 +564,51 @@ impl DiscordApi for TwilightDiscord {
     async fn open_modal(
         &self,
         interaction: &CommandInteraction,
+        modal: ModalDefinition,
+    ) -> Result<(), DiscordError> {
+        let components = modal.fields.into_iter().map(|field| {
+            Component::Label(Label {
+                id: None,
+                label: field.label,
+                description: None,
+                component: Box::new(Component::TextInput(TextInput {
+                    id: None,
+                    custom_id: field.custom_id,
+                    label: None,
+                    max_length: Some(field.max_length),
+                    min_length: Some(field.min_length),
+                    placeholder: (!field.placeholder.is_empty()).then_some(field.placeholder),
+                    required: Some(field.required),
+                    style: match field.style {
+                        ModalFieldStyle::Short => TextInputStyle::Short,
+                        ModalFieldStyle::Paragraph => TextInputStyle::Paragraph,
+                    },
+                    value: None,
+                })),
+            })
+        });
+        let response = TwilightInteractionResponse {
+            kind: InteractionResponseType::Modal,
+            data: Some(
+                InteractionResponseDataBuilder::new()
+                    .custom_id(modal.custom_id)
+                    .title(modal.title)
+                    .components(components)
+                    .build(),
+            ),
+        };
+        self.http
+            .interaction(self.application_id)
+            .create_response(Id::new(interaction.id), &interaction.token, &response)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    #[allow(deprecated)]
+    async fn open_component_modal(
+        &self,
+        interaction: &ComponentInteraction,
         modal: ModalDefinition,
     ) -> Result<(), DiscordError> {
         let components = modal.fields.into_iter().map(|field| {
@@ -966,6 +1037,67 @@ impl DiscordApi for TwilightDiscord {
     async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError> {
         self.http
             .delete_channel(Id::new(channel_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn channel_transcript(&self, channel_id: u64) -> Result<String, DiscordError> {
+        let mut messages = self
+            .http
+            .channel_messages(Id::<ChannelMarker>::new(channel_id))
+            .limit(100)
+            .await
+            .map_err(request_error)?
+            .models()
+            .await
+            .map_err(request_error)?;
+        messages.reverse();
+        Ok(messages
+            .into_iter()
+            .map(|message| {
+                let content = if message.content.is_empty() {
+                    "[attachment or embed]".to_owned()
+                } else {
+                    message.content
+                };
+                format!(
+                    "[{}] {} ({}): {}",
+                    message.timestamp.as_secs(),
+                    message.author.name,
+                    message.author.id,
+                    content.replace('\n', " ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    async fn set_ticket_member_writable(
+        &self,
+        channel_id: u64,
+        member_id: u64,
+        writable: bool,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        let read = Permissions::VIEW_CHANNEL | Permissions::READ_MESSAGE_HISTORY;
+        let overwrite = HttpPermissionOverwrite {
+            allow: Some(if writable {
+                read | Permissions::SEND_MESSAGES
+            } else {
+                read
+            }),
+            deny: Some(if writable {
+                Permissions::empty()
+            } else {
+                Permissions::SEND_MESSAGES
+            }),
+            id: Id::<UserMarker>::new(member_id).cast(),
+            kind: HttpPermissionOverwriteType::Member,
+        };
+        self.http
+            .update_channel_permission(Id::new(channel_id), &overwrite)
             .reason(reason)
             .await
             .map_err(request_error)?;

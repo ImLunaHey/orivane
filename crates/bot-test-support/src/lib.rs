@@ -28,6 +28,10 @@ pub enum DiscordCall {
         interaction_id: u64,
         modal: ModalDefinition,
     },
+    OpenComponentModal {
+        interaction_id: u64,
+        modal: ModalDefinition,
+    },
     RespondToModal {
         interaction_id: u64,
         response: CommandResponse,
@@ -1059,6 +1063,17 @@ impl DiscordApi for FakeDiscord {
         modal: ModalDefinition,
     ) -> Result<(), DiscordError> {
         self.record(DiscordCall::OpenModal {
+            interaction_id: interaction.id,
+            modal,
+        })
+    }
+
+    async fn open_component_modal(
+        &self,
+        interaction: &ComponentInteraction,
+        modal: ModalDefinition,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::OpenComponentModal {
             interaction_id: interaction.id,
             modal,
         })

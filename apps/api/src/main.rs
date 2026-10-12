@@ -14,8 +14,8 @@ use bot_core::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, EmbedDelivery, EmbedPayload, EmbedTemplate,
     FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats,
     GuildMemberSummary, Infrastructure, InfrastructureHealth, MessageDeletionJob, ModerationCase,
-    NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate, NewGiveaway, NewModerationCase, Reminder,
-    Suggestion, UserGuildContext,
+    NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate, NewGiveaway, NewModerationCase,
+    NewTicketPanel, Reminder, Suggestion, Ticket, TicketEvent, TicketPanel, UserGuildContext,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -98,6 +98,34 @@ struct DeliverEmbedRequest {
     channel_id: String,
 }
 
+#[derive(Deserialize)]
+struct SaveTicketPanelRequest {
+    name: String,
+    title: String,
+    #[serde(default)]
+    description: String,
+    channel_id: String,
+    category_id: String,
+    #[serde(default)]
+    support_role_ids: Vec<String>,
+    button_label: String,
+    welcome_message: String,
+    channel_name: String,
+    intake_enabled: bool,
+    intake_label: String,
+    max_open_per_user: i16,
+    enabled: bool,
+}
+#[derive(Deserialize)]
+struct TicketReasonRequest {
+    #[serde(default)]
+    reason: String,
+}
+#[derive(Deserialize)]
+struct TicketTransferRequest {
+    user_id: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -144,6 +172,42 @@ async fn main() -> Result<()> {
         )
         .route("/v1/guilds/{guild_id}/channels", get(get_guild_channels))
         .route("/v1/guilds/{guild_id}/roles", get(get_guild_roles))
+        .route(
+            "/v1/guilds/{guild_id}/ticket-panels",
+            get(get_ticket_panels).post(create_ticket_panel),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/ticket-panels/{panel_id}",
+            get(get_ticket_panel)
+                .put(update_ticket_panel)
+                .delete(delete_ticket_panel),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/ticket-panels/{panel_id}/deploy",
+            axum::routing::post(deploy_ticket_panel),
+        )
+        .route("/v1/guilds/{guild_id}/tickets", get(get_tickets))
+        .route("/v1/guilds/{guild_id}/tickets/{ticket_id}", get(get_ticket))
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/events",
+            get(get_ticket_events),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/claim",
+            axum::routing::post(claim_ticket),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/close",
+            axum::routing::post(close_ticket),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/reopen",
+            axum::routing::post(reopen_ticket),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/tickets/{ticket_id}/transfer",
+            axum::routing::post(transfer_ticket),
+        )
         .route("/v1/guilds/{guild_id}/stats", get(get_guild_stats))
         .route("/v1/guilds/{guild_id}/members", get(get_guild_members))
         .route(
@@ -1403,6 +1467,529 @@ async fn get_message_deletion(
     )
     .await;
     Ok(Json(job))
+}
+
+fn ticket_panel_input(
+    guild_id: &str,
+    actor: &Actor,
+    input: SaveTicketPanelRequest,
+) -> Result<(NewTicketPanel, String), ApiError> {
+    if input.name.trim().is_empty()
+        || input.name.chars().count() > 80
+        || input.title.trim().is_empty()
+        || input.title.chars().count() > 100
+        || input.description.chars().count() > 1000
+        || input.button_label.trim().is_empty()
+        || input.button_label.chars().count() > 80
+        || input.welcome_message.trim().is_empty()
+        || input.welcome_message.chars().count() > 1800
+        || input.channel_name.trim().is_empty()
+        || input.channel_name.chars().count() > 100
+        || input.intake_label.trim().is_empty()
+        || input.max_open_per_user < 1
+        || input.max_open_per_user > 5
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid ticket panel settings".into(),
+        ));
+    }
+    validate_snowflake(&input.channel_id)?;
+    validate_snowflake(&input.category_id)?;
+    for role in &input.support_role_ids {
+        validate_snowflake(role)?
+    }
+    if input.support_role_ids.is_empty() {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "at least one support role is required".into(),
+        ));
+    }
+    let channel = input.channel_id.clone();
+    Ok((
+        NewTicketPanel {
+            guild_id: guild_id.into(),
+            name: input.name,
+            title: input.title,
+            description: input.description,
+            panel_channel_id: Some(channel.clone()),
+            category_id: input.category_id,
+            support_role_ids: serde_json::json!(input.support_role_ids),
+            button_label: input.button_label,
+            welcome_message: input.welcome_message,
+            channel_name: input.channel_name,
+            intake_enabled: input.intake_enabled,
+            intake_label: input.intake_label,
+            max_open_per_user: input.max_open_per_user,
+            enabled: input.enabled,
+            created_by: actor.discord_user_id.clone(),
+        },
+        channel,
+    ))
+}
+
+async fn ticket_audit(
+    state: &AppState,
+    guild_id: &str,
+    actor: &Actor,
+    headers: &HeaderMap,
+    action: &str,
+    target: i64,
+    metadata: serde_json::Value,
+) {
+    let mut event = NewAuditEvent::guild(guild_id, &actor.discord_user_id, action);
+    event.source = "dashboard_api".into();
+    event.target_type = if action.starts_with("ticket.panel.") {
+        "ticket_panel"
+    } else {
+        "ticket"
+    }
+    .into();
+    event.target_id = Some(target.to_string());
+    event.request_id = header_value(headers, "x-request-id").map(str::to_owned);
+    event.metadata = metadata;
+    let _ = state.infrastructure.record_audit_event(&event).await;
+}
+
+async fn get_ticket_panels(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<TicketPanel>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .ticket_panels(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "tickets.panels.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_ticket_panel(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<TicketPanel>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .ticket_panel(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket panel not found".into()))?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "tickets.panel.viewed",
+    )
+    .await;
+    Ok(Json(item))
+}
+async fn create_ticket_panel(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<SaveTicketPanelRequest>,
+) -> Result<(StatusCode, Json<TicketPanel>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let (input, _) = ticket_panel_input(&guild_id, &actor, input)?;
+    let item = state
+        .infrastructure
+        .create_ticket_panel(&input)
+        .await
+        .map_err(internal_error)?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.panel.created",
+        item.id,
+        serde_json::json!({"name":item.name}),
+    )
+    .await;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+async fn update_ticket_panel(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<SaveTicketPanelRequest>,
+) -> Result<Json<TicketPanel>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let (input, _) = ticket_panel_input(&guild_id, &actor, input)?;
+    let item = state
+        .infrastructure
+        .update_ticket_panel(&guild_id, id, &input)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket panel not found".into()))?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.panel.updated",
+        id,
+        serde_json::json!({"name":item.name}),
+    )
+    .await;
+    Ok(Json(item))
+}
+async fn delete_ticket_panel(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if !state
+        .infrastructure
+        .delete_ticket_panel(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "ticket panel not found".into(),
+        ));
+    }
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.panel.deleted",
+        id,
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn deploy_ticket_panel(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<TicketPanel>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let panel = state
+        .infrastructure
+        .ticket_panel(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket panel not found".into()))?;
+    if !panel.enabled {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "enable the panel before deploying it".into(),
+        ));
+    }
+    let channel_id = panel.panel_channel_id.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "select a panel channel before deploying".into(),
+        )
+    })?;
+    let discord = TwilightDiscord::connect(state.discord_token.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Discord actions are unavailable".into(),
+        )
+    })?)
+    .await
+    .map_err(internal_error)?;
+    let message_id = discord
+        .send_message_with_buttons(
+            channel_id.parse().map_err(|_| {
+                ApiError(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid panel channel".into(),
+                )
+            })?,
+            &format!("**{}**\n{}", panel.title, panel.description),
+            &[MessageButton {
+                custom_id: format!("orivane:ticket:open:{id}"),
+                label: panel.button_label.clone(),
+                style: MessageButtonStyle::Primary,
+            }],
+        )
+        .await
+        .map_err(internal_error)?;
+    let item = state
+        .infrastructure
+        .mark_ticket_panel_deployed(&guild_id, id, &channel_id, &message_id.to_string())
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket panel not found".into()))?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.panel.deployed",
+        id,
+        serde_json::json!({"channel_id":channel_id,"message_id":message_id}),
+    )
+    .await;
+    Ok(Json(item))
+}
+
+async fn get_tickets(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Ticket>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .tickets(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(&state, Some(&guild_id), &actor, &headers, "tickets.viewed").await;
+    Ok(Json(items))
+}
+async fn get_ticket(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Ticket>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .ticket(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket not found".into()))?;
+    record_read(&state, Some(&guild_id), &actor, &headers, "ticket.viewed").await;
+    Ok(Json(item))
+}
+async fn get_ticket_events(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<TicketEvent>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .ticket_events(&guild_id, id)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "ticket.events.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn claim_ticket(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Ticket>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .claim_ticket(&guild_id, id, &actor.discord_user_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::CONFLICT, "ticket is not open".into()))?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.claimed",
+        id,
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(Json(item))
+}
+async fn close_ticket(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<TicketReasonRequest>,
+) -> Result<Json<Ticket>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if input.reason.chars().count() > 500 {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "close reason is too long".into(),
+        ));
+    }
+    let before = state
+        .infrastructure
+        .ticket(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket not found".into()))?;
+    let discord = TwilightDiscord::connect(state.discord_token.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Discord actions are unavailable".into(),
+        )
+    })?)
+    .await
+    .map_err(internal_error)?;
+    let channel_id = before.channel_id.parse::<u64>().map_err(|_| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "stored ticket channel is invalid".into(),
+        )
+    })?;
+    let transcript = discord
+        .channel_transcript(channel_id)
+        .await
+        .map_err(internal_error)?;
+    let item = state
+        .infrastructure
+        .close_ticket(
+            &guild_id,
+            id,
+            &actor.discord_user_id,
+            if input.reason.trim().is_empty() {
+                "Closed from dashboard"
+            } else {
+                input.reason.trim()
+            },
+            &transcript,
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::CONFLICT, "ticket is not open".into()))?;
+    discord
+        .set_ticket_member_writable(
+            channel_id,
+            before.opener_id.parse().map_err(|_| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "stored ticket member is invalid".into(),
+                )
+            })?,
+            false,
+            "Ticket closed from Orivane dashboard",
+        )
+        .await
+        .map_err(internal_error)?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.closed",
+        id,
+        serde_json::json!({"reason":item.closed_reason}),
+    )
+    .await;
+    Ok(Json(item))
+}
+async fn reopen_ticket(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Ticket>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .ticket(&guild_id, id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "ticket not found".into()))?;
+    let discord = TwilightDiscord::connect(state.discord_token.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Discord actions are unavailable".into(),
+        )
+    })?)
+    .await
+    .map_err(internal_error)?;
+    let item = state
+        .infrastructure
+        .reopen_ticket(&guild_id, id, &actor.discord_user_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::CONFLICT, "ticket is not closed".into()))?;
+    discord
+        .set_ticket_member_writable(
+            before.channel_id.parse().map_err(|_| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "stored ticket channel is invalid".into(),
+                )
+            })?,
+            before.opener_id.parse().map_err(|_| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "stored ticket member is invalid".into(),
+                )
+            })?,
+            true,
+            "Ticket reopened from Orivane dashboard",
+        )
+        .await
+        .map_err(internal_error)?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.reopened",
+        id,
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(Json(item))
+}
+async fn transfer_ticket(
+    State(state): State<AppState>,
+    Path((guild_id, id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<TicketTransferRequest>,
+) -> Result<Json<Ticket>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_snowflake(&input.user_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .assign_ticket(&guild_id, id, &actor.discord_user_id, &input.user_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::CONFLICT, "ticket is not open".into()))?;
+    ticket_audit(
+        &state,
+        &guild_id,
+        &actor,
+        &headers,
+        "ticket.transferred",
+        id,
+        serde_json::json!({"assigned_to":input.user_id}),
+    )
+    .await;
+    Ok(Json(item))
 }
 
 async fn get_embed_templates(

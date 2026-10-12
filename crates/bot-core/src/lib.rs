@@ -9,6 +9,7 @@ mod managed_embeds;
 mod reminders;
 mod store;
 mod suggestions;
+mod tickets;
 
 pub use audit::{AuditEvent, NewAuditEvent};
 pub use auto_delete::MessageDeletionJob;
@@ -33,3 +34,4 @@ pub use managed_embeds::{
 pub use reminders::{NewReminder, Reminder};
 pub use store::{Infrastructure, StoreError, level_for_xp};
 pub use suggestions::{NewSuggestion, Suggestion};
+pub use tickets::{NewTicket, NewTicketPanel, Ticket, TicketEvent, TicketPanel};

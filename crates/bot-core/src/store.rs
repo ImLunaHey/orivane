@@ -9,13 +9,17 @@ use crate::{
     EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig,
     GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile,
     MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate,
-    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, Reminder,
-    Suggestion, UserGuildContext, config::ConfigValidationError,
+    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket,
+    NewTicketPanel, Reminder, Suggestion, Ticket, TicketEvent, TicketPanel, UserGuildContext,
+    config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
 const GIVEAWAY_SELECT_LIST: &str = "SELECT g.id, g.guild_id, g.channel_id, g.message_id, g.creator_id, d.username AS creator_username, d.display_name AS creator_display_name, g.title, g.description, g.status, g.winner_count, g.minimum_account_age_days, g.required_role_ids, g.bonus_role_id, g.bonus_entries, g.winner_ids, (SELECT count(*) FROM giveaway_entries e WHERE e.giveaway_id = g.id)::bigint AS entrant_count, COALESCE((SELECT sum(weight) FROM giveaway_entries e WHERE e.giveaway_id = g.id), 0)::bigint AS total_entries, g.ends_at, g.ended_at, g.announcement_sent_at, g.reroll_count, g.created_at, g.updated_at FROM giveaways g LEFT JOIN discord_identities d ON d.user_id = g.creator_id WHERE g.guild_id = $1 ORDER BY g.id DESC LIMIT $2";
 const GIVEAWAY_SELECT_ONE: &str = "SELECT g.id, g.guild_id, g.channel_id, g.message_id, g.creator_id, d.username AS creator_username, d.display_name AS creator_display_name, g.title, g.description, g.status, g.winner_count, g.minimum_account_age_days, g.required_role_ids, g.bonus_role_id, g.bonus_entries, g.winner_ids, (SELECT count(*) FROM giveaway_entries e WHERE e.giveaway_id = g.id)::bigint AS entrant_count, COALESCE((SELECT sum(weight) FROM giveaway_entries e WHERE e.giveaway_id = g.id), 0)::bigint AS total_entries, g.ends_at, g.ended_at, g.announcement_sent_at, g.reroll_count, g.created_at, g.updated_at FROM giveaways g LEFT JOIN discord_identities d ON d.user_id = g.creator_id WHERE g.guild_id = $1 AND g.id = $2";
+const TICKET_SELECT_LIST: &str = "SELECT t.id,t.guild_id,t.panel_id,t.opener_id,d.username AS opener_username,d.display_name AS opener_display_name,t.channel_id,t.subject,t.opening_note,t.status,t.claimed_by,t.assigned_to,t.closed_by,t.closed_reason,t.transcript,t.opened_at,t.closed_at,t.reopened_at,t.updated_at FROM tickets t LEFT JOIN discord_identities d ON d.user_id=t.opener_id WHERE t.guild_id=$1 ORDER BY t.updated_at DESC,t.id DESC LIMIT $2";
+const TICKET_SELECT_ONE: &str = "SELECT t.id,t.guild_id,t.panel_id,t.opener_id,d.username AS opener_username,d.display_name AS opener_display_name,t.channel_id,t.subject,t.opening_note,t.status,t.claimed_by,t.assigned_to,t.closed_by,t.closed_reason,t.transcript,t.opened_at,t.closed_at,t.reopened_at,t.updated_at FROM tickets t LEFT JOIN discord_identities d ON d.user_id=t.opener_id WHERE t.guild_id=$1 AND t.id=$2";
+const TICKET_SELECT_CHANNEL: &str = "SELECT t.id,t.guild_id,t.panel_id,t.opener_id,d.username AS opener_username,d.display_name AS opener_display_name,t.channel_id,t.subject,t.opening_note,t.status,t.claimed_by,t.assigned_to,t.closed_by,t.closed_reason,t.transcript,t.opened_at,t.closed_at,t.reopened_at,t.updated_at FROM tickets t LEFT JOIN discord_identities d ON d.user_id=t.opener_id WHERE t.guild_id=$1 AND t.channel_id=$2 ORDER BY t.id DESC LIMIT 1";
 
 #[derive(Clone)]
 pub struct Infrastructure {
@@ -1124,6 +1128,198 @@ impl Infrastructure {
         .fetch_optional(&self.pool)
         .await
         .map_err(StoreError::from)
+    }
+
+    pub async fn ticket_panels(&self, guild_id: &str) -> Result<Vec<TicketPanel>, StoreError> {
+        sqlx::query_as::<_, TicketPanel>("SELECT id,guild_id,name,title,description,panel_channel_id,panel_message_id,category_id,support_role_ids,button_label,welcome_message,channel_name,intake_enabled,intake_label,max_open_per_user,enabled,created_by,created_at,updated_at FROM ticket_panels WHERE guild_id=$1 AND deleted_at IS NULL ORDER BY updated_at DESC,id DESC")
+            .bind(guild_id).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn ticket_panel(
+        &self,
+        guild_id: &str,
+        id: i64,
+    ) -> Result<Option<TicketPanel>, StoreError> {
+        sqlx::query_as::<_, TicketPanel>("SELECT id,guild_id,name,title,description,panel_channel_id,panel_message_id,category_id,support_role_ids,button_label,welcome_message,channel_name,intake_enabled,intake_label,max_open_per_user,enabled,created_by,created_at,updated_at FROM ticket_panels WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL")
+            .bind(guild_id).bind(id).fetch_optional(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn create_ticket_panel(
+        &self,
+        input: &NewTicketPanel,
+    ) -> Result<TicketPanel, StoreError> {
+        let id: i64 = sqlx::query_scalar("INSERT INTO ticket_panels (guild_id,name,title,description,panel_channel_id,category_id,support_role_ids,button_label,welcome_message,channel_name,intake_enabled,intake_label,max_open_per_user,enabled,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id")
+            .bind(&input.guild_id).bind(input.name.trim()).bind(input.title.trim()).bind(input.description.trim()).bind(&input.panel_channel_id).bind(&input.category_id).bind(&input.support_role_ids).bind(input.button_label.trim()).bind(input.welcome_message.trim()).bind(input.channel_name.trim()).bind(input.intake_enabled).bind(input.intake_label.trim()).bind(input.max_open_per_user).bind(input.enabled).bind(&input.created_by).fetch_one(&self.pool).await?;
+        self.ticket_panel(&input.guild_id, id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn update_ticket_panel(
+        &self,
+        guild_id: &str,
+        id: i64,
+        input: &NewTicketPanel,
+    ) -> Result<Option<TicketPanel>, StoreError> {
+        let updated: Option<i64> = sqlx::query_scalar("UPDATE ticket_panels SET name=$3,title=$4,description=$5,panel_channel_id=$6,category_id=$7,support_role_ids=$8,button_label=$9,welcome_message=$10,channel_name=$11,intake_enabled=$12,intake_label=$13,max_open_per_user=$14,enabled=$15,updated_at=now() WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL RETURNING id")
+            .bind(guild_id).bind(id).bind(input.name.trim()).bind(input.title.trim()).bind(input.description.trim()).bind(&input.panel_channel_id).bind(&input.category_id).bind(&input.support_role_ids).bind(input.button_label.trim()).bind(input.welcome_message.trim()).bind(input.channel_name.trim()).bind(input.intake_enabled).bind(input.intake_label.trim()).bind(input.max_open_per_user).bind(input.enabled).fetch_optional(&self.pool).await?;
+        match updated {
+            Some(_) => self.ticket_panel(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn delete_ticket_panel(&self, guild_id: &str, id: i64) -> Result<bool, StoreError> {
+        Ok(sqlx::query("UPDATE ticket_panels SET deleted_at=now(),enabled=false,updated_at=now() WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL").bind(guild_id).bind(id).execute(&self.pool).await?.rows_affected()==1)
+    }
+
+    pub async fn mark_ticket_panel_deployed(
+        &self,
+        guild_id: &str,
+        id: i64,
+        channel_id: &str,
+        message_id: &str,
+    ) -> Result<Option<TicketPanel>, StoreError> {
+        let updated: Option<i64> = sqlx::query_scalar("UPDATE ticket_panels SET panel_channel_id=$3,panel_message_id=$4,updated_at=now() WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL RETURNING id").bind(guild_id).bind(id).bind(channel_id).bind(message_id).fetch_optional(&self.pool).await?;
+        match updated {
+            Some(_) => self.ticket_panel(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn tickets(&self, guild_id: &str, limit: i64) -> Result<Vec<Ticket>, StoreError> {
+        sqlx::query_as::<_, Ticket>(TICKET_SELECT_LIST)
+            .bind(guild_id)
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn ticket(&self, guild_id: &str, id: i64) -> Result<Option<Ticket>, StoreError> {
+        sqlx::query_as::<_, Ticket>(TICKET_SELECT_ONE)
+            .bind(guild_id)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn ticket_by_channel(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+    ) -> Result<Option<Ticket>, StoreError> {
+        sqlx::query_as::<_, Ticket>(TICKET_SELECT_CHANNEL)
+            .bind(guild_id)
+            .bind(channel_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn open_ticket_count(
+        &self,
+        guild_id: &str,
+        panel_id: Option<i64>,
+        opener_id: &str,
+    ) -> Result<i64, StoreError> {
+        sqlx::query_scalar("SELECT count(*) FROM tickets WHERE guild_id=$1 AND opener_id=$2 AND status='open' AND panel_id IS NOT DISTINCT FROM $3")
+            .bind(guild_id).bind(opener_id).bind(panel_id).fetch_one(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn create_ticket(&self, input: &NewTicket) -> Result<Ticket, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let id:i64=sqlx::query_scalar("INSERT INTO tickets (guild_id,panel_id,opener_id,channel_id,subject,opening_note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id")
+            .bind(&input.guild_id).bind(input.panel_id).bind(&input.opener_id).bind(&input.channel_id).bind(input.subject.trim()).bind(input.opening_note.trim()).fetch_one(&mut *transaction).await?;
+        sqlx::query("INSERT INTO ticket_events (ticket_id,guild_id,actor_id,action,metadata) VALUES ($1,$2,$3,'opened',$4)").bind(id).bind(&input.guild_id).bind(&input.opener_id).bind(serde_json::json!({"channel_id":input.channel_id,"panel_id":input.panel_id})).execute(&mut *transaction).await?;
+        transaction.commit().await?;
+        self.ticket(&input.guild_id, id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn claim_ticket(
+        &self,
+        guild_id: &str,
+        id: i64,
+        actor_id: &str,
+    ) -> Result<Option<Ticket>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let changed:Option<i64>=sqlx::query_scalar("UPDATE tickets SET claimed_by=$3,assigned_to=$3,updated_at=now() WHERE guild_id=$1 AND id=$2 AND status='open' RETURNING id").bind(guild_id).bind(id).bind(actor_id).fetch_optional(&mut *tx).await?;
+        if changed.is_some() {
+            sqlx::query("INSERT INTO ticket_events(ticket_id,guild_id,actor_id,action,metadata) VALUES($1,$2,$3,'claimed','{}')").bind(id).bind(guild_id).bind(actor_id).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        match changed {
+            Some(_) => self.ticket(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn assign_ticket(
+        &self,
+        guild_id: &str,
+        id: i64,
+        actor_id: &str,
+        assignee_id: &str,
+    ) -> Result<Option<Ticket>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let changed:Option<i64>=sqlx::query_scalar("UPDATE tickets SET assigned_to=$3,updated_at=now() WHERE guild_id=$1 AND id=$2 AND status='open' RETURNING id").bind(guild_id).bind(id).bind(assignee_id).fetch_optional(&mut *tx).await?;
+        if changed.is_some() {
+            sqlx::query("INSERT INTO ticket_events(ticket_id,guild_id,actor_id,action,metadata) VALUES($1,$2,$3,'transferred',$4)").bind(id).bind(guild_id).bind(actor_id).bind(serde_json::json!({"assigned_to":assignee_id})).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        match changed {
+            Some(_) => self.ticket(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn close_ticket(
+        &self,
+        guild_id: &str,
+        id: i64,
+        actor_id: &str,
+        reason: &str,
+        transcript: &str,
+    ) -> Result<Option<Ticket>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let changed:Option<i64>=sqlx::query_scalar("UPDATE tickets SET status='closed',closed_at=now(),closed_by=$3,closed_reason=$4,transcript=$5,updated_at=now() WHERE guild_id=$1 AND id=$2 AND status='open' RETURNING id").bind(guild_id).bind(id).bind(actor_id).bind(reason).bind(transcript).fetch_optional(&mut *tx).await?;
+        if changed.is_some() {
+            sqlx::query("INSERT INTO ticket_events(ticket_id,guild_id,actor_id,action,metadata) VALUES($1,$2,$3,'closed',$4)").bind(id).bind(guild_id).bind(actor_id).bind(serde_json::json!({"reason":reason})).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        match changed {
+            Some(_) => self.ticket(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn reopen_ticket(
+        &self,
+        guild_id: &str,
+        id: i64,
+        actor_id: &str,
+    ) -> Result<Option<Ticket>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let changed:Option<i64>=sqlx::query_scalar("UPDATE tickets SET status='open',closed_at=NULL,closed_by=NULL,closed_reason=NULL,reopened_at=now(),updated_at=now() WHERE guild_id=$1 AND id=$2 AND status='closed' RETURNING id").bind(guild_id).bind(id).fetch_optional(&mut *tx).await?;
+        if changed.is_some() {
+            sqlx::query("INSERT INTO ticket_events(ticket_id,guild_id,actor_id,action,metadata) VALUES($1,$2,$3,'reopened','{}')").bind(id).bind(guild_id).bind(actor_id).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        match changed {
+            Some(_) => self.ticket(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn ticket_events(
+        &self,
+        guild_id: &str,
+        id: i64,
+    ) -> Result<Vec<TicketEvent>, StoreError> {
+        sqlx::query_as::<_,TicketEvent>("SELECT id,ticket_id,guild_id,actor_id,action,metadata,created_at FROM ticket_events WHERE guild_id=$1 AND ticket_id=$2 ORDER BY created_at,id").bind(guild_id).bind(id).fetch_all(&self.pool).await.map_err(StoreError::from)
     }
 
     pub async fn record_open_ticket(

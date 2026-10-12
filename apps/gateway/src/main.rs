@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{
     Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery, NewFormSubmission,
-    NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, Reminder, Suggestion, level_for_xp,
+    NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket, Reminder, Suggestion,
+    level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -21,7 +22,7 @@ use bot_module_api::{
     ManagedEmbedDeliveryInput, ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate,
     MessageDeletionJobResult, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
     ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
-    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    TicketPanelResult, TicketRecordInput, TicketResult, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -576,13 +577,109 @@ impl ModuleServices for GatewayModuleServices {
 
     async fn record_open_ticket(&self, input: TicketRecordInput) -> Result<()> {
         self.infrastructure
-            .record_open_ticket(
-                &input.guild_id.to_string(),
-                &input.opener_id.to_string(),
-                &input.channel_id.to_string(),
-            )
+            .create_ticket(&NewTicket {
+                guild_id: input.guild_id.to_string(),
+                panel_id: input.panel_id,
+                opener_id: input.opener_id.to_string(),
+                channel_id: input.channel_id.to_string(),
+                subject: input.subject,
+                opening_note: input.opening_note,
+            })
             .await?;
         Ok(())
+    }
+
+    async fn ticket_panel(
+        &self,
+        guild_id: u64,
+        panel_id: i64,
+    ) -> Result<Option<TicketPanelResult>> {
+        self.infrastructure
+            .ticket_panel(&guild_id.to_string(), panel_id)
+            .await?
+            .map(|p| {
+                Ok(TicketPanelResult {
+                    id: p.id,
+                    category_id: p
+                        .category_id
+                        .parse()
+                        .context("stored ticket category is invalid")?,
+                    support_role_ids: serde_json::from_value::<Vec<String>>(p.support_role_ids)?
+                        .into_iter()
+                        .map(|id| id.parse().context("stored support role is invalid"))
+                        .collect::<Result<_>>()?,
+                    welcome_message: p.welcome_message,
+                    channel_name: p.channel_name,
+                    intake_enabled: p.intake_enabled,
+                    intake_label: p.intake_label,
+                    max_open_per_user: u8::try_from(p.max_open_per_user).unwrap_or(1),
+                    enabled: p.enabled,
+                })
+            })
+            .transpose()
+    }
+
+    async fn open_ticket_count(
+        &self,
+        guild_id: u64,
+        panel_id: Option<i64>,
+        opener_id: u64,
+    ) -> Result<u8> {
+        Ok(u8::try_from(
+            self.infrastructure
+                .open_ticket_count(&guild_id.to_string(), panel_id, &opener_id.to_string())
+                .await?,
+        )
+        .unwrap_or(u8::MAX))
+    }
+
+    async fn ticket_by_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+    ) -> Result<Option<TicketResult>> {
+        self.infrastructure
+            .ticket_by_channel(&guild_id.to_string(), &channel_id.to_string())
+            .await?
+            .map(|t| {
+                Ok(TicketResult {
+                    id: t.id,
+                    panel_id: t.panel_id,
+                    opener_id: t.opener_id.parse()?,
+                    channel_id: t.channel_id.parse()?,
+                    status: t.status,
+                })
+            })
+            .transpose()
+    }
+
+    async fn claim_ticket(&self, guild_id: u64, ticket_id: i64, actor_id: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .claim_ticket(&guild_id.to_string(), ticket_id, &actor_id.to_string())
+            .await?
+            .is_some())
+    }
+
+    async fn close_ticket(
+        &self,
+        guild_id: u64,
+        ticket_id: i64,
+        actor_id: u64,
+        reason: &str,
+        transcript: &str,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .close_ticket(
+                &guild_id.to_string(),
+                ticket_id,
+                &actor_id.to_string(),
+                reason,
+                transcript,
+            )
+            .await?
+            .is_some())
     }
 
     async fn close_ticket_channel(

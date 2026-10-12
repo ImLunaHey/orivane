@@ -3,11 +3,17 @@ use async_trait::async_trait;
 use bot_core::GuildConfig;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
-    CommandResponse,
+    CommandResponse, ComponentInteraction, MessageButton, MessageButtonStyle, ModalDefinition,
+    ModalFieldDefinition, ModalFieldStyle, ModalSubmitInteraction,
 };
-use bot_module_api::{BotModule, ModuleContext, TicketRecordInput};
+use bot_module_api::{
+    BotModule, ModuleContext, ModuleEventOutcome, TicketPanelResult, TicketRecordInput,
+};
 
 pub struct TicketsModule;
+const OPEN_PREFIX: &str = "orivane:ticket:open:";
+const INTAKE_PREFIX: &str = "orivane:ticket:intake:";
+const CLAIM_PREFIX: &str = "orivane:ticket:claim:";
 
 const REASON_OPTION: &[CommandOptionDefinition] = &[CommandOptionDefinition {
     name: "reason",
@@ -50,6 +56,12 @@ impl BotModule for TicketsModule {
     fn commands(&self) -> &'static [CommandDefinition] {
         COMMANDS
     }
+    fn handles_component(&self, custom_id: &str) -> bool {
+        custom_id.starts_with(OPEN_PREFIX) || custom_id.starts_with(CLAIM_PREFIX)
+    }
+    fn handles_modal_submit(&self, custom_id: &str) -> bool {
+        custom_id.starts_with(INTAKE_PREFIX)
+    }
 
     async fn on_command(
         &self,
@@ -63,6 +75,269 @@ impl BotModule for TicketsModule {
             _ => Ok(()),
         }
     }
+
+    async fn on_component(
+        &self,
+        context: &ModuleContext,
+        _: &GuildConfig,
+        interaction: &ComponentInteraction,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        if let Some(id) = interaction.custom_id.strip_prefix(OPEN_PREFIX) {
+            let panel_id = id.parse::<i64>().context("invalid ticket panel ID")?;
+            let panel = context
+                .services
+                .ticket_panel(interaction.guild_id, panel_id)
+                .await?
+                .context("ticket panel no longer exists")?;
+            if !panel.enabled {
+                context
+                    .discord
+                    .respond_to_component(
+                        interaction,
+                        CommandResponse::ephemeral("This ticket panel is disabled."),
+                    )
+                    .await?;
+                return Ok(None);
+            }
+            if panel.intake_enabled {
+                context
+                    .discord
+                    .open_component_modal(
+                        interaction,
+                        ModalDefinition {
+                            custom_id: format!("{INTAKE_PREFIX}{panel_id}"),
+                            title: "Open a support ticket".into(),
+                            fields: vec![
+                                ModalFieldDefinition {
+                                    custom_id: "subject".into(),
+                                    label: "Subject".into(),
+                                    style: ModalFieldStyle::Short,
+                                    required: true,
+                                    min_length: 1,
+                                    max_length: 100,
+                                    placeholder: panel.intake_label,
+                                },
+                                ModalFieldDefinition {
+                                    custom_id: "details".into(),
+                                    label: "Details".into(),
+                                    style: ModalFieldStyle::Paragraph,
+                                    required: false,
+                                    min_length: 0,
+                                    max_length: 1000,
+                                    placeholder: "Add any context that will help the team.".into(),
+                                },
+                            ],
+                        },
+                    )
+                    .await?;
+            } else {
+                let channel = open_from_panel(
+                    context,
+                    interaction.guild_id,
+                    interaction.actor_id,
+                    &panel,
+                    "Support request",
+                    "",
+                )
+                .await?;
+                context
+                    .discord
+                    .respond_to_component(
+                        interaction,
+                        CommandResponse::ephemeral(format!(
+                            "Your private ticket is ready: <#{channel}>."
+                        )),
+                    )
+                    .await?;
+            }
+            return Ok(Some(ModuleEventOutcome {
+                action: "ticket.open.requested".into(),
+                target_type: "ticket_panel".into(),
+                target_id: Some(panel_id.to_string()),
+            }));
+        }
+        if let Some(parts) = interaction.custom_id.strip_prefix(CLAIM_PREFIX) {
+            let mut parts = parts.split(':');
+            let panel_id = parts.next().context("missing panel")?.parse::<i64>()?;
+            let ticket_id = parts.next().context("missing ticket")?.parse::<i64>()?;
+            let panel = context
+                .services
+                .ticket_panel(interaction.guild_id, panel_id)
+                .await?
+                .context("ticket panel no longer exists")?;
+            if !interaction
+                .actor_role_ids
+                .iter()
+                .any(|r| panel.support_role_ids.contains(r))
+            {
+                context
+                    .discord
+                    .respond_to_component(
+                        interaction,
+                        CommandResponse::ephemeral(
+                            "Only a configured support role can claim this ticket.",
+                        ),
+                    )
+                    .await?;
+                return Ok(None);
+            }
+            let claimed = context
+                .services
+                .claim_ticket(interaction.guild_id, ticket_id, interaction.actor_id)
+                .await?;
+            context
+                .discord
+                .respond_to_component(
+                    interaction,
+                    CommandResponse::ephemeral(if claimed {
+                        "Ticket assigned to you."
+                    } else {
+                        "This ticket is no longer open."
+                    }),
+                )
+                .await?;
+            return Ok(Some(ModuleEventOutcome {
+                action: "ticket.claimed".into(),
+                target_type: "ticket".into(),
+                target_id: Some(ticket_id.to_string()),
+            }));
+        }
+        Ok(None)
+    }
+
+    async fn on_modal_submit(
+        &self,
+        context: &ModuleContext,
+        _: &GuildConfig,
+        interaction: &ModalSubmitInteraction,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        let panel_id = interaction
+            .custom_id
+            .strip_prefix(INTAKE_PREFIX)
+            .context("invalid ticket modal ID")?
+            .parse::<i64>()?;
+        let panel = context
+            .services
+            .ticket_panel(interaction.guild_id, panel_id)
+            .await?
+            .context("ticket panel no longer exists")?;
+        let subject = interaction
+            .values
+            .get("subject")
+            .map(String::as_str)
+            .unwrap_or("Support request");
+        let details = interaction
+            .values
+            .get("details")
+            .map(String::as_str)
+            .unwrap_or("");
+        let channel = open_from_panel(
+            context,
+            interaction.guild_id,
+            interaction.actor_id,
+            &panel,
+            subject,
+            details,
+        )
+        .await?;
+        context
+            .discord
+            .respond_to_modal(
+                interaction,
+                CommandResponse::ephemeral(format!("Your private ticket is ready: <#{channel}>.")),
+            )
+            .await?;
+        Ok(Some(ModuleEventOutcome {
+            action: "ticket.opened".into(),
+            target_type: "ticket_panel".into(),
+            target_id: Some(panel_id.to_string()),
+        }))
+    }
+}
+
+async fn open_from_panel(
+    context: &ModuleContext,
+    guild_id: u64,
+    actor_id: u64,
+    panel: &TicketPanelResult,
+    subject: &str,
+    note: &str,
+) -> Result<u64> {
+    if context
+        .services
+        .open_ticket_count(guild_id, Some(panel.id), actor_id)
+        .await?
+        >= panel.max_open_per_user
+    {
+        anyhow::bail!("you have reached this panel's open-ticket limit")
+    }
+    let name = panel
+        .channel_name
+        .replace("{user_id}", &actor_id.to_string())
+        .chars()
+        .take(100)
+        .collect::<String>();
+    let channel = context
+        .discord
+        .create_ticket_channel(
+            guild_id,
+            panel.category_id,
+            actor_id,
+            &panel.support_role_ids,
+            &name,
+            "Orivane support ticket opened",
+        )
+        .await?;
+    if let Err(error) = context
+        .services
+        .record_open_ticket(TicketRecordInput {
+            guild_id,
+            opener_id: actor_id,
+            channel_id: channel,
+            panel_id: Some(panel.id),
+            subject: subject.into(),
+            opening_note: note.into(),
+        })
+        .await
+    {
+        let _ = context
+            .discord
+            .delete_channel(channel, "Ticket persistence failed; rolling back")
+            .await;
+        return Err(error);
+    }
+    let ticket = context
+        .services
+        .ticket_by_channel(guild_id, channel)
+        .await?
+        .context("created ticket could not be loaded")?;
+    let roles = panel
+        .support_role_ids
+        .iter()
+        .map(|id| format!("<@&{id}>"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut welcome = panel
+        .welcome_message
+        .replace("{user}", &format!("<@{actor_id}>"))
+        .replace("{user_id}", &actor_id.to_string())
+        .replace("{support_roles}", &roles);
+    if !note.trim().is_empty() {
+        welcome.push_str(&format!("\n\n**Opening note:** {}", note.trim()))
+    }
+    context
+        .discord
+        .send_message_with_buttons(
+            channel,
+            &welcome,
+            &[MessageButton {
+                custom_id: format!("{CLAIM_PREFIX}{}:{}", panel.id, ticket.id),
+                label: "Claim ticket".into(),
+                style: MessageButtonStyle::Primary,
+            }],
+        )
+        .await?;
+    Ok(channel)
 }
 
 async fn open_ticket(
@@ -123,6 +398,12 @@ async fn open_ticket(
             guild_id: interaction.guild_id,
             opener_id: interaction.actor_id,
             channel_id,
+            panel_id: None,
+            subject: interaction
+                .string("reason")
+                .unwrap_or("Support request")
+                .to_owned(),
+            opening_note: interaction.string("reason").unwrap_or_default().to_owned(),
         })
         .await
     {
@@ -169,11 +450,11 @@ async fn close_ticket(
     let channel_id = interaction
         .channel_id
         .context("this command requires a channel")?;
-    if !context
+    let Some(ticket) = context
         .services
-        .close_ticket_channel(interaction.guild_id, channel_id, interaction.actor_id)
+        .ticket_by_channel(interaction.guild_id, channel_id)
         .await?
-    {
+    else {
         context
             .discord
             .respond_to_command(
@@ -182,8 +463,43 @@ async fn close_ticket(
             )
             .await?;
         return Ok(());
+    };
+    if ticket.status != "open" {
+        context
+            .discord
+            .respond_to_command(
+                interaction,
+                CommandResponse::ephemeral("This ticket is already closed."),
+            )
+            .await?;
+        return Ok(());
     }
     let reason = interaction.string("reason").unwrap_or("No reason provided");
+    let transcript = context
+        .discord
+        .channel_transcript(channel_id)
+        .await
+        .unwrap_or_else(|error| format!("Transcript capture failed: {error}"));
+    if !context
+        .services
+        .close_ticket(
+            interaction.guild_id,
+            ticket.id,
+            interaction.actor_id,
+            reason,
+            &transcript,
+        )
+        .await?
+    {
+        context
+            .discord
+            .respond_to_command(
+                interaction,
+                CommandResponse::ephemeral("This ticket could not be closed."),
+            )
+            .await?;
+        return Ok(());
+    }
     if let Some(transcript_channel_id) = config.modules.tickets.transcript_channel_id.as_deref() {
         context
             .discord
@@ -202,13 +518,17 @@ async fn close_ticket(
         .discord
         .respond_to_command(
             interaction,
-            CommandResponse::ephemeral("Ticket closed. This channel is being removed."),
+            CommandResponse::ephemeral(
+                "Ticket closed. The channel is now read-only and its transcript was retained.",
+            ),
         )
         .await?;
     context
         .discord
-        .delete_channel(
+        .set_ticket_member_writable(
             channel_id,
+            ticket.opener_id,
+            false,
             &format!("Ticket closed by {}", interaction.actor_id),
         )
         .await?;
@@ -268,6 +588,9 @@ mod tests {
                     guild_id: 10,
                     opener_id: 40,
                     channel_id: 90,
+                    panel_id: None,
+                    subject: "Billing help".to_owned(),
+                    opening_note: "Billing help".to_owned(),
                 }),
             ]
         );
