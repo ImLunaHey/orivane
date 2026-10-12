@@ -237,6 +237,7 @@ async fn main() -> Result<()> {
         .route("/v1/servers", get(get_servers))
         .route("/v1/users", get(get_users))
         .route("/v1/users/{user_id}", get(get_user))
+        .route("/v1/me/privacy-export", get(get_privacy_export))
         .route("/v1/analytics/commands", get(get_global_command_volume))
         .route("/v1/audit/{event_id}", get(get_global_audit_event))
         .route("/v1/commands/sync", axum::routing::post(sync_commands))
@@ -736,6 +737,48 @@ async fn get_user(
         .map_err(internal_error)?;
     record_read(&state, None, &actor, &headers, "fleet.user.viewed").await;
     Ok(Json(GlobalUserDetail { user, contexts }))
+}
+
+async fn get_privacy_export(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = state.auth.actor(&headers).await?;
+    let user = state
+        .infrastructure
+        .global_users()
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .find(|user| user.id == actor.discord_user_id);
+    let guild_contexts = if actor.discord_user_id.parse::<u64>().is_ok() {
+        state
+            .infrastructure
+            .user_guild_contexts(&actor.discord_user_id)
+            .await
+            .map_err(internal_error)?
+    } else {
+        Vec::new()
+    };
+    record_read(
+        &state,
+        None,
+        &actor,
+        &headers,
+        "privacy.personal_data.exported",
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "schema_version": 1,
+        "discord_user_id": actor.discord_user_id,
+        "profile": user,
+        "guild_contexts": guild_contexts,
+        "explanation": {
+            "profile": "Identity and fleet-wide aggregate data retained by Orivane.",
+            "guild_contexts": "Per-server command, moderation, XP, and installation context visible to the signed-in Discord account.",
+            "message_content": "Orivane audit logs do not retain deleted or edited message content."
+        }
+    })))
 }
 
 async fn get_global_command_volume(
