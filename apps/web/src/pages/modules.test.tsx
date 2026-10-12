@@ -52,7 +52,6 @@ describe('module configuration pages', () => {
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
       ['scheduled_messages', 'Scheduled messages settings', 'Enable Scheduled messages', 'switch', true],
-      ['forms', 'Forms settings', 'Enable Forms', 'switch', true],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -165,21 +164,43 @@ describe('module configuration pages', () => {
     expect(screen.getByText('No schedules yet')).toBeVisible()
   })
 
-  it('creates a native modal form and manages its questions', async () => {
+  it('lists forms and keeps the module save action after the directory', async () => {
     renderDashboard()
     await navigateTo(`/servers/${serverId}/modules/forms`)
-    await screen.findByRole('heading', { name: 'Forms settings' })
-    fireEvent.click(screen.getByRole('button', { name: 'Add form' }))
+    await screen.findByRole('heading', { name: 'Forms' })
+    expect(await screen.findByRole('heading', { name: 'Current forms' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Staff application' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'New form' })).toBeVisible()
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Forms' }))
+    const save = screen.getByRole('button', { name: 'Save changes' })
+    expect(save).toBeEnabled()
+    expect(save.compareDocumentPosition(screen.getByRole('heading', { name: 'Current forms' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
+  it('creates a native modal form on a dedicated details page', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/forms/new`)
+    await screen.findByRole('heading', { name: 'Form 2' })
     fireEvent.change(screen.getByLabelText(/^Form ID/), { target: { value: 'staff application!' } })
-    fireEvent.change(screen.getByLabelText(/^Form name/), { target: { value: 'Staff application' } })
+    fireEvent.change(screen.getByLabelText(/^Form name/), { target: { value: 'Volunteer application' } })
     fireEvent.change(screen.getByLabelText(/^Label/), { target: { value: 'Why should we choose you?' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add question' }))
     expect(screen.getByLabelText(/^Form ID/)).toHaveValue('staffapplication')
-    expect(screen.getAllByText(/Question [12]/)).toHaveLength(2)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove question' })[1])
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1])
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Remove form' }))
-    expect(screen.getByText('No forms yet')).toBeVisible()
+  })
+
+  it('shows form submissions and opens each response on a details page', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/forms/staff-application/submissions`)
+    await screen.findByRole('heading', { name: 'Staff application' })
+    expect(screen.getByRole('heading', { name: 'Submissions' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Inspect' })).toBeVisible()
+    await navigateTo(`/servers/${serverId}/modules/forms/staff-application/submissions/1`)
+    await screen.findByRole('heading', { name: 'Submitted answers' })
+    expect(screen.getByText('I have moderated community servers for several years.')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'View submitter' })).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

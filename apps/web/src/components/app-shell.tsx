@@ -7,6 +7,7 @@ import { authClient } from '../lib/auth-client'
 import { PaletteContext } from '../lib/palette'
 import { demoServers } from '../lib/server-data'
 import { Badge } from './ui'
+import { PageErrorBoundary } from './page-error-boundary'
 
 const demoServerId = '901234567890123456'
 let lastRecordedPath = ''
@@ -131,7 +132,7 @@ export function AppShell() {
           </div>
         </header>
         <PaletteContext.Provider value={() => setPaletteOpen(true)}>
-          <div className="page-wrap"><Outlet /></div>
+          <div className="page-wrap"><PageErrorBoundary key={pathname}><Outlet /></PageErrorBoundary></div>
         </PaletteContext.Provider>
       </main>
 
@@ -159,6 +160,10 @@ function pageTitle(pathname: string) {
   if (/^\/audit\/[^/]+$/.test(pathname)) return 'Audit event details'
   if (pathname.endsWith('/audit')) return 'Server audit log'
   if (pathname.includes('/audit/')) return 'Audit event details'
+  if (/\/modules\/forms\/[^/]+\/submissions\/[^/]+$/.test(pathname)) return 'Form submission'
+  if (pathname.endsWith('/submissions')) return 'Form submissions'
+  if (/\/modules\/forms\/[^/]+$/.test(pathname)) return 'Form settings'
+  if (pathname.endsWith('/modules/forms')) return 'Forms'
   if (/\/moderation\/[^/]+$/.test(pathname)) return 'Moderation case details'
   if (pathname.includes('/members/')) return 'Member details'
   if (pathname.includes('/analytics/')) return 'Analytics report'

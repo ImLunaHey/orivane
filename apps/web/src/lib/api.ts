@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewModerationCase } from '../types'
+import type { AuditEvent, FormSubmission, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewModerationCase } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -80,6 +80,29 @@ export async function saveGuildConfig(config: GuildConfig): Promise<GuildConfig>
     method: 'PUT',
     body: JSON.stringify(config),
   })
+}
+
+const demoSubmissions: FormSubmission[] = [{
+  id: 1,
+  guild_id: demoGuildId,
+  form_id: 'staff-application',
+  submitter_id: demoActorId,
+  answers: [{ question_id: 'experience', label: 'What relevant experience do you have?', answer: 'I have moderated community servers for several years.' }],
+  created_at: '2026-10-12T15:18:00Z',
+}]
+
+export async function getFormSubmissions(guildId: string, formId: string): Promise<FormSubmission[]> {
+  if (isDemoMode) return demoSubmissions.filter((submission) => submission.form_id === formId).map((submission) => ({ ...submission, guild_id: guildId }))
+  return request<FormSubmission[]>(`/v1/guilds/${guildId}/forms/${encodeURIComponent(formId)}/submissions`)
+}
+
+export async function getFormSubmission(guildId: string, formId: string, submissionId: string): Promise<FormSubmission> {
+  if (isDemoMode) {
+    const submission = (await getFormSubmissions(guildId, formId)).find((item) => String(item.id) === submissionId)
+    if (!submission) throw new Error('Form submission not found')
+    return submission
+  }
+  return request<FormSubmission>(`/v1/guilds/${guildId}/forms/${encodeURIComponent(formId)}/submissions/${submissionId}`)
 }
 
 export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {

@@ -15,6 +15,10 @@ const globalAuditDetailRoute = createRoute({ getParentRoute: () => rootRoute, pa
 
 const serverOverviewRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId', component: lazyRouteComponent(() => import('./pages/overview'), 'OverviewPage') })
 const modulesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules', component: lazyRouteComponent(() => import('./pages/modules'), 'ModulesPage') })
+const formsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms', component: lazyRouteComponent(() => import('./pages/forms'), 'FormsPage') })
+const formDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId', component: lazyRouteComponent(() => import('./pages/forms'), 'FormDetailPage') })
+const formSubmissionsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId/submissions', component: lazyRouteComponent(() => import('./pages/forms'), 'FormSubmissionsPage') })
+const formSubmissionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId/submissions/$submissionId', component: lazyRouteComponent(() => import('./pages/forms'), 'FormSubmissionPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -38,6 +42,10 @@ const routeTree = rootRoute.addChildren([
   globalAuditDetailRoute,
   serverOverviewRoute,
   modulesRoute,
+  formsRoute,
+  formDetailRoute,
+  formSubmissionsRoute,
+  formSubmissionRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

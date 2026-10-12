@@ -52,7 +52,27 @@ export const defaultConfig: GuildConfig = {
     autoresponder: { enabled: false, responses: [] },
     anti_raid: { enabled: false, join_threshold: 10, join_window_seconds: 60, minimum_account_age_days: 7, require_avatar: false, punish_all_during_raid: false, action: 'quarantine', timeout_seconds: 3600, quarantine_role_id: null, alert_channel_id: null },
     scheduled_messages: { enabled: false, schedules: [] },
-    forms: { enabled: false, forms: [] },
+    forms: {
+      enabled: false,
+      forms: [{
+        enabled: true,
+        id: 'staff-application',
+        name: 'Staff application',
+        description: 'Applications for community staff roles.',
+        destination_channel_id: '100000000000000003',
+        allowed_role_ids: [],
+        anonymous: false,
+        questions: [{
+          id: 'experience',
+          label: 'What relevant experience do you have?',
+          style: 'paragraph',
+          required: true,
+          min_length: 20,
+          max_length: 1000,
+          placeholder: 'Tell us about your experience',
+        }],
+      }],
+    },
   },
 }
 
