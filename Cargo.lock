@@ -874,6 +874,8 @@ dependencies = [
  "bot-core",
  "bot-discord",
  "bot-module-api",
+ "bot-test-support",
+ "tokio",
 ]
 
 [[package]]

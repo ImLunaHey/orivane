@@ -330,6 +330,16 @@ pub trait ModuleServices: Send + Sync {
     ) -> Result<Option<InviteAttributionResult>> {
         Ok(None)
     }
+    async fn ensure_invite_snapshot(
+        &self,
+        _guild_id: u64,
+        _invites: &[InviteUsageInput],
+    ) -> Result<bool> {
+        Ok(false)
+    }
+    async fn invite_snapshot_ready(&self, _guild_id: u64) -> Result<bool> {
+        Ok(false)
+    }
     async fn record_verification_attempt(
         &self,
         _guild_id: u64,

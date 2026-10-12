@@ -230,6 +230,27 @@ impl Infrastructure {
             u64::try_from(total).unwrap_or_default(),
         )))
     }
+    pub async fn ensure_invite_snapshot(
+        &self,
+        guild_id: &str,
+        invites: &[(String, Option<u64>, u64)],
+    ) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        let created: Option<String> = redis::cmd("SET")
+            .arg(format!("invite-snapshot:{guild_id}"))
+            .arg(serde_json::to_string(invites)?)
+            .arg("NX")
+            .query_async(&mut cache)
+            .await?;
+        Ok(created.is_some())
+    }
+    pub async fn invite_snapshot_ready(&self, guild_id: &str) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        Ok(redis::cmd("EXISTS")
+            .arg(format!("invite-snapshot:{guild_id}"))
+            .query_async(&mut cache)
+            .await?)
+    }
     pub async fn polls(&self, guild_id: &str, limit: i64) -> Result<Vec<Poll>, StoreError> {
         sqlx::query("UPDATE polls SET status='expired',closed_at=COALESCE(closed_at,now()) WHERE guild_id=$1 AND status='active' AND ends_at <= now()")
             .bind(guild_id).execute(&self.pool).await?;
@@ -1434,7 +1455,7 @@ impl Infrastructure {
 
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true' OR config #>> '{modules,forms,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true' OR config #>> '{modules,forms,enabled}' = 'true' OR config #>> '{modules,invite_tracking,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;

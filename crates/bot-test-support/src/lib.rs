@@ -6,15 +6,16 @@ use std::{
 use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
-    DiscordError, GuildChannel, GuildRole, MessageButton, MessageReactionSummary, ModalDefinition,
-    ModalSubmitInteraction, RichEmbed, RolePanelComponents, UserProfile,
+    DiscordError, GuildChannel, GuildInvite, GuildRole, MessageButton, MessageReactionSummary,
+    ModalDefinition, ModalSubmitInteraction, RichEmbed, RolePanelComponents, UserProfile,
 };
 use bot_module_api::{
     AutoroleJobResult, EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput,
-    GiveawayResult, ManagedEmbedResult, MessageDeletionJobResult, ModerationCaseInput,
-    ModerationJobResult, ModuleServices, ReminderInput, ReminderResult, StarboardPostResult,
-    SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput,
-    TicketResult, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
+    GiveawayResult, InviteUsageInput, ManagedEmbedResult, MessageDeletionJobResult,
+    ModerationCaseInput, ModerationJobResult, ModuleServices, ReminderInput, ReminderResult,
+    StarboardPostResult, SuggestionInput, SuggestionResult, TemporaryVoiceResult,
+    TicketPanelResult, TicketRecordInput, TicketResult, XpAdjustmentInput, XpAwardInput,
+    XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,6 +173,9 @@ pub enum DiscordCall {
         guild_id: u64,
     },
     GuildRoles {
+        guild_id: u64,
+    },
+    GuildInvites {
         guild_id: u64,
     },
     GuildMemberRoleIds {
@@ -460,6 +464,13 @@ pub enum ServiceCall {
         guild_id: u64,
         retention_days: u16,
     },
+    EnsureInviteSnapshot {
+        guild_id: u64,
+        invites: Vec<InviteUsageInput>,
+    },
+    InviteSnapshotReady {
+        guild_id: u64,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -714,6 +725,29 @@ impl ModuleServices for FakeModuleServices {
     }
     async fn open_ticket_count(&self, _: u64, _: Option<i64>, _: u64) -> anyhow::Result<u8> {
         Ok(0)
+    }
+
+    async fn ensure_invite_snapshot(
+        &self,
+        guild_id: u64,
+        invites: &[InviteUsageInput],
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::EnsureInviteSnapshot {
+                guild_id,
+                invites: invites.to_vec(),
+            });
+        Ok(true)
+    }
+
+    async fn invite_snapshot_ready(&self, guild_id: u64) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::InviteSnapshotReady { guild_id });
+        Ok(false)
     }
     async fn ticket_by_channel(
         &self,
@@ -1882,6 +1916,7 @@ struct FakeState {
     failures: VecDeque<DiscordError>,
     guild_channels: Vec<GuildChannel>,
     guild_roles: Vec<GuildRole>,
+    guild_invites: Vec<GuildInvite>,
     guild_member_role_ids: Vec<u64>,
     next_channel_id: u64,
     next_message_id: u64,
@@ -1919,6 +1954,10 @@ impl FakeDiscord {
 
     pub fn set_guild_roles(&self, roles: Vec<GuildRole>) {
         self.state.lock().expect("fake lock poisoned").guild_roles = roles;
+    }
+
+    pub fn set_guild_invites(&self, invites: Vec<GuildInvite>) {
+        self.state.lock().expect("fake lock poisoned").guild_invites = invites;
     }
 
     pub fn set_guild_member_role_ids(&self, role_ids: Vec<u64>) {
@@ -2372,6 +2411,16 @@ impl DiscordApi for FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .guild_roles
+            .clone())
+    }
+
+    async fn guild_invites(&self, guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
+        self.record(DiscordCall::GuildInvites { guild_id })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .guild_invites
             .clone())
     }
 

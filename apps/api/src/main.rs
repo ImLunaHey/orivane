@@ -1278,10 +1278,7 @@ async fn require_appeal_reviewer(
         }
     }
 
-    state
-        .auth
-        .require_guild(headers, &guild_id.to_string())
-        .await
+    state.auth.require_guild(headers, guild_id).await
 }
 
 async fn get_appeals(

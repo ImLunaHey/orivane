@@ -188,6 +188,26 @@ impl ModuleServices for GatewayModuleServices {
                 },
             ))
     }
+    async fn ensure_invite_snapshot(
+        &self,
+        g: u64,
+        i: &[bot_module_api::InviteUsageInput],
+    ) -> Result<bool> {
+        let values = i
+            .iter()
+            .map(|invite| (invite.code.clone(), invite.inviter_id, invite.uses))
+            .collect::<Vec<_>>();
+        Ok(self
+            .infrastructure
+            .ensure_invite_snapshot(&g.to_string(), &values)
+            .await?)
+    }
+    async fn invite_snapshot_ready(&self, g: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .invite_snapshot_ready(&g.to_string())
+            .await?)
+    }
     async fn record_verification_attempt(
         &self,
         g: u64,
