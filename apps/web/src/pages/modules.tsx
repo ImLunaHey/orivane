@@ -9,6 +9,7 @@ import { Badge, Button, Panel, Toggle } from '../components/ui'
 import { WelcomeMessageEditor } from '../components/welcome-message-editor'
 import { getEmbedTemplates, getGuildChannels, getGuildConfig, getGuildRoles, getServers, saveGuildConfig } from '../lib/api'
 import type { CustomCommand, EmbedTemplate, GuildChannel, GuildConfig, GuildRole } from '../types'
+import { ModuleDetailsLink } from './modules/module-details-link'
 
 type ModuleKey = keyof GuildConfig['modules']
 type ModuleMeta = { title: string; description: string; icon: typeof Bot; tone: string; runtime: 'Live' | 'Configuration only' }
@@ -68,8 +69,8 @@ export function ModulesPage() {
         const module = draft.modules[key]
         return <Panel key={key} className={`module-card ${module.enabled ? 'module-enabled' : ''}`}>
           <div className="module-top"><span className={`module-icon ${meta.tone}`}><Icon size={21} /></span><Toggle label={`Enable ${meta.title}`} checked={module.enabled} onChange={(enabled) => updateModule(key, { ...module, enabled } as GuildConfig['modules'][typeof key])} /></div>
-          <Link className="module-card-main" to="/servers/$serverId/modules/$moduleId" params={{ serverId, moduleId: key }}><div className="module-title-row"><h3>{meta.title}</h3><Badge tone={meta.runtime === 'Live' ? 'green' : 'neutral'}>{meta.runtime}</Badge></div><p>{meta.description}</p></Link>
-          <div className="module-status"><Badge tone={module.enabled ? 'green' : 'neutral'}>{module.enabled ? 'Enabled' : 'Disabled'}</Badge><Link to="/servers/$serverId/modules/$moduleId" params={{ serverId, moduleId: key }}>View details →</Link></div>
+          <ModuleDetailsLink className="module-card-main" serverId={serverId} moduleId={key}><div className="module-title-row"><h3>{meta.title}</h3><Badge tone={meta.runtime === 'Live' ? 'green' : 'neutral'}>{meta.runtime}</Badge></div><p>{meta.description}</p></ModuleDetailsLink>
+          <div className="module-status"><Badge tone={module.enabled ? 'green' : 'neutral'}>{module.enabled ? 'Enabled' : 'Disabled'}</Badge><ModuleDetailsLink serverId={serverId} moduleId={key}>View details →</ModuleDetailsLink></div>
         </Panel>
       })}
     </section>

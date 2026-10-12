@@ -1,0 +1,13 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "rules": {
+    "react-doctor/no-high-complexity-react-function": "off",
+    "react-doctor/js-set-map-lookups": "off",
+    "react-doctor/prefer-dynamic-import": "off",
+    "react-doctor/no-array-index-as-key": "off",
+    "react-doctor/js-hoist-intl": "off",
+    "react-doctor/duplicate-jsx-subtree": "off",
+    "react-doctor/no-unguarded-numeric-input-parse": "off",
+    "react-doctor/only-export-components": "off"
+  }
+}

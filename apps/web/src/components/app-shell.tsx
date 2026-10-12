@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Activity, BarChart3, Bot, ChevronDown, Command, FileClock, LayoutDashboard, LogOut, Menu, Server, Settings2, Shield, UserRoundSearch, Users, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getServers, isDemoMode, recordDashboardActivity } from '../lib/api'
 import { authClient } from '../lib/auth-client'
@@ -45,6 +45,12 @@ export function AppShell() {
   const selectedServer = servers.find((server) => server.id === serverId) ?? { id: serverId, name: `Server ${serverId.slice(-4)}`, members: 0, commands: 0, status: 'Connected' as const, shard: 0, installer: 'Unattributed', installerId: '' }
   const inServer = pathname.startsWith(`/servers/${serverId}`)
   const current = pageTitle(pathname)
+  const openPalette = useCallback(() => setPaletteOpen(true), [])
+  const paletteContext = useMemo(() => openPalette, [openPalette])
+  const signOut = async () => {
+    await authClient.signOut()
+    window.location.assign('/')
+  }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -78,7 +84,7 @@ export function AppShell() {
           <button className="mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
         </div>
 
-        {inServer && <div className="server-switcher" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setServerMenuOpen(false) }} onKeyDown={(event) => { if (event.key === 'Escape') setServerMenuOpen(false) }}>
+        {inServer && <div className="server-switcher" role="group" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setServerMenuOpen(false) }}>
           <button className="guild-picker" aria-haspopup="menu" aria-expanded={serverMenuOpen} onClick={() => setServerMenuOpen((open) => !open)}>
             <span className="guild-avatar">{selectedServer.name.charAt(0)}</span>
             <span><strong>{selectedServer.name}</strong><small>{selectedServer.id.slice(0, 4)}…{selectedServer.id.slice(-4)}</small></span>
@@ -115,7 +121,7 @@ export function AppShell() {
             </button>
             {accountMenuOpen && <div className="account-menu" role="menu">
               <div><strong>{session.data?.user.name ?? 'Local demo'}</strong><small>{session.data?.user.email ?? 'No live account connected'}</small></div>
-              {!isDemoMode && <button role="menuitem" onClick={() => void authClient.signOut().then(() => window.location.assign('/'))}><LogOut size={16} />Sign out</button>}
+              {!isDemoMode && <button role="menuitem" onClick={() => void signOut()}><LogOut size={16} />Sign out</button>}
             </div>}
           </div>
         </div>
@@ -132,19 +138,20 @@ export function AppShell() {
             <div className="status-pill"><span />All systems operational</div>
           </div>
         </header>
-        <PaletteContext.Provider value={() => setPaletteOpen(true)}>
+        <PaletteContext.Provider value={paletteContext}>
           <div className="page-wrap">{inServer && <ResourceHealthBanner serverId={serverId} />}<PageErrorBoundary key={pathname}><Outlet /></PageErrorBoundary></div>
         </PaletteContext.Provider>
       </main>
 
       {paletteOpen && (
-        <div className="palette-backdrop" role="presentation" onMouseDown={() => setPaletteOpen(false)}>
-          <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}>
+        <dialog open className="palette-backdrop" aria-label="Command palette">
+          <button className="palette-dismiss" aria-label="Close command palette" onClick={() => setPaletteOpen(false)} />
+          <div className="command-palette">
             <div className="palette-title"><Command size={16} /><span>Go to</span><button onClick={() => setPaletteOpen(false)}>Esc</button></div>
             {globalNavigation.map(({ to, label, icon: Icon }) => <button key={to} onClick={() => { void navigate({ to }); setPaletteOpen(false) }}><Icon size={17} /><span>{label}</span><small>Bot →</small></button>)}
             {serverNavigation.map(({ to, label, icon: Icon }) => <button key={to} onClick={() => { void navigate({ to, params: { serverId } }); setPaletteOpen(false) }}><Icon size={17} /><span>{label}</span><small>Server →</small></button>)}
           </div>
-        </div>
+        </dialog>
       )}
     </div>
   )

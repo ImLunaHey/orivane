@@ -17,8 +17,10 @@ export function AnalyticsPage() {
   const summary = useQuery({ queryKey: ['guild-stats', serverId], queryFn: () => getGuildStats(serverId) })
   const volume = useQuery({ queryKey: ['command-volume', 'v2', serverId], queryFn: () => getCommandVolume(serverId) })
   const audit = useQuery({ queryKey: ['audit-events', serverId], queryFn: () => getAuditEvents(serverId) })
-  const liveEvents = (audit.data ?? []).map(auditToAnalytics)
-  const events = isDemoMode ? analyticsEvents : liveEvents
+  const events = useMemo(
+    () => isDemoMode ? analyticsEvents : (audit.data ?? []).map(auditToAnalytics),
+    [audit.data],
+  )
   const columns = useMemo<ColumnDef<AnalyticsEvent>[]>(() => [
     { accessorKey: 'event', header: 'Event', cell: ({ row }) => <span className="event-name"><Radio size={14} />{row.original.event}</span> },
     { accessorKey: 'module', header: 'Module' },
@@ -26,7 +28,10 @@ export function AnalyticsPage() {
     { accessorKey: 'latency', header: 'Latency', cell: ({ row }) => `${row.original.latency} ms` },
     { accessorKey: 'occurredAt', header: 'Occurred' },
   ], [])
-  const filtered = events.filter((event) => `${event.event} ${event.module} ${event.outcome}`.toLowerCase().includes(search.toLowerCase()))
+  const filtered = useMemo(
+    () => events.filter((event) => `${event.event} ${event.module} ${event.outcome}`.toLowerCase().includes(search.toLowerCase())),
+    [events, search],
+  )
   const table = useReactTable({ data: filtered, columns, getCoreRowModel: getCoreRowModel() })
 
   return <div className="page-stack">

@@ -1,7 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, Check, Lightbulb, LoaderCircle, MessageSquareText, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { ArrowLeft, Check, LoaderCircle, MessageSquareText, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { DataTable } from '../components/data-table'
 import { DiscordChannelSelect } from '../components/discord-channel-select'

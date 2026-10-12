@@ -49,7 +49,7 @@ describe('dashboard accessibility', () => {
           'color-contrast': { enabled: false },
         },
       })
-      expect(results.violations.map(({ id, help }) => `${id}: ${help}`), path).toEqual([])
+      expect(results.violations.map(({ id, help }) => `${path} · ${id}: ${help}`)).toEqual([])
     }
     cleanup()
   }, 30_000)

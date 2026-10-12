@@ -45,7 +45,7 @@ export function DiscordRoleSelect({ title, detail, values, roles, pending, error
     </button>
     {selected.length > 0 && <div className="discord-role-chips" aria-label="Selected roles">{selected.map((role) => <button type="button" key={role.id} onClick={() => toggle(role)} aria-label={`Remove ${role.name}`}><Shield size={14} />{role.name}<X size={14} /></button>)}</div>}
     {open && <div className="discord-role-menu">
-      <input autoFocus aria-label={`Search ${title.toLowerCase()}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search server roles" />
+      <input aria-label={`Search ${title.toLowerCase()}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search server roles" />
       <div role="listbox" aria-multiselectable="true" aria-labelledby={`${id}-label`}>
         {filtered.map((role) => {
           const checked = values.includes(role.id)

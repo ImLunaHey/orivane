@@ -92,6 +92,10 @@ jobs:
           cache-dependency-path: apps/web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - name: Oxc lint
+        run: pnpm lint
+      - name: React Doctor
+        run: pnpm run doctor
       - name: Tests, accessibility checks, and coverage gates
         run: pnpm test:coverage
       - run: pnpm build

@@ -1,7 +1,7 @@
 import { Link, useParams } from '@tanstack/react-router'
 import { Activity, ArrowLeft, CalendarDays, CheckCircle2, Clock3, Command, Database, Gauge, LoaderCircle, MessageSquare, Search, ShieldCheck, UserRoundCheck, Users } from 'lucide-react'
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Panel } from '../components/ui'
 import { downloadCsv } from '../lib/export'
 import { getAuditEvents, getGuildMembers, getGuildStats, getHealthReport, isDemoMode, syncCommands } from '../lib/api'
@@ -33,7 +33,8 @@ export function HealthPage() {
 
 export function CommandsPage() {
   const [query, setQuery] = useState('')
-  const sync = useMutation({ mutationFn: syncCommands })
+  const client = useQueryClient()
+  const sync = useMutation({ mutationFn: syncCommands, onSuccess: () => client.invalidateQueries({ queryKey: ['audit-events', 'global'] }) })
   const audit = useQuery({ queryKey: ['audit-events', 'global'], queryFn: () => getAuditEvents() })
   const commandDefinitions = [{ name: '/ping', description: 'Check whether the bot is responding.' }, { name: '/help', description: 'Show commands enabled in this server.' }, { name: '/serverinfo', description: 'Show this server’s bot configuration summary.' }]
   const liveCommands = commandDefinitions.map((definition) => {
@@ -45,7 +46,7 @@ export function CommandsPage() {
   const registry = isDemoMode ? commands : liveCommands
   const filtered = registry.filter((command) => `${command.name} ${command.module} ${command.description}`.toLowerCase().includes(query.toLowerCase()))
   return <div className="page-stack"><PageIntro eyebrow="System" title="Commands" description="Slash-command registry, usage, and reliability." action={<Button disabled={sync.isPending} onClick={() => sync.mutate()}>{sync.isPending ? <LoaderCircle className="spin" size={16} /> : <Command size={16} />}Sync commands</Button>} />
-    {sync.isSuccess && <div className="success-banner" role="status">Synchronized {sync.data.synchronized} slash command{sync.data.synchronized === 1 ? '' : 's'} with Discord.</div>}
+    {sync.isSuccess && <output className="success-banner">Synchronized {sync.data.synchronized} slash command{sync.data.synchronized === 1 ? '' : 's'} with Discord.</output>}
     {sync.isError && <div className="error-banner" role="alert">{sync.error.message}</div>}
     <Panel className="system-panel"><div className="table-toolbar"><div><h3>Global command registry</h3><Badge tone="violet">{registry.length} commands</Badge></div><label className="search-box"><Search size={15} /><input aria-label="Search slash commands" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a command" /></label></div><div className="command-list">{filtered.map((item) => <div key={item.name}><code>{item.name}</code><span><strong>{item.description}</strong><small>{item.module}</small></span><span><strong>{item.uses}</strong><small>recent audited uses</small></span><span><strong>{item.success}</strong><small>success</small></span><span><strong>{item.p95}</strong><small>p95</small></span></div>)}</div></Panel>
   </div>

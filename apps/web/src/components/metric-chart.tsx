@@ -23,7 +23,7 @@ export type MetricChartProps = {
  */
 export function MetricChart(props: MetricChartProps) {
   if (props.data.length === 0) {
-    return <div className="chart-empty" role="status"><strong>No telemetry yet</strong><span>Live audited events will appear here as Orivane is used.</span></div>
+    return <output className="chart-empty"><strong>No telemetry yet</strong><span>Live audited events will appear here as Orivane is used.</span></output>
   }
   return props.type === 'bar'
     ? <BarMetricChart {...props} />

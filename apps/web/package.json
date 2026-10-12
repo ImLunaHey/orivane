@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "lint": "oxlint src --react-plugin --jsx-a11y-plugin --import-plugin --vitest-plugin -A vitest/require-mock-type-parameters -A vitest/no-conditional-expect -A react/incompatible-library -A react/set-state-in-effect -A react/purity -A jsx-a11y/prefer-tag-over-role -A jsx-a11y/no-noninteractive-element-interactions --deny-warnings --report-unused-disable-directives",
+    "doctor": "react-doctor . --yes --no-supply-chain --no-score --blocking warning --no-color",
+    "check": "pnpm typecheck && pnpm lint && pnpm run doctor && pnpm test:coverage && pnpm build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b --pretty false"
@@ -39,6 +42,8 @@
     "@vitest/coverage-v8": "4.1.11",
     "axe-core": "^4.14.0",
     "jsdom": "^30.1.2",
+    "oxlint": "^1.87.0",
+    "react-doctor": "^0.9.17",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

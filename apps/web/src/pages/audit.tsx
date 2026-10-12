@@ -36,7 +36,7 @@ function AuditLogPage({ guildId }: { guildId?: string }) {
   const [outcome, setOutcome] = useState<OutcomeFilter>('all')
   const auditQuery = useQuery({ queryKey: ['audit-events', guildId ?? 'global'], queryFn: () => getAuditEvents(guildId) })
   const serversQuery = useQuery({ queryKey: ['servers'], queryFn: getServers, enabled: !guildId })
-  const servers = serversQuery.data ?? (isDemoMode ? demoServers : [])
+  const servers = useMemo(() => serversQuery.data ?? (isDemoMode ? demoServers : []), [serversQuery.data])
   const events = useMemo(() => auditQuery.data ?? [], [auditQuery.data])
   const filtered = useMemo(() => events.filter((event) => {
     const haystack = `${event.action} ${event.actor_id} ${event.target_type} ${event.target_id ?? ''} ${event.source} ${event.reason ?? ''}`.toLowerCase()

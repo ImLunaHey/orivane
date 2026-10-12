@@ -53,13 +53,14 @@ export function DiscordMemberSelect({ title, detail, value, members, pending, er
       aria-describedby={`${id}-detail`}
       aria-haspopup="listbox"
       aria-expanded={open}
+      aria-controls={`${id}-options`}
       disabled={pending || error}
       onClick={() => setOpen((current) => !current)}
     >
       <span className={!selected ? 'placeholder' : undefined}><UserRound size={17}/>{selected ? memberLabel(selected) : value ? `Discord user ${value.slice(-4)}` : pending ? 'Loading members…' : error ? 'Could not load members' : 'Select a member'}</span>
       <ChevronDown className="discord-channel-chevron" size={17}/>
     </button>
-    {open && <div className="discord-channel-menu discord-member-menu" role="listbox" aria-labelledby={`${id}-label`}>
+    {open && <div id={`${id}-options`} className="discord-channel-menu discord-member-menu" role="listbox" aria-labelledby={`${id}-label`}>
       <label className="discord-member-search"><Search size={16}/><input ref={search} aria-label="Search members" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or username"/></label>
       {value && <button type="button" role="option" aria-selected={false} className="discord-channel-option" onClick={() => choose(null)}><span className="discord-channel-option-name"><X size={17}/>Unassign</span></button>}
       {results.map((member) => <button key={member.id} type="button" role="option" aria-selected={member.id === value} className="discord-channel-option" onClick={() => choose(member.id)}>

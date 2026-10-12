@@ -64,7 +64,8 @@ describe('module configuration pages', () => {
       const input = screen.getByLabelText(new RegExp(`^${control}`))
       if (kind === 'switch') fireEvent.click(input)
       if (kind === 'text' || kind === 'number') fireEvent.change(input, { target: { value } })
-      if (kind) expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+      const saveDisabled = screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')
+      expect(kind ? saveDisabled : false).toBe(false)
       expect(screen.queryByText('Not active in Discord yet')).not.toBeInTheDocument()
     }
   })

@@ -2,12 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { ArrowLeft, BarChart3, CheckCircle2, Clock3, ListChecks, LoaderCircle, ShieldAlert, Users } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { DataTable } from '../components/data-table'
 import { DiscordMemberLink } from '../components/discord-member-link'
 import { Badge, Button, Panel, SectionHeader } from '../components/ui'
 import { clearAfkStatus, closePoll, getAppeal, getInviteLeaderboard, getOperationalRecords, getPoll, reviewAppeal, type OperationalModule } from '../lib/api'
-import type { FormSubmission, InviteLeaderboardRecord, OperationalRecord, PollRecord } from '../types'
+import type { InviteLeaderboardRecord, OperationalRecord, PollRecord } from '../types'
 
 const operationalModules = new Set<OperationalModule>(['moderation_appeals','polls','invite_tracking','verification','counters','afk','voice_text_linking'])
 const titles:Record<OperationalModule,string>={moderation_appeals:'Moderation appeals',polls:'Polls',invite_tracking:'Invite tracking',verification:'Verification',counters:'Counters and goals',afk:'AFK statuses',voice_text_linking:'Voice and text activity'}
