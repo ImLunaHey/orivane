@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, Bot, CalendarClock, Check, ClipboardList, Gavel, Lightbulb, LoaderCircle, MessageSquareReply, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus } from 'lucide-react'
+import { ArrowLeft, Bot, CalendarClock, Check, ClipboardList, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DiscordChannelSelect } from '../components/discord-channel-select'
 import { DiscordChannelMultiSelect } from '../components/discord-channel-multi-select'
@@ -30,6 +30,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   scheduled_messages: { title: 'Scheduled messages', description: 'Post recurring announcements on a durable server-owned schedule.', icon: CalendarClock, tone: 'blue', runtime: 'Live' },
   forms: { title: 'Forms', description: 'Collect structured responses with native Discord modals and route them to staff.', icon: ClipboardList, tone: 'green', runtime: 'Live' },
   suggestions: { title: 'Suggestions', description: 'Collect ideas, let members vote, and manage an audited staff decision workflow.', icon: Lightbulb, tone: 'amber', runtime: 'Live' },
+  giveaways: { title: 'Giveaways', description: 'Run scheduled button-entry prize draws with eligibility rules and accountable rerolls.', icon: Gift, tone: 'amber', runtime: 'Live' },
 }
 
 export function ModulesPage() {
@@ -120,6 +121,7 @@ function ModuleSettings({ moduleKey, config, update, channels, channelsPending, 
     case 'scheduled_messages': return <ScheduledMessagesEditor value={modules.scheduled_messages} channels={channels} channelsPending={channelsPending} channelsError={channelsError} onChange={(scheduled_messages) => update('scheduled_messages', scheduled_messages)} />
     case 'forms': return null
     case 'suggestions': return null
+    case 'giveaways': return null
   }
 }
 

@@ -10,8 +10,8 @@ use bot_discord::{
     ModalSubmitInteraction,
 };
 use bot_module_api::{
-    FormSubmissionInput, ModerationCaseInput, ModuleServices, SuggestionInput, SuggestionResult,
-    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    FormSubmissionInput, GiveawayInput, GiveawayResult, ModerationCaseInput, ModuleServices,
+    SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,6 +188,46 @@ pub enum ServiceCall {
         status: String,
         staff_note: Option<String>,
     },
+    CreateGiveaway(GiveawayInput),
+    ActivateGiveaway {
+        guild_id: u64,
+        giveaway_id: i64,
+        message_id: u64,
+    },
+    FailGiveawayDelivery {
+        guild_id: u64,
+        giveaway_id: i64,
+    },
+    Giveaway {
+        guild_id: u64,
+        giveaway_id: i64,
+    },
+    EnterGiveaway {
+        guild_id: u64,
+        giveaway_id: i64,
+        user_id: u64,
+        weight: u8,
+    },
+    DueGiveawayIds {
+        guild_id: u64,
+        now_unix: u64,
+    },
+    PendingGiveawayAnnouncementIds {
+        guild_id: u64,
+    },
+    MarkGiveawayAnnounced {
+        guild_id: u64,
+        giveaway_id: i64,
+    },
+    EndGiveaway {
+        guild_id: u64,
+        giveaway_id: i64,
+        force: bool,
+    },
+    RerollGiveaway {
+        guild_id: u64,
+        giveaway_id: i64,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -299,6 +339,191 @@ impl ModuleServices for FakeModuleServices {
             upvotes: 0,
             downvotes: 0,
         }))
+    }
+
+    async fn create_giveaway(&self, input: GiveawayInput) -> anyhow::Result<GiveawayResult> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CreateGiveaway(input.clone()));
+        Ok(fake_giveaway(12, &input))
+    }
+
+    async fn activate_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        message_id: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ActivateGiveaway {
+                guild_id,
+                giveaway_id,
+                message_id,
+            });
+        Ok(true)
+    }
+
+    async fn fail_giveaway_delivery(&self, guild_id: u64, giveaway_id: i64) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::FailGiveawayDelivery {
+                guild_id,
+                giveaway_id,
+            });
+        Ok(())
+    }
+
+    async fn giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+    ) -> anyhow::Result<Option<GiveawayResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::Giveaway {
+                guild_id,
+                giveaway_id,
+            });
+        let mut result = fake_giveaway(
+            giveaway_id,
+            &GiveawayInput {
+                guild_id,
+                channel_id: 20,
+                creator_id: 40,
+                title: "Nitro".into(),
+                description: String::new(),
+                winner_count: 1,
+                minimum_account_age_days: 0,
+                required_role_ids: vec![],
+                bonus_role_id: None,
+                bonus_entries: 1,
+                ends_at_unix: u64::MAX,
+            },
+        );
+        result.status = "active".into();
+        Ok(Some(result))
+    }
+
+    async fn enter_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        user_id: u64,
+        weight: u8,
+    ) -> anyhow::Result<Option<bool>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::EnterGiveaway {
+                guild_id,
+                giveaway_id,
+                user_id,
+                weight,
+            });
+        Ok(Some(true))
+    }
+
+    async fn due_giveaway_ids(&self, guild_id: u64, now_unix: u64) -> anyhow::Result<Vec<i64>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::DueGiveawayIds { guild_id, now_unix });
+        Ok(vec![])
+    }
+
+    async fn pending_giveaway_announcement_ids(&self, guild_id: u64) -> anyhow::Result<Vec<i64>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::PendingGiveawayAnnouncementIds { guild_id });
+        Ok(vec![])
+    }
+
+    async fn mark_giveaway_announced(&self, guild_id: u64, giveaway_id: i64) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::MarkGiveawayAnnounced {
+                guild_id,
+                giveaway_id,
+            });
+        Ok(())
+    }
+
+    async fn end_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        force: bool,
+    ) -> anyhow::Result<Option<GiveawayResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::EndGiveaway {
+                guild_id,
+                giveaway_id,
+                force,
+            });
+        let mut result = fake_giveaway(
+            giveaway_id,
+            &GiveawayInput {
+                guild_id,
+                channel_id: 20,
+                creator_id: 40,
+                title: "Nitro".into(),
+                description: String::new(),
+                winner_count: 1,
+                minimum_account_age_days: 0,
+                required_role_ids: vec![],
+                bonus_role_id: None,
+                bonus_entries: 1,
+                ends_at_unix: 1,
+            },
+        );
+        result.status = "ended".into();
+        result.winner_ids = vec![50];
+        result.entrant_count = 1;
+        result.total_entries = 1;
+        Ok(Some(result))
+    }
+
+    async fn reroll_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+    ) -> anyhow::Result<Option<GiveawayResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RerollGiveaway {
+                guild_id,
+                giveaway_id,
+            });
+        let mut result = fake_giveaway(
+            giveaway_id,
+            &GiveawayInput {
+                guild_id,
+                channel_id: 20,
+                creator_id: 40,
+                title: "Nitro".into(),
+                description: String::new(),
+                winner_count: 1,
+                minimum_account_age_days: 0,
+                required_role_ids: vec![],
+                bonus_role_id: None,
+                bonus_entries: 1,
+                ends_at_unix: 1,
+            },
+        );
+        result.status = "ended".into();
+        result.winner_ids = vec![60];
+        result.reroll_count = 1;
+        Ok(Some(result))
     }
 
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> anyhow::Result<i64> {
@@ -510,6 +735,25 @@ impl ModuleServices for FakeModuleServices {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
         calls.push(ServiceCall::CreateFormSubmission(input));
         Ok(i64::try_from(calls.len()).unwrap_or(i64::MAX))
+    }
+}
+
+fn fake_giveaway(id: i64, input: &GiveawayInput) -> GiveawayResult {
+    GiveawayResult {
+        id,
+        channel_id: input.channel_id,
+        title: input.title.clone(),
+        status: "pending_delivery".into(),
+        winner_count: input.winner_count,
+        minimum_account_age_days: input.minimum_account_age_days,
+        required_role_ids: input.required_role_ids.clone(),
+        bonus_role_id: input.bonus_role_id,
+        bonus_entries: input.bonus_entries,
+        winner_ids: vec![],
+        entrant_count: 0,
+        total_entries: 0,
+        ends_at_unix: input.ends_at_unix,
+        reroll_count: 0,
     }
 }
 

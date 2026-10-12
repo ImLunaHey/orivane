@@ -85,6 +85,39 @@ pub struct SuggestionResult {
     pub downvotes: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GiveawayInput {
+    pub guild_id: u64,
+    pub channel_id: u64,
+    pub creator_id: u64,
+    pub title: String,
+    pub description: String,
+    pub winner_count: u8,
+    pub minimum_account_age_days: u16,
+    pub required_role_ids: Vec<u64>,
+    pub bonus_role_id: Option<u64>,
+    pub bonus_entries: u8,
+    pub ends_at_unix: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GiveawayResult {
+    pub id: i64,
+    pub channel_id: u64,
+    pub title: String,
+    pub status: String,
+    pub winner_count: u8,
+    pub minimum_account_age_days: u16,
+    pub required_role_ids: Vec<u64>,
+    pub bonus_role_id: Option<u64>,
+    pub bonus_entries: u8,
+    pub winner_ids: Vec<u64>,
+    pub entrant_count: u64,
+    pub total_entries: u64,
+    pub ends_at_unix: u64,
+    pub reroll_count: u32,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
@@ -155,6 +188,36 @@ pub trait ModuleServices: Send + Sync {
         status: &str,
         staff_note: Option<&str>,
     ) -> Result<Option<SuggestionResult>>;
+    async fn create_giveaway(&self, input: GiveawayInput) -> Result<GiveawayResult>;
+    async fn activate_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        message_id: u64,
+    ) -> Result<bool>;
+    async fn fail_giveaway_delivery(&self, guild_id: u64, giveaway_id: i64) -> Result<()>;
+    async fn giveaway(&self, guild_id: u64, giveaway_id: i64) -> Result<Option<GiveawayResult>>;
+    async fn enter_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        user_id: u64,
+        weight: u8,
+    ) -> Result<Option<bool>>;
+    async fn due_giveaway_ids(&self, guild_id: u64, now_unix: u64) -> Result<Vec<i64>>;
+    async fn pending_giveaway_announcement_ids(&self, guild_id: u64) -> Result<Vec<i64>>;
+    async fn mark_giveaway_announced(&self, guild_id: u64, giveaway_id: i64) -> Result<()>;
+    async fn end_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        force: bool,
+    ) -> Result<Option<GiveawayResult>>;
+    async fn reroll_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+    ) -> Result<Option<GiveawayResult>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -53,6 +53,7 @@ export type GuildConfig = {
     scheduled_messages: { enabled: boolean; schedules: ScheduledMessage[] }
     forms: { enabled: boolean; forms: ServerForm[] }
     suggestions: { enabled: boolean; channel_id: string | null; staff_role_ids: string[]; allow_anonymous: boolean; cooldown_seconds: number }
+    giveaways: { enabled: boolean; default_channel_id: string | null; manager_role_ids: string[]; default_duration_minutes: number; default_winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number }
   }
 }
 
@@ -65,6 +66,10 @@ export type FormSubmissionAnswer = { question_id: string; label: string; answer:
 export type FormSubmission = { id: number; guild_id: string; form_id: string; submitter_id: string | null; username: string | null; display_name: string | null; answers: FormSubmissionAnswer[]; created_at: string }
 export type SuggestionStatus = 'pending' | 'approved' | 'rejected' | 'implemented' | 'duplicate'
 export type Suggestion = { id: number; guild_id: string; channel_id: string; message_id: string | null; author_id: string | null; username: string | null; display_name: string | null; content: string; status: SuggestionStatus; staff_note: string | null; upvotes: number; downvotes: number; created_at: string; updated_at: string }
+export type GiveawayStatus = 'pending_delivery' | 'active' | 'ended' | 'cancelled' | 'delivery_failed'
+export type Giveaway = { id: number; guild_id: string; channel_id: string; message_id: string | null; creator_id: string; creator_username: string | null; creator_display_name: string | null; title: string; description: string; status: GiveawayStatus; winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number; winner_ids: string[]; entrant_count: number; total_entries: number; ends_at: string; ended_at: string | null; reroll_count: number; created_at: string; updated_at: string }
+export type GiveawayEntry = { user_id: string; username: string | null; display_name: string | null; weight: number; created_at: string }
+export type NewGiveaway = { channel_id: string; title: string; description: string; winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number; ends_at_unix: number }
 
 export type CustomCommand = {
   enabled: boolean

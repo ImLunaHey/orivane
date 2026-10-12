@@ -42,6 +42,8 @@ pub struct ModulesConfig {
     pub forms: FormsConfig,
     #[serde(default)]
     pub suggestions: SuggestionsConfig,
+    #[serde(default)]
+    pub giveaways: GiveawaysConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -360,6 +362,26 @@ pub struct SuggestionsConfig {
     pub cooldown_seconds: u32,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct GiveawaysConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub default_channel_id: Option<String>,
+    #[serde(default)]
+    pub manager_role_ids: Vec<String>,
+    #[serde(default = "default_giveaway_duration")]
+    pub default_duration_minutes: u32,
+    #[serde(default = "default_giveaway_winners")]
+    pub default_winner_count: u8,
+    #[serde(default)]
+    pub minimum_account_age_days: u16,
+    #[serde(default)]
+    pub required_role_ids: Vec<String>,
+    pub bonus_role_id: Option<String>,
+    #[serde(default = "default_bonus_entries")]
+    pub bonus_entries: u8,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -404,6 +426,8 @@ pub enum ConfigValidationError {
     InvalidForms,
     #[error("suggestions channel, staff roles, or cooldown are invalid")]
     InvalidSuggestions,
+    #[error("giveaway channel, roles, duration, winner count, or bonus entries are invalid")]
+    InvalidGiveaways,
 }
 
 impl GuildConfig {
@@ -708,6 +732,26 @@ impl GuildConfig {
             return Err(ConfigValidationError::InvalidSuggestions);
         }
 
+        let giveaways = &self.modules.giveaways;
+        if (giveaways.enabled
+            && giveaways
+                .default_channel_id
+                .as_deref()
+                .is_none_or(|id| !valid_snowflake(id)))
+            || invalid_snowflake_list(&giveaways.manager_role_ids, 25)
+            || invalid_snowflake_list(&giveaways.required_role_ids, 25)
+            || giveaways
+                .bonus_role_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || !(1..=525_600).contains(&giveaways.default_duration_minutes)
+            || !(1..=25).contains(&giveaways.default_winner_count)
+            || giveaways.minimum_account_age_days > 3650
+            || giveaways.bonus_entries > 25
+        {
+            return Err(ConfigValidationError::InvalidGiveaways);
+        }
+
         Ok(())
     }
 }
@@ -720,6 +764,31 @@ fn default_form_max_length() -> u16 {
 }
 const fn default_suggestion_cooldown() -> u32 {
     300
+}
+const fn default_giveaway_duration() -> u32 {
+    1_440
+}
+const fn default_giveaway_winners() -> u8 {
+    1
+}
+const fn default_bonus_entries() -> u8 {
+    1
+}
+
+impl Default for GiveawaysConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_channel_id: None,
+            manager_role_ids: Vec::new(),
+            default_duration_minutes: default_giveaway_duration(),
+            default_winner_count: default_giveaway_winners(),
+            minimum_account_age_days: 0,
+            required_role_ids: Vec::new(),
+            bonus_role_id: None,
+            bonus_entries: default_bonus_entries(),
+        }
+    }
 }
 
 impl Default for SuggestionsConfig {
@@ -1017,6 +1086,23 @@ mod tests {
         assert_eq!(
             config.validate(),
             Err(ConfigValidationError::InvalidSuggestions)
+        );
+    }
+
+    #[test]
+    fn enabled_giveaways_require_valid_defaults() {
+        let mut config = GuildConfig::for_guild("123");
+        config.modules.giveaways.enabled = true;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidGiveaways)
+        );
+        config.modules.giveaways.default_channel_id = Some("456".into());
+        assert_eq!(config.validate(), Ok(()));
+        config.modules.giveaways.default_winner_count = 0;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidGiveaways)
         );
     }
 }

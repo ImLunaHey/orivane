@@ -8,8 +8,8 @@ use std::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{
-    Infrastructure, NewAuditEvent, NewFormSubmission, NewModerationCase, NewSuggestion, Suggestion,
-    level_for_xp,
+    Giveaway, Infrastructure, NewAuditEvent, NewFormSubmission, NewGiveaway, NewModerationCase,
+    NewSuggestion, Suggestion, level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -17,15 +17,17 @@ use bot_discord::{
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, FormSubmissionInput, MemberJoin, MemberLeave, MessageCreate,
-    ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd, ScheduledTick,
-    SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    AuditNotice, BotModule, FormSubmissionInput, GiveawayInput, GiveawayResult, MemberJoin,
+    MemberLeave, MessageCreate, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
+    ScheduledTick, SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput,
+    XpAwardResult, XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
 use bot_module_autorole::AutoroleModule;
 use bot_module_custom_commands::CustomCommandsModule;
 use bot_module_forms::FormsModule;
+use bot_module_giveaways::GiveawaysModule;
 use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_moderation::ModerationModule;
@@ -52,6 +54,131 @@ struct GatewayModuleServices {
 
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn create_giveaway(&self, input: GiveawayInput) -> Result<GiveawayResult> {
+        let ends_at = chrono::DateTime::from_timestamp(
+            i64::try_from(input.ends_at_unix).unwrap_or(i64::MAX),
+            0,
+        )
+        .context("giveaway end time is invalid")?;
+        let giveaway = self
+            .infrastructure
+            .create_giveaway(&NewGiveaway {
+                guild_id: input.guild_id.to_string(),
+                channel_id: input.channel_id.to_string(),
+                creator_id: input.creator_id.to_string(),
+                title: input.title,
+                description: input.description,
+                winner_count: i16::from(input.winner_count),
+                minimum_account_age_days: i32::from(input.minimum_account_age_days),
+                required_role_ids: serde_json::json!(
+                    input
+                        .required_role_ids
+                        .iter()
+                        .map(u64::to_string)
+                        .collect::<Vec<_>>()
+                ),
+                bonus_role_id: input.bonus_role_id.map(|id| id.to_string()),
+                bonus_entries: i16::from(input.bonus_entries),
+                ends_at,
+            })
+            .await?;
+        Ok(giveaway_result(&giveaway))
+    }
+
+    async fn activate_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        message_id: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .activate_giveaway(&guild_id.to_string(), giveaway_id, &message_id.to_string())
+            .await?)
+    }
+
+    async fn fail_giveaway_delivery(&self, guild_id: u64, giveaway_id: i64) -> Result<()> {
+        self.infrastructure
+            .fail_giveaway_delivery(&guild_id.to_string(), giveaway_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn giveaway(&self, guild_id: u64, giveaway_id: i64) -> Result<Option<GiveawayResult>> {
+        Ok(self
+            .infrastructure
+            .giveaway(&guild_id.to_string(), giveaway_id)
+            .await?
+            .as_ref()
+            .map(giveaway_result))
+    }
+
+    async fn enter_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        user_id: u64,
+        weight: u8,
+    ) -> Result<Option<bool>> {
+        Ok(self
+            .infrastructure
+            .enter_giveaway(
+                &guild_id.to_string(),
+                giveaway_id,
+                &user_id.to_string(),
+                i16::from(weight),
+            )
+            .await?)
+    }
+
+    async fn due_giveaway_ids(&self, guild_id: u64, now_unix: u64) -> Result<Vec<i64>> {
+        Ok(self
+            .infrastructure
+            .due_giveaway_ids(&guild_id.to_string(), now_unix)
+            .await?)
+    }
+
+    async fn pending_giveaway_announcement_ids(&self, guild_id: u64) -> Result<Vec<i64>> {
+        Ok(self
+            .infrastructure
+            .pending_giveaway_announcement_ids(&guild_id.to_string())
+            .await?)
+    }
+
+    async fn mark_giveaway_announced(&self, guild_id: u64, giveaway_id: i64) -> Result<()> {
+        self.infrastructure
+            .mark_giveaway_announced(&guild_id.to_string(), giveaway_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn end_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+        force: bool,
+    ) -> Result<Option<GiveawayResult>> {
+        Ok(self
+            .infrastructure
+            .end_giveaway(&guild_id.to_string(), giveaway_id, force)
+            .await?
+            .as_ref()
+            .map(giveaway_result))
+    }
+
+    async fn reroll_giveaway(
+        &self,
+        guild_id: u64,
+        giveaway_id: i64,
+    ) -> Result<Option<GiveawayResult>> {
+        Ok(self
+            .infrastructure
+            .reroll_giveaway(&guild_id.to_string(), giveaway_id)
+            .await?
+            .as_ref()
+            .map(giveaway_result))
+    }
+
     async fn claim_suggestion_cooldown(
         &self,
         guild_id: u64,
@@ -377,6 +504,39 @@ fn suggestion_result(suggestion: &Suggestion) -> SuggestionResult {
     }
 }
 
+fn giveaway_result(giveaway: &Giveaway) -> GiveawayResult {
+    GiveawayResult {
+        id: giveaway.id,
+        channel_id: giveaway.channel_id.parse().unwrap_or_default(),
+        title: giveaway.title.clone(),
+        status: giveaway.status.clone(),
+        winner_count: u8::try_from(giveaway.winner_count).unwrap_or_default(),
+        minimum_account_age_days: u16::try_from(giveaway.minimum_account_age_days)
+            .unwrap_or_default(),
+        required_role_ids: serde_json::from_value::<Vec<String>>(
+            giveaway.required_role_ids.clone(),
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|id| id.parse().ok())
+        .collect(),
+        bonus_role_id: giveaway
+            .bonus_role_id
+            .as_deref()
+            .and_then(|id| id.parse().ok()),
+        bonus_entries: u8::try_from(giveaway.bonus_entries).unwrap_or_default(),
+        winner_ids: serde_json::from_value::<Vec<String>>(giveaway.winner_ids.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|id| id.parse().ok())
+            .collect(),
+        entrant_count: u64::try_from(giveaway.entrant_count).unwrap_or_default(),
+        total_entries: u64::try_from(giveaway.total_entries).unwrap_or_default(),
+        ends_at_unix: u64::try_from(giveaway.ends_at.timestamp()).unwrap_or_default(),
+        reroll_count: u32::try_from(giveaway.reroll_count).unwrap_or_default(),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
@@ -401,6 +561,7 @@ async fn main() -> Result<()> {
         Arc::new(ScheduledMessagesModule),
         Arc::new(FormsModule),
         Arc::new(SuggestionsModule),
+        Arc::new(GiveawaysModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;

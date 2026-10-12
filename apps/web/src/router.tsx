@@ -21,6 +21,9 @@ const formSubmissionsRoute = createRoute({ getParentRoute: () => rootRoute, path
 const formSubmissionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId/submissions/$submissionId', component: lazyRouteComponent(() => import('./pages/forms'), 'FormSubmissionPage') })
 const suggestionsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/suggestions', component: lazyRouteComponent(() => import('./pages/suggestions'), 'SuggestionsPage') })
 const suggestionDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/suggestions/$suggestionId', component: lazyRouteComponent(() => import('./pages/suggestions'), 'SuggestionDetailPage') })
+const giveawaysRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawaysPage') })
+const giveawayCreateRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways/new', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawayCreatePage') })
+const giveawayDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways/$giveawayId', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawayDetailPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -50,6 +53,9 @@ const routeTree = rootRoute.addChildren([
   formSubmissionRoute,
   suggestionsRoute,
   suggestionDetailRoute,
+  giveawaysRoute,
+  giveawayCreateRoute,
+  giveawayDetailRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, FormSubmission, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewModerationCase, Suggestion, SuggestionStatus } from '../types'
+import type { AuditEvent, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewGiveaway, NewModerationCase, Suggestion, SuggestionStatus } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -144,6 +144,40 @@ export async function updateSuggestionStatus(input: { guildId: string; suggestio
     return updated
   }
   return request<Suggestion>(`/v1/guilds/${input.guildId}/suggestions/${input.suggestionId}`, { method: 'PATCH', body: JSON.stringify({ status: input.status, staff_note: input.staff_note }) })
+}
+
+const giveawayKey = (guildId: string) => `orivane:giveaways:${guildId}`
+const entryKey = (guildId: string, giveawayId: string | number) => `orivane:giveaway-entries:${guildId}:${giveawayId}`
+function starterGiveaways(guildId: string): Giveaway[] {
+  const now = Date.now()
+  return [
+    { id: 2, guild_id: guildId, channel_id: '100000000000000005', message_id: '300000000000000002', creator_id: demoActorId, creator_username: 'imlunahey', creator_display_name: 'luna', title: 'One month of Discord Nitro', description: 'Community appreciation giveaway.', status: 'active', winner_count: 1, minimum_account_age_days: 7, required_role_ids: [], bonus_role_id: null, bonus_entries: 1, winner_ids: [], entrant_count: 2, total_entries: 3, ends_at: new Date(now + 3_600_000).toISOString(), ended_at: null, reroll_count: 0, created_at: new Date(now - 3_600_000).toISOString(), updated_at: new Date(now - 3_600_000).toISOString() },
+    { id: 1, guild_id: guildId, channel_id: '100000000000000005', message_id: '300000000000000001', creator_id: demoActorId, creator_username: 'imlunahey', creator_display_name: 'luna', title: 'Community game key', description: '', status: 'ended', winner_count: 1, minimum_account_age_days: 0, required_role_ids: [], bonus_role_id: null, bonus_entries: 0, winner_ids: ['118742006320914432'], entrant_count: 2, total_entries: 2, ends_at: new Date(now - 86_400_000).toISOString(), ended_at: new Date(now - 86_400_000).toISOString(), reroll_count: 0, created_at: new Date(now - 172_800_000).toISOString(), updated_at: new Date(now - 86_400_000).toISOString() },
+  ]
+}
+function demoGiveaways(guildId: string): Giveaway[] { const saved = localStorage.getItem(giveawayKey(guildId)); return saved ? JSON.parse(saved) as Giveaway[] : starterGiveaways(guildId) }
+function demoGiveawayEntries(guildId: string, giveawayId: string): GiveawayEntry[] { const saved = localStorage.getItem(entryKey(guildId, giveawayId)); if (saved) return JSON.parse(saved) as GiveawayEntry[]; return [{ user_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', weight: 2, created_at: new Date(Date.now() - 1_800_000).toISOString() }, { user_id: '227843117431025543', username: 'northstar', display_name: 'Northstar', weight: 1, created_at: new Date(Date.now() - 900_000).toISOString() }] }
+
+export async function getGiveaways(guildId: string): Promise<Giveaway[]> { if (isDemoMode) return demoGiveaways(guildId); return request<Giveaway[]>(`/v1/guilds/${guildId}/giveaways`) }
+export async function getGiveaway(guildId: string, giveawayId: string): Promise<Giveaway> { if (isDemoMode) { const item = demoGiveaways(guildId).find((giveaway) => String(giveaway.id) === giveawayId); if (!item) throw new Error('Giveaway not found'); return item } return request<Giveaway>(`/v1/guilds/${guildId}/giveaways/${giveawayId}`) }
+export async function getGiveawayEntries(guildId: string, giveawayId: string): Promise<GiveawayEntry[]> { if (isDemoMode) return demoGiveawayEntries(guildId, giveawayId); return request<GiveawayEntry[]>(`/v1/guilds/${guildId}/giveaways/${giveawayId}/entries`) }
+export async function createGiveaway(input: { guildId: string; giveaway: NewGiveaway }): Promise<Giveaway> {
+  if (isDemoMode) {
+    const items = demoGiveaways(input.guildId); const now = new Date().toISOString(); const id = Math.max(0, ...items.map((item) => item.id)) + 1
+    const item: Giveaway = { id, guild_id: input.guildId, message_id: `demo-${id}`, creator_id: demoActorId, creator_username: 'imlunahey', creator_display_name: 'luna', status: 'active', winner_ids: [], entrant_count: 0, total_entries: 0, ends_at: new Date(input.giveaway.ends_at_unix * 1000).toISOString(), ended_at: null, reroll_count: 0, created_at: now, updated_at: now, ...input.giveaway }
+    localStorage.setItem(giveawayKey(input.guildId), JSON.stringify([item, ...items])); appendDemoAuditEvent({ id: Date.now(), occurred_at: now, scope: 'guild', guild_id: input.guildId, actor_id: demoActorId, actor_kind: 'user', action: 'giveaway.created', target_type: 'giveaway', target_id: String(id), outcome: 'success', source: 'dashboard_api', request_id: `demo_${Date.now()}`, reason: null, metadata: { winner_count: item.winner_count, ends_at_unix: input.giveaway.ends_at_unix }, before_state: null, after_state: null }); return item
+  }
+  return request<Giveaway>(`/v1/guilds/${input.guildId}/giveaways`, { method: 'POST', body: JSON.stringify(input.giveaway) })
+}
+export async function endGiveaway(input: { guildId: string; giveawayId: string }): Promise<Giveaway> { return changeDemoOrLiveGiveaway(input, false) }
+export async function rerollGiveaway(input: { guildId: string; giveawayId: string }): Promise<Giveaway> { return changeDemoOrLiveGiveaway(input, true) }
+async function changeDemoOrLiveGiveaway(input: { guildId: string; giveawayId: string }, reroll: boolean): Promise<Giveaway> {
+  if (isDemoMode) {
+    const items = demoGiveaways(input.guildId); const before = items.find((item) => String(item.id) === input.giveawayId); if (!before) throw new Error('Giveaway not found')
+    const entries = demoGiveawayEntries(input.guildId, input.giveawayId); const prior = new Set(before.winner_ids); const winners = entries.filter((entry) => !reroll || !prior.has(entry.user_id)).slice(0, before.winner_count).map((entry) => entry.user_id); if (reroll && !winners.length) throw new Error('No replacement entrants are available')
+    const now = new Date().toISOString(); const updated = { ...before, status: 'ended' as const, winner_ids: winners, ended_at: before.ended_at ?? now, reroll_count: before.reroll_count + Number(reroll), updated_at: now }; localStorage.setItem(giveawayKey(input.guildId), JSON.stringify(items.map((item) => item.id === updated.id ? updated : item))); appendDemoAuditEvent({ id: Date.now(), occurred_at: now, scope: 'guild', guild_id: input.guildId, actor_id: demoActorId, actor_kind: 'user', action: reroll ? 'giveaway.rerolled' : 'giveaway.ended', target_type: 'giveaway', target_id: input.giveawayId, outcome: 'success', source: 'dashboard_api', request_id: `demo_${Date.now()}`, reason: null, metadata: { winner_count: winners.length }, before_state: null, after_state: null }); return updated
+  }
+  return request<Giveaway>(`/v1/guilds/${input.guildId}/giveaways/${input.giveawayId}/${reroll ? 'reroll' : 'end'}`, { method: 'POST' })
 }
 
 export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {

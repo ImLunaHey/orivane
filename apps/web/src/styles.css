@@ -403,6 +403,7 @@ small { font-size: 14px !important; line-height: 1.45; }
 .custom-command-card-head { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #2b2a31; }
 .forms-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .suggestions-page .forms-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.giveaways-page .forms-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .forms-summary .panel { min-height: 100px; padding: 18px; }
 .forms-summary small, .forms-summary strong { display: block; }
 .forms-summary small { color: #9999a3; }
@@ -477,9 +478,22 @@ small { font-size: 14px !important; line-height: 1.45; }
 .suggestion-metadata dd { margin: 5px 0 0; overflow-wrap: anywhere; color: #e0e0e5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
 .suggestions-page .analytics-chart-panel { padding: 0; }
 .suggestions-page .metric-chart { padding: 6px 18px 18px; }
+.giveaways-page .analytics-chart-panel { padding: 0; }
+.giveaways-page .metric-chart { padding: 6px 18px 18px; }
+.giveaway-title-cell { display: flex; align-items: center; gap: 10px; min-width: 250px; }
+.giveaway-title-cell > svg { flex: none; color: #fbbf24; }
+.giveaway-title-cell span, .giveaway-title-cell a, .giveaway-title-cell small { display: block; }
+.giveaway-title-cell a { color: #eeeef1; font-size: 15px; font-weight: 700; }
+.giveaway-title-cell small { margin-top: 4px; color: #9999a3; font-size: 14px; }
+.winner-list { display: flex; flex-wrap: wrap; gap: 12px; }
+.winner-list .discord-member-link { padding: 10px 12px; border: 1px solid #3c3746; background: #17161b; }
+.giveaway-rules dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.giveaway-rules dt { color: #9999a3; font-size: 14px; }
+.giveaway-rules dd { margin: 5px 0 0; overflow-wrap: anywhere; color: #e2e2e6; font-size: 15px; }
+.giveaway-detail-page .bottom-save-bar > span:first-child { color: #aaaab3; font-size: 14px; }
 
 @media (max-width: 760px) {
-  .forms-summary, .suggestions-page .forms-summary, .suggestion-detail-summary, .suggestion-metadata dl { grid-template-columns: 1fr; }
+  .forms-summary, .suggestions-page .forms-summary, .giveaways-page .forms-summary, .suggestion-detail-summary, .suggestion-metadata dl, .giveaway-rules dl { grid-template-columns: 1fr; }
   .bottom-save-bar, .question-editor-row > header { align-items: stretch; flex-direction: column; }
   .save-row, .bottom-save-bar .button { width: 100%; }
   .save-row .button { justify-content: center; }

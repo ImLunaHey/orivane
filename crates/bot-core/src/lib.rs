@@ -3,6 +3,7 @@ mod cases;
 mod config;
 mod fleet;
 mod forms;
+mod giveaways;
 mod store;
 mod suggestions;
 
@@ -11,7 +12,7 @@ pub use cases::{ModerationCase, NewModerationCase};
 pub use config::{
     AntiRaidConfig, AutomodConfig, AutoresponderConfig, AutoresponseConfig, AutoroleConfig,
     CustomCommandConfig, CustomCommandsConfig, FormConfig, FormQuestionConfig, FormsConfig,
-    GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig,
+    GiveawaysConfig, GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig,
     ReactionRoleBinding, ReactionRolesConfig, ScheduledMessageConfig, ScheduledMessagesConfig,
     StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig, WelcomeConfig,
 };
@@ -20,5 +21,6 @@ pub use fleet::{
     GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile, UserGuildContext,
 };
 pub use forms::{FormSubmission, NewFormSubmission};
+pub use giveaways::{Giveaway, GiveawayEntry, NewGiveaway};
 pub use store::{Infrastructure, StoreError, level_for_xp};
 pub use suggestions::{NewSuggestion, Suggestion};

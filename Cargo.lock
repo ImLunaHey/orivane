@@ -802,6 +802,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-giveaways"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-leveling"
 version = "0.1.0"
 dependencies = [
@@ -1576,7 +1589,17 @@ dependencies = [
  "axum",
  "bot-core",
  "bot-discord",
+ "bot-module-anti-raid",
+ "bot-module-autorole",
+ "bot-module-custom-commands",
+ "bot-module-forms",
+ "bot-module-giveaways",
+ "bot-module-leveling",
+ "bot-module-moderation",
+ "bot-module-suggestions",
+ "bot-module-tickets",
  "bot-module-utility",
+ "chrono",
  "lucid-auth",
  "openssl",
  "reqwest",
@@ -1605,6 +1628,7 @@ dependencies = [
  "bot-module-autorole",
  "bot-module-custom-commands",
  "bot-module-forms",
+ "bot-module-giveaways",
  "bot-module-leveling",
  "bot-module-logging",
  "bot-module-moderation",
@@ -1615,6 +1639,7 @@ dependencies = [
  "bot-module-tickets",
  "bot-module-utility",
  "bot-module-welcome",
+ "chrono",
  "serde_json",
  "tokio",
  "tracing",

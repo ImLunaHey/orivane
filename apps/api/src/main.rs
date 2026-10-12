@@ -11,11 +11,15 @@ use axum::{
     routing::get,
 };
 use bot_core::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, GlobalUser, GuildConfig,
-    GuildDashboardStats, GuildMemberSummary, Infrastructure, InfrastructureHealth, ModerationCase,
-    NewAuditEvent, NewModerationCase, Suggestion, UserGuildContext,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, Giveaway, GiveawayEntry,
+    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
+    InfrastructureHealth, ModerationCase, NewAuditEvent, NewGiveaway, NewModerationCase,
+    Suggestion, UserGuildContext,
 };
-use bot_discord::{CommandDefinition, DiscordApi, GuildChannel, GuildRole, TwilightDiscord};
+use bot_discord::{
+    CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
+    TwilightDiscord,
+};
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
@@ -65,6 +69,21 @@ struct DashboardActivity {
 struct UpdateSuggestionStatus {
     status: String,
     staff_note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateGiveawayRequest {
+    channel_id: String,
+    title: String,
+    #[serde(default)]
+    description: String,
+    winner_count: u8,
+    minimum_account_age_days: u16,
+    #[serde(default)]
+    required_role_ids: Vec<String>,
+    bonus_role_id: Option<String>,
+    bonus_entries: u8,
+    ends_at_unix: u64,
 }
 
 #[tokio::main]
@@ -128,6 +147,26 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/suggestions/{suggestion_id}",
             get(get_suggestion).patch(update_suggestion_status),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/giveaways",
+            get(get_giveaways).post(create_giveaway),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/giveaways/{giveaway_id}",
+            get(get_giveaway),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/giveaways/{giveaway_id}/entries",
+            get(get_giveaway_entries),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/giveaways/{giveaway_id}/end",
+            axum::routing::post(end_giveaway),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/giveaways/{giveaway_id}/reroll",
+            axum::routing::post(reroll_giveaway),
         )
         .route(
             "/v1/guilds/{guild_id}/forms/{form_id}/submissions",
@@ -338,7 +377,7 @@ async fn sync_commands(
             "DISCORD_TOKEN is not configured".to_owned(),
         )
     })?;
-    let commands: Vec<CommandDefinition> = bot_module_utility::COMMANDS.to_vec();
+    let commands = all_commands();
     let result = async {
         let discord = TwilightDiscord::connect(token.clone()).await?;
         discord.register_commands(&commands).await
@@ -370,6 +409,25 @@ async fn sync_commands(
     Ok(Json(CommandSyncResponse {
         synchronized: commands.len(),
     }))
+}
+
+fn all_commands() -> Vec<CommandDefinition> {
+    let groups: &[&[CommandDefinition]] = &[
+        bot_module_utility::COMMANDS,
+        bot_module_moderation::COMMANDS,
+        bot_module_leveling::COMMANDS,
+        bot_module_tickets::COMMANDS,
+        bot_module_custom_commands::COMMANDS,
+        bot_module_autorole::COMMANDS,
+        bot_module_anti_raid::COMMANDS,
+        bot_module_forms::COMMANDS,
+        bot_module_suggestions::COMMANDS,
+        bot_module_giveaways::COMMANDS,
+    ];
+    groups
+        .iter()
+        .flat_map(|commands| commands.iter().cloned())
+        .collect()
 }
 
 async fn get_config(
@@ -881,6 +939,373 @@ async fn update_suggestion_status(
     Ok(Json(suggestion))
 }
 
+async fn get_giveaways(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Giveaway>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .giveaways(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "giveaways.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+
+async fn get_giveaway(
+    State(state): State<AppState>,
+    Path((guild_id, giveaway_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Giveaway>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(giveaway_id, "giveaway")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .giveaway(&guild_id, giveaway_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "giveaway not found".into()))?;
+    record_read(&state, Some(&guild_id), &actor, &headers, "giveaway.viewed").await;
+    Ok(Json(item))
+}
+
+async fn get_giveaway_entries(
+    State(state): State<AppState>,
+    Path((guild_id, giveaway_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<GiveawayEntry>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(giveaway_id, "giveaway")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if state
+        .infrastructure
+        .giveaway(&guild_id, giveaway_id)
+        .await
+        .map_err(internal_error)?
+        .is_none()
+    {
+        return Err(ApiError(StatusCode::NOT_FOUND, "giveaway not found".into()));
+    }
+    let entries = state
+        .infrastructure
+        .giveaway_entries(&guild_id, giveaway_id, 5_000)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "giveaway.entries.viewed",
+    )
+    .await;
+    Ok(Json(entries))
+}
+
+async fn create_giveaway(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<CreateGiveawayRequest>,
+) -> Result<(StatusCode, Json<Giveaway>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_giveaway_input(&input)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let config = state
+        .infrastructure
+        .guild_config(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    if !config.modules.giveaways.enabled {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "giveaways module is disabled".into(),
+        ));
+    }
+    let ends_at =
+        chrono::DateTime::from_timestamp(i64::try_from(input.ends_at_unix).unwrap_or(i64::MAX), 0)
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid giveaway end time".into(),
+                )
+            })?;
+    let giveaway = state
+        .infrastructure
+        .create_giveaway(&NewGiveaway {
+            guild_id: guild_id.clone(),
+            channel_id: input.channel_id.clone(),
+            creator_id: actor.discord_user_id.clone(),
+            title: input.title.trim().into(),
+            description: input.description.trim().into(),
+            winner_count: i16::from(input.winner_count),
+            minimum_account_age_days: i32::from(input.minimum_account_age_days),
+            required_role_ids: serde_json::json!(input.required_role_ids),
+            bonus_role_id: input.bonus_role_id.clone(),
+            bonus_entries: i16::from(input.bonus_entries),
+            ends_at,
+        })
+        .await
+        .map_err(internal_error)?;
+    let discord = api_discord(&state).await?;
+    let delivery = discord
+        .send_message_with_buttons(
+            input.channel_id.parse().expect("validated channel"),
+            &giveaway_post(&giveaway),
+            &[MessageButton {
+                custom_id: format!("orivane:giveaway:enter:{}", giveaway.id),
+                label: "Enter giveaway".into(),
+                style: MessageButtonStyle::Primary,
+            }],
+        )
+        .await;
+    let message_id = match delivery {
+        Ok(id) => id,
+        Err(error) => {
+            state
+                .infrastructure
+                .fail_giveaway_delivery(&guild_id, giveaway.id)
+                .await
+                .map_err(internal_error)?;
+            record_giveaway_action(
+                &state,
+                &actor,
+                &headers,
+                &guild_id,
+                giveaway.id,
+                "giveaway.created",
+                "failure",
+                serde_json::json!({ "delivery": "failed" }),
+                Some(error.to_string()),
+            )
+            .await?;
+            return Err(ApiError(
+                StatusCode::BAD_GATEWAY,
+                "Discord giveaway delivery failed".into(),
+            ));
+        }
+    };
+    state
+        .infrastructure
+        .activate_giveaway(&guild_id, giveaway.id, &message_id.to_string())
+        .await
+        .map_err(internal_error)?;
+    record_giveaway_action(&state, &actor, &headers, &guild_id, giveaway.id, "giveaway.created", "success", serde_json::json!({ "winner_count": input.winner_count, "ends_at_unix": input.ends_at_unix }), None).await?;
+    let saved = state
+        .infrastructure
+        .giveaway(&guild_id, giveaway.id)
+        .await
+        .map_err(internal_error)?
+        .expect("activated giveaway exists");
+    Ok((StatusCode::CREATED, Json(saved)))
+}
+
+async fn end_giveaway(
+    State(state): State<AppState>,
+    Path((guild_id, giveaway_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Giveaway>, ApiError> {
+    change_giveaway_winners(state, guild_id, giveaway_id, headers, false).await
+}
+
+async fn reroll_giveaway(
+    State(state): State<AppState>,
+    Path((guild_id, giveaway_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Giveaway>, ApiError> {
+    change_giveaway_winners(state, guild_id, giveaway_id, headers, true).await
+}
+
+async fn change_giveaway_winners(
+    state: AppState,
+    guild_id: String,
+    giveaway_id: i64,
+    headers: HeaderMap,
+    reroll: bool,
+) -> Result<Json<Giveaway>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(giveaway_id, "giveaway")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = if reroll {
+        state
+            .infrastructure
+            .reroll_giveaway(&guild_id, giveaway_id)
+            .await
+    } else {
+        state
+            .infrastructure
+            .end_giveaway(&guild_id, giveaway_id, true)
+            .await
+    }
+    .map_err(internal_error)?
+    .ok_or_else(|| {
+        ApiError(
+            StatusCode::CONFLICT,
+            if reroll {
+                "no replacement entrants are available".into()
+            } else {
+                "giveaway is not active".into()
+            },
+        )
+    })?;
+    let delivered = match api_discord(&state).await {
+        Ok(discord) => discord
+            .send_message(
+                item.channel_id.parse().expect("stored channel is valid"),
+                &giveaway_result_post(&item, reroll),
+            )
+            .await
+            .is_ok(),
+        Err(_) => false,
+    };
+    if delivered {
+        state
+            .infrastructure
+            .mark_giveaway_announced(&guild_id, giveaway_id)
+            .await
+            .map_err(internal_error)?;
+    }
+    record_giveaway_action(&state, &actor, &headers, &guild_id, giveaway_id, if reroll { "giveaway.rerolled" } else { "giveaway.ended" }, "success", serde_json::json!({ "winner_count": winner_ids(&item).len(), "announcement_delivered": delivered }), None).await?;
+    Ok(Json(item))
+}
+
+fn validate_giveaway_input(input: &CreateGiveawayRequest) -> Result<(), ApiError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if validate_snowflake(&input.channel_id).is_err()
+        || input.title.trim().is_empty()
+        || input.title.chars().count() > 100
+        || input.description.chars().count() > 1_800
+        || !(1..=25).contains(&input.winner_count)
+        || input.minimum_account_age_days > 3650
+        || input.required_role_ids.len() > 25
+        || input
+            .required_role_ids
+            .iter()
+            .any(|id| validate_snowflake(id).is_err())
+        || input
+            .bonus_role_id
+            .as_ref()
+            .is_some_and(|id| validate_snowflake(id).is_err())
+        || input.bonus_entries > 25
+        || input.ends_at_unix <= now
+        || input.ends_at_unix > now.saturating_add(31_536_000)
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid giveaway configuration".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_record_id(id: i64, name: &str) -> Result<(), ApiError> {
+    if id <= 0 {
+        Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!("invalid {name} ID"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+async fn api_discord(state: &AppState) -> Result<TwilightDiscord, ApiError> {
+    let token = state.discord_token.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DISCORD_TOKEN is not configured".into(),
+        )
+    })?;
+    TwilightDiscord::connect(token).await.map_err(|error| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            format!("Discord connection failed: {error}"),
+        )
+    })
+}
+fn winner_ids(item: &Giveaway) -> Vec<String> {
+    serde_json::from_value(item.winner_ids.clone()).unwrap_or_default()
+}
+fn giveaway_post(item: &Giveaway) -> String {
+    let description = safe_discord_text(item.description.trim());
+    let details = if description.is_empty() {
+        String::new()
+    } else {
+        format!("\n{description}\n")
+    };
+    format!(
+        "**Giveaway #{} · {}**\n{}\nEnds <t:{}:R> · {} winner{}\nPress the button below to enter.",
+        item.id,
+        safe_discord_text(&item.title),
+        details,
+        item.ends_at.timestamp(),
+        item.winner_count,
+        if item.winner_count == 1 { "" } else { "s" }
+    )
+}
+fn giveaway_result_post(item: &Giveaway, reroll: bool) -> String {
+    let winners = winner_ids(item);
+    let mentions = if winners.is_empty() {
+        "No eligible entries were received.".into()
+    } else {
+        winners
+            .iter()
+            .map(|id| format!("<@{id}>"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!(
+        "**{}: Giveaway #{} · {}**\nWinner{}: {mentions}",
+        if reroll { "Rerolled" } else { "Ended" },
+        item.id,
+        safe_discord_text(&item.title),
+        if winners.len() == 1 { "" } else { "s" }
+    )
+}
+fn safe_discord_text(value: &str) -> String {
+    value.replace('@', "@\u{200b}")
+}
+#[allow(clippy::too_many_arguments)]
+async fn record_giveaway_action(
+    state: &AppState,
+    actor: &Actor,
+    headers: &HeaderMap,
+    guild_id: &str,
+    id: i64,
+    action: &str,
+    outcome: &str,
+    metadata: serde_json::Value,
+    reason: Option<String>,
+) -> Result<(), ApiError> {
+    let mut event = NewAuditEvent::guild(guild_id, &actor.discord_user_id, action);
+    event.source = "dashboard_api".into();
+    event.target_type = "giveaway".into();
+    event.target_id = Some(id.to_string());
+    event.outcome = outcome.into();
+    event.metadata = metadata;
+    event.reason = reason;
+    event.request_id = header_value(headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(())
+}
+
 async fn get_form_submission(
     State(state): State<AppState>,
     Path((guild_id, form_id, submission_id)): Path<(String, String, i64)>,
@@ -957,6 +1382,8 @@ async fn record_read(
         "form_submission"
     } else if action.starts_with("suggestion") {
         "suggestion"
+    } else if action.starts_with("giveaway") {
+        "giveaway"
     } else if action.starts_with("fleet") {
         "guild_fleet"
     } else if action.starts_with("analytics") {

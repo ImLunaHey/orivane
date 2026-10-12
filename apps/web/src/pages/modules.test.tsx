@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(16)
+    expect(screen.getAllByText('Live')).toHaveLength(17)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -227,6 +227,28 @@ describe('module configuration pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save decision' }))
     await screen.findByText('Saved')
     expect(JSON.parse(localStorage.getItem(`orivane:suggestions:${serverId}`) ?? '[]')[0]).toMatchObject({ status: 'approved', staff_note: 'Added to the roadmap.' })
+  })
+
+  it('creates, inspects, and ends a giveaway through dedicated pages', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/giveaways`)
+    expect(await screen.findByRole('heading', { name: 'Current giveaways' })).toBeVisible()
+    expect(screen.getByLabelText('Number of giveaways grouped by lifecycle status')).toBeVisible()
+    expect(screen.getAllByRole('link', { name: 'Inspect' })).toHaveLength(2)
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Giveaways' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+
+    await navigateTo(`/servers/${serverId}/modules/giveaways/new`)
+    await screen.findByRole('heading', { name: 'Create giveaway', level: 2 })
+    fireEvent.change(screen.getByLabelText(/^Title/), { target: { value: 'Launch celebration' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create giveaway' }))
+    await screen.findByRole('heading', { name: 'Launch celebration' })
+    expect(screen.getByRole('heading', { name: 'Entrants' })).toBeVisible()
+    expect(screen.getByRole('link', { name: /Silver.*@silver\.arc/ })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'End and draw now' }))
+    expect(await screen.findByRole('heading', { name: 'Winners' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Reroll winners' })).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

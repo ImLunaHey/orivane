@@ -5,13 +5,16 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use thiserror::Error;
 
 use crate::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, GlobalUser,
-    GuildConfig, GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward,
-    MemberXpProfile, ModerationCase, NewAuditEvent, NewFormSubmission, NewModerationCase,
-    NewSuggestion, Suggestion, UserGuildContext, config::ConfigValidationError,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, Giveaway,
+    GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
+    InfrastructureHealth, MemberXpAward, MemberXpProfile, ModerationCase, NewAuditEvent,
+    NewFormSubmission, NewGiveaway, NewModerationCase, NewSuggestion, Suggestion, UserGuildContext,
+    config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
+const GIVEAWAY_SELECT_LIST: &str = "SELECT g.id, g.guild_id, g.channel_id, g.message_id, g.creator_id, d.username AS creator_username, d.display_name AS creator_display_name, g.title, g.description, g.status, g.winner_count, g.minimum_account_age_days, g.required_role_ids, g.bonus_role_id, g.bonus_entries, g.winner_ids, (SELECT count(*) FROM giveaway_entries e WHERE e.giveaway_id = g.id)::bigint AS entrant_count, COALESCE((SELECT sum(weight) FROM giveaway_entries e WHERE e.giveaway_id = g.id), 0)::bigint AS total_entries, g.ends_at, g.ended_at, g.announcement_sent_at, g.reroll_count, g.created_at, g.updated_at FROM giveaways g LEFT JOIN discord_identities d ON d.user_id = g.creator_id WHERE g.guild_id = $1 ORDER BY g.id DESC LIMIT $2";
+const GIVEAWAY_SELECT_ONE: &str = "SELECT g.id, g.guild_id, g.channel_id, g.message_id, g.creator_id, d.username AS creator_username, d.display_name AS creator_display_name, g.title, g.description, g.status, g.winner_count, g.minimum_account_age_days, g.required_role_ids, g.bonus_role_id, g.bonus_entries, g.winner_ids, (SELECT count(*) FROM giveaway_entries e WHERE e.giveaway_id = g.id)::bigint AS entrant_count, COALESCE((SELECT sum(weight) FROM giveaway_entries e WHERE e.giveaway_id = g.id), 0)::bigint AS total_entries, g.ends_at, g.ended_at, g.announcement_sent_at, g.reroll_count, g.created_at, g.updated_at FROM giveaways g LEFT JOIN discord_identities d ON d.user_id = g.creator_id WHERE g.guild_id = $1 AND g.id = $2";
 
 #[derive(Clone)]
 pub struct Infrastructure {
@@ -34,6 +37,178 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn create_giveaway(&self, input: &NewGiveaway) -> Result<Giveaway, StoreError> {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO giveaways (guild_id, channel_id, creator_id, title, description, winner_count, minimum_account_age_days, required_role_ids, bonus_role_id, bonus_entries, ends_at) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
+        )
+        .bind(&input.guild_id).bind(&input.channel_id).bind(&input.creator_id)
+        .bind(input.title.trim()).bind(input.description.trim()).bind(input.winner_count)
+        .bind(input.minimum_account_age_days).bind(&input.required_role_ids)
+        .bind(&input.bonus_role_id).bind(input.bonus_entries).bind(input.ends_at)
+        .fetch_one(&self.pool).await?;
+        self.giveaway(&input.guild_id, id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn activate_giveaway(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+        message_id: &str,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query("UPDATE giveaways SET status = 'active', message_id = $3, updated_at = now() WHERE guild_id = $1 AND id = $2 AND status = 'pending_delivery'")
+            .bind(guild_id).bind(giveaway_id).bind(message_id).execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn fail_giveaway_delivery(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE giveaways SET status = 'delivery_failed', updated_at = now() WHERE guild_id = $1 AND id = $2 AND status = 'pending_delivery'")
+            .bind(guild_id).bind(giveaway_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn enter_giveaway(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+        user_id: &str,
+        weight: i16,
+    ) -> Result<Option<bool>, StoreError> {
+        let result = sqlx::query(
+            "INSERT INTO giveaway_entries (giveaway_id, user_id, weight) \
+             SELECT id, $3, $4 FROM giveaways WHERE guild_id = $1 AND id = $2 AND status = 'active' AND ends_at > now() \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(guild_id).bind(giveaway_id).bind(user_id).bind(weight).execute(&self.pool).await?;
+        if result.rows_affected() == 1 {
+            return Ok(Some(true));
+        }
+        let available: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM giveaways WHERE guild_id = $1 AND id = $2 AND status = 'active' AND ends_at > now())")
+            .bind(guild_id).bind(giveaway_id).fetch_one(&self.pool).await?;
+        Ok(available.then_some(false))
+    }
+
+    pub async fn giveaways(&self, guild_id: &str, limit: i64) -> Result<Vec<Giveaway>, StoreError> {
+        sqlx::query_as::<_, Giveaway>(GIVEAWAY_SELECT_LIST)
+            .bind(guild_id)
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn giveaway(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+    ) -> Result<Option<Giveaway>, StoreError> {
+        sqlx::query_as::<_, Giveaway>(GIVEAWAY_SELECT_ONE)
+            .bind(guild_id)
+            .bind(giveaway_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn giveaway_entries(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+        limit: i64,
+    ) -> Result<Vec<GiveawayEntry>, StoreError> {
+        sqlx::query_as::<_, GiveawayEntry>(
+            "SELECT e.user_id, d.username, d.display_name, e.weight, e.created_at FROM giveaway_entries e \
+             JOIN giveaways g ON g.id = e.giveaway_id LEFT JOIN discord_identities d ON d.user_id = e.user_id \
+             WHERE g.guild_id = $1 AND g.id = $2 ORDER BY e.created_at DESC LIMIT $3")
+            .bind(guild_id).bind(giveaway_id).bind(limit.clamp(1, 5_000)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn due_giveaway_ids(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+    ) -> Result<Vec<i64>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query_scalar("SELECT id FROM giveaways WHERE guild_id = $1 AND status = 'active' AND ends_at <= $2 ORDER BY ends_at LIMIT 100")
+            .bind(guild_id).bind(now).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn pending_giveaway_announcement_ids(
+        &self,
+        guild_id: &str,
+    ) -> Result<Vec<i64>, StoreError> {
+        sqlx::query_scalar("SELECT id FROM giveaways WHERE guild_id = $1 AND status = 'ended' AND announcement_sent_at IS NULL ORDER BY ended_at LIMIT 100")
+            .bind(guild_id).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn mark_giveaway_announced(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE giveaways SET announcement_sent_at = now(), updated_at = now() WHERE guild_id = $1 AND id = $2 AND status = 'ended'")
+            .bind(guild_id).bind(giveaway_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn end_giveaway(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+        force: bool,
+    ) -> Result<Option<Giveaway>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let winner_count: Option<i16> = sqlx::query_scalar(
+            "SELECT winner_count FROM giveaways WHERE guild_id = $1 AND id = $2 AND status = 'active' AND ($3 OR ends_at <= now()) FOR UPDATE")
+            .bind(guild_id).bind(giveaway_id).bind(force).fetch_optional(&mut *tx).await?;
+        let Some(winner_count) = winner_count else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let winners: Vec<String> = sqlx::query_scalar(
+            "SELECT user_id FROM giveaway_entries WHERE giveaway_id = $1 ORDER BY (-ln(greatest(random(), 0.000000001)) / weight) LIMIT $2")
+            .bind(giveaway_id).bind(i64::from(winner_count)).fetch_all(&mut *tx).await?;
+        sqlx::query("UPDATE giveaways SET status = 'ended', winner_ids = $3, ended_at = now(), updated_at = now() WHERE guild_id = $1 AND id = $2")
+            .bind(guild_id).bind(giveaway_id).bind(serde_json::json!(winners)).execute(&mut *tx).await?;
+        tx.commit().await?;
+        self.giveaway(guild_id, giveaway_id).await
+    }
+
+    pub async fn reroll_giveaway(
+        &self,
+        guild_id: &str,
+        giveaway_id: i64,
+    ) -> Result<Option<Giveaway>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let row: Option<(i16, serde_json::Value)> = sqlx::query_as(
+            "SELECT winner_count, winner_ids FROM giveaways WHERE guild_id = $1 AND id = $2 AND status = 'ended' FOR UPDATE")
+            .bind(guild_id).bind(giveaway_id).fetch_optional(&mut *tx).await?;
+        let Some((winner_count, previous)) = row else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let excluded: Vec<String> = serde_json::from_value(previous).unwrap_or_default();
+        let winners: Vec<String> = sqlx::query_scalar(
+            "SELECT user_id FROM giveaway_entries WHERE giveaway_id = $1 AND NOT (user_id = ANY($2::text[])) \
+             ORDER BY (-ln(greatest(random(), 0.000000001)) / weight) LIMIT $3")
+            .bind(giveaway_id).bind(&excluded).bind(i64::from(winner_count)).fetch_all(&mut *tx).await?;
+        if winners.is_empty() {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        sqlx::query("UPDATE giveaways SET winner_ids = $3, reroll_count = reroll_count + 1, announcement_sent_at = NULL, updated_at = now() WHERE guild_id = $1 AND id = $2")
+            .bind(guild_id).bind(giveaway_id).bind(serde_json::json!(winners)).execute(&mut *tx).await?;
+        tx.commit().await?;
+        self.giveaway(guild_id, giveaway_id).await
+    }
+
     pub async fn create_suggestion(&self, input: &NewSuggestion) -> Result<Suggestion, StoreError> {
         sqlx::query_as::<_, Suggestion>(
             "WITH inserted AS ( \
@@ -257,7 +432,7 @@ impl Infrastructure {
 
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;
