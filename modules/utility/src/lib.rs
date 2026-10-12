@@ -85,7 +85,7 @@ impl BotModule for UtilityModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bot_test_support::{DiscordCall, FakeDiscord};
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -93,6 +93,7 @@ mod tests {
         let discord = FakeDiscord::new();
         let context = ModuleContext {
             discord: Arc::new(discord.clone()),
+            services: Arc::new(FakeModuleServices::default()),
         };
         let mut config = GuildConfig::for_guild("200");
         config.modules.utility.ephemeral_responses = true;

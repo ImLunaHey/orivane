@@ -29,9 +29,9 @@ impl NewModerationCase {
         }
         if !matches!(
             self.action.as_str(),
-            "note" | "warn" | "timeout" | "kick" | "ban"
+            "note" | "warn" | "timeout" | "kick" | "ban" | "unban"
         ) {
-            return Err("action must be note, warn, timeout, kick, or ban");
+            return Err("action must be note, warn, timeout, kick, ban, or unban");
         }
         if self.reason.trim().is_empty() || self.reason.chars().count() > 1_000 {
             return Err("reason must contain between 1 and 1,000 characters");

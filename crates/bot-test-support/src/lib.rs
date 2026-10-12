@@ -8,6 +8,7 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
     GuildRole,
 };
+use bot_module_api::{ModerationCaseInput, ModuleServices};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiscordCall {
@@ -20,6 +21,10 @@ pub enum DiscordCall {
     },
     SendMessage {
         channel_id: u64,
+        content: String,
+    },
+    SendDirectMessage {
+        user_id: u64,
         content: String,
     },
     AddMemberRole {
@@ -66,6 +71,31 @@ pub enum DiscordCall {
     GuildRoles {
         guild_id: u64,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ServiceCall {
+    CreateModerationCase(ModerationCaseInput),
+}
+
+#[derive(Clone, Default)]
+pub struct FakeModuleServices {
+    calls: Arc<Mutex<Vec<ServiceCall>>>,
+}
+
+impl FakeModuleServices {
+    pub fn calls(&self) -> Vec<ServiceCall> {
+        self.calls.lock().expect("fake lock poisoned").clone()
+    }
+}
+
+#[async_trait]
+impl ModuleServices for FakeModuleServices {
+    async fn create_moderation_case(&self, input: ModerationCaseInput) -> anyhow::Result<i64> {
+        let mut calls = self.calls.lock().expect("fake lock poisoned");
+        calls.push(ServiceCall::CreateModerationCase(input));
+        Ok(i64::try_from(calls.len()).unwrap_or(i64::MAX))
+    }
 }
 
 #[derive(Clone, Default)]
@@ -145,6 +175,13 @@ impl DiscordApi for FakeDiscord {
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError> {
         self.record(DiscordCall::SendMessage {
             channel_id,
+            content: content.to_owned(),
+        })
+    }
+
+    async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError> {
+        self.record(DiscordCall::SendDirectMessage {
+            user_id,
             content: content.to_owned(),
         })
     }

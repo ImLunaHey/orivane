@@ -779,9 +779,13 @@ dependencies = [
 name = "bot-module-moderation"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bot-core",
+ "bot-discord",
  "bot-module-api",
+ "bot-test-support",
+ "tokio",
 ]
 
 [[package]]
@@ -831,8 +835,10 @@ dependencies = [
 name = "bot-test-support"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bot-discord",
+ "bot-module-api",
  "tokio",
 ]
 

@@ -8,6 +8,21 @@ use bot_discord::{CommandDefinition, CommandInteraction, DiscordApi};
 #[derive(Clone)]
 pub struct ModuleContext {
     pub discord: Arc<dyn DiscordApi>,
+    pub services: Arc<dyn ModuleServices>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationCaseInput {
+    pub guild_id: u64,
+    pub moderator_id: u64,
+    pub member_id: u64,
+    pub action: String,
+    pub reason: String,
+}
+
+#[async_trait]
+pub trait ModuleServices: Send + Sync {
+    async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

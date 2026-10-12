@@ -1,11 +1,14 @@
 use std::{collections::BTreeMap, env, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
-use bot_core::{Infrastructure, NewAuditEvent};
+use async_trait::async_trait;
+use bot_core::{Infrastructure, NewAuditEvent, NewModerationCase};
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
 };
-use bot_module_api::{AuditNotice, BotModule, MemberJoin, ModuleContext};
+use bot_module_api::{
+    AuditNotice, BotModule, MemberJoin, ModerationCaseInput, ModuleContext, ModuleServices,
+};
 use bot_module_automod::AutomodModule;
 use bot_module_autorole::AutoroleModule;
 use bot_module_custom_commands::CustomCommandsModule;
@@ -22,6 +25,40 @@ use twilight_model::application::interaction::{
     application_command::{CommandDataOption, CommandOptionValue as TwilightCommandValue},
 };
 use twilight_model::gateway::payload::incoming::GuildCreate;
+
+#[derive(Clone)]
+struct GatewayModuleServices {
+    infrastructure: Infrastructure,
+}
+
+#[async_trait]
+impl ModuleServices for GatewayModuleServices {
+    async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64> {
+        let guild_id = input.guild_id.to_string();
+        let moderator_id = input.moderator_id.to_string();
+        let member_id = input.member_id.to_string();
+        let case_input = NewModerationCase {
+            member_id: member_id.clone(),
+            action: input.action.clone(),
+            reason: input.reason.clone(),
+        };
+        let mut audit = NewAuditEvent::guild(
+            &guild_id,
+            &moderator_id,
+            format!("moderation.{}", input.action),
+        );
+        audit.source = "discord_gateway".to_owned();
+        audit.target_type = "member".to_owned();
+        audit.target_id = Some(member_id);
+        audit.reason = Some(input.reason);
+        audit.metadata = serde_json::json!({ "action": input.action });
+        let case = self
+            .infrastructure
+            .create_moderation_case_audited(&guild_id, &moderator_id, &case_input, &audit)
+            .await?;
+        Ok(case.id)
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,8 +81,13 @@ async fn main() -> Result<()> {
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
-    let context = ModuleContext { discord };
     let infrastructure = Infrastructure::connect(&database_url, &redis_url).await?;
+    let context = ModuleContext {
+        discord,
+        services: Arc::new(GatewayModuleServices {
+            infrastructure: infrastructure.clone(),
+        }),
+    };
     let intents = Intents::GUILDS | Intents::GUILD_MEMBERS;
     let mut shard = Shard::new(ShardId::ONE, token, intents);
 

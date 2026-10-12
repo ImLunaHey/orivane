@@ -51,13 +51,14 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use bot_test_support::{DiscordCall, FakeDiscord};
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices};
 
     #[tokio::test]
     async fn renders_member_and_server_variables() {
         let discord = FakeDiscord::new();
         let context = ModuleContext {
             discord: Arc::new(discord.clone()),
+            services: Arc::new(FakeModuleServices::default()),
         };
         let mut config = GuildConfig::for_guild("10");
         config.modules.welcome.enabled = true;

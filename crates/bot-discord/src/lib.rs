@@ -159,6 +159,8 @@ pub trait DiscordApi: Send + Sync {
 
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError>;
 
+    async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError>;
+
     async fn add_member_role(
         &self,
         guild_id: u64,
@@ -288,6 +290,23 @@ impl DiscordApi for TwilightDiscord {
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError> {
         self.http
             .create_message(Id::<ChannelMarker>::new(channel_id))
+            .content(content)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError> {
+        let channel = self
+            .http
+            .create_private_channel(Id::<UserMarker>::new(user_id))
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        self.http
+            .create_message(channel.id)
             .content(content)
             .await
             .map_err(request_error)?;

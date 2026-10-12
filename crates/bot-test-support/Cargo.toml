@@ -6,7 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 async-trait.workspace = true
 bot-discord.workspace = true
+bot-module-api.workspace = true
 tokio.workspace = true
 
