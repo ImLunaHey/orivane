@@ -396,13 +396,15 @@ pub struct FakeModuleServices {
     lockdowns: Arc<Mutex<HashSet<u64>>>,
     scheduled_claims: Arc<Mutex<HashSet<(u64, String, u64)>>>,
     due_tickets: Arc<Mutex<Vec<TicketResult>>>,
-    automod_counts: Arc<Mutex<HashMap<(u64, u64, String, Option<String>), u64>>>,
+    automod_counts: Arc<Mutex<AutomodCounts>>,
     temporary_voice: Arc<Mutex<HashMap<(u64, u64), TemporaryVoiceResult>>>,
     temporary_voice_members: Arc<Mutex<HashMap<u64, HashSet<u64>>>>,
     temporary_voice_due: Arc<Mutex<HashSet<(u64, u64)>>>,
     economy_balances: Arc<Mutex<HashMap<(u64, u64), u64>>>,
     economy_claims: Arc<Mutex<HashSet<(u64, u64, String)>>>,
 }
+
+type AutomodCounts = HashMap<(u64, u64, String, Option<String>), u64>;
 
 impl FakeModuleServices {
     pub fn calls(&self) -> Vec<ServiceCall> {

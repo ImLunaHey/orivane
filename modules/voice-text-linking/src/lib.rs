@@ -28,36 +28,32 @@ impl BotModule for VoiceTextLinkingModule {
             return Ok(None);
         }
         let settings = &config.modules.voice_text_linking;
-        if let Some(joined) = event.channel_id {
-            if let Some(link) = settings
+        if let Some(joined) = event.channel_id
+            && let Some(link) = settings
                 .links
                 .iter()
                 .find(|link| link.voice_channel_id == joined.to_string() && link.announce_joins)
-            {
-                if let Ok(channel) = link.text_channel_id.parse() {
-                    context
-                        .discord
-                        .send_message(
-                            channel,
-                            &format!("<@{}> joined <#{}>.", event.user_id, joined),
-                        )
-                        .await?;
-                }
-            }
+            && let Ok(channel) = link.text_channel_id.parse()
+        {
+            context
+                .discord
+                .send_message(
+                    channel,
+                    &format!("<@{}> joined <#{}>.", event.user_id, joined),
+                )
+                .await?;
         }
-        if let Some(left) = event.previous_channel_id {
-            if let Some(link) = settings
+        if let Some(left) = event.previous_channel_id
+            && let Some(link) = settings
                 .links
                 .iter()
                 .find(|link| link.voice_channel_id == left.to_string() && link.announce_leaves)
-            {
-                if let Ok(channel) = link.text_channel_id.parse() {
-                    context
-                        .discord
-                        .send_message(channel, &format!("<@{}> left <#{}>.", event.user_id, left))
-                        .await?;
-                }
-            }
+            && let Ok(channel) = link.text_channel_id.parse()
+        {
+            context
+                .discord
+                .send_message(channel, &format!("<@{}> left <#{}>.", event.user_id, left))
+                .await?;
         }
         Ok(Some(ModuleEventOutcome {
             action: "voice_text_link.activity".into(),

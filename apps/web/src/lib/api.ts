@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
+import type { AuditEvent, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, ResourceDiagnostics, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -67,6 +67,11 @@ export async function getGuildRoles(guildId: string): Promise<GuildRole[]> {
     { id: '100000000000000103', name: 'Member', position: 1, managed: false },
   ]
   return request<GuildRole[]>(`/v1/guilds/${guildId}/roles`)
+}
+
+export async function getResourceDiagnostics(guildId: string): Promise<ResourceDiagnostics> {
+  if (isDemoMode) return { status: 'healthy', channels_available: true, roles_available: true, issues: [] }
+  return request<ResourceDiagnostics>(`/v1/guilds/${guildId}/resources/diagnostics`)
 }
 
 const temporaryVoiceKey=(guildId:string)=>`orivane:temporary-voice:${guildId}`

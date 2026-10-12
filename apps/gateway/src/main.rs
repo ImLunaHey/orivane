@@ -2041,7 +2041,7 @@ async fn main() -> Result<()> {
                     {
                         Ok(Some(outcome)) => {
                             let mut audit = NewAuditEvent::guild(
-                                &guild_id.to_string(),
+                                guild_id.to_string(),
                                 "system",
                                 outcome.action,
                             );

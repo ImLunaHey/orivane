@@ -8,6 +8,7 @@ import { PaletteContext } from '../lib/palette'
 import { demoServers } from '../lib/server-data'
 import { Badge } from './ui'
 import { PageErrorBoundary } from './page-error-boundary'
+import { ResourceHealthBanner } from './resource-health-banner'
 
 const demoServerId = '901234567890123456'
 let lastRecordedPath = ''
@@ -106,7 +107,7 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar-foot">
-          <div className="live-row"><span className="live-dot" /><span><strong>Gateway online</strong><small>4 shards · 38ms</small></span></div>
+          <Link to="/health" className="live-row"><span className="live-dot" /><span><strong>Runtime monitoring</strong><small>Live health and alerts</small></span></Link>
           <div className="account-switcher" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setAccountMenuOpen(false) }}>
             <button className="user-row" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}>
               {session.data?.user.image ? <img className="user-avatar user-avatar-image" src={session.data.user.image} alt="" /> : <span className="user-avatar">{session.data?.user.name?.slice(0, 2).toUpperCase() ?? 'LH'}</span>}
@@ -132,7 +133,7 @@ export function AppShell() {
           </div>
         </header>
         <PaletteContext.Provider value={() => setPaletteOpen(true)}>
-          <div className="page-wrap"><PageErrorBoundary key={pathname}><Outlet /></PageErrorBoundary></div>
+          <div className="page-wrap">{inServer && <ResourceHealthBanner serverId={serverId} />}<PageErrorBoundary key={pathname}><Outlet /></PageErrorBoundary></div>
         </PaletteContext.Provider>
       </main>
 

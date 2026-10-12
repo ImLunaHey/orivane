@@ -171,10 +171,10 @@ impl Infrastructure {
             .await?;
         let mut counts = vec![0; options.len()];
         for item in raw {
-            if let Ok(index) = item.parse::<usize>() {
-                if let Some(count) = counts.get_mut(index) {
-                    *count += 1;
-                }
+            if let Ok(index) = item.parse::<usize>()
+                && let Some(count) = counts.get_mut(index)
+            {
+                *count += 1;
             }
         }
         Ok(Some((
@@ -287,6 +287,7 @@ impl Infrastructure {
     ) -> Result<Vec<EconomyTransaction>, StoreError> {
         sqlx::query_as("SELECT * FROM economy_transactions WHERE guild_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2").bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn economy_change_balance(
         &self,
         guild_id: &str,
@@ -358,13 +359,13 @@ impl Infrastructure {
         }
         let now = chrono::Utc::now();
         let next:Option<chrono::DateTime<chrono::Utc>>=sqlx::query_scalar("SELECT next_claim_at FROM economy_claims WHERE guild_id=$1 AND user_id=$2 AND kind=$3 FOR UPDATE").bind(guild_id).bind(user_id).bind(kind).fetch_optional(&mut *tx).await?;
-        if let Some(next) = next {
-            if next > now {
-                return Ok((
-                    None,
-                    u64::try_from((next - now).num_seconds()).unwrap_or_default(),
-                ));
-            }
+        if let Some(next) = next
+            && next > now
+        {
+            return Ok((
+                None,
+                u64::try_from((next - now).num_seconds()).unwrap_or_default(),
+            ));
         }
         let next =
             now + chrono::Duration::seconds(i64::try_from(cooldown_seconds).unwrap_or(i64::MAX));
@@ -1252,6 +1253,7 @@ impl Infrastructure {
         .map_err(StoreError::from)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn review_form_submission_audited(
         &self,
         guild_id: &str,

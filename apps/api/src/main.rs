@@ -1,4 +1,11 @@
-use std::{env, net::SocketAddr, time::Instant};
+use std::{
+    collections::HashMap,
+    env,
+    hash::{Hash, Hasher},
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 mod auth;
 
@@ -29,6 +36,7 @@ use bot_discord::{
 };
 use bot_observability::ServiceMetrics;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::auth::{Actor, AuthState};
@@ -39,6 +47,24 @@ struct AppState {
     auth: AuthState,
     discord_token: Option<String>,
     metrics: ServiceMetrics,
+}
+
+#[derive(Clone)]
+struct MiddlewareState {
+    metrics: ServiceMetrics,
+    limiter: RateLimiter,
+    frontend_origin: Arc<str>,
+}
+
+#[derive(Clone, Default)]
+struct RateLimiter {
+    windows: Arc<Mutex<HashMap<u64, RateWindow>>>,
+}
+
+struct RateWindow {
+    started: Instant,
+    reads: u32,
+    mutations: u32,
 }
 
 #[derive(Debug)]
@@ -58,6 +84,22 @@ struct CommandSyncResponse {
 struct GlobalUserDetail {
     user: GlobalUser,
     contexts: Vec<UserGuildContext>,
+}
+
+#[derive(Serialize)]
+struct ResourceIssue {
+    path: String,
+    kind: &'static str,
+    id: Option<String>,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ResourceDiagnostics {
+    status: &'static str,
+    channels_available: bool,
+    roles_available: bool,
+    issues: Vec<ResourceIssue>,
 }
 
 #[derive(Deserialize)]
@@ -172,6 +214,11 @@ async fn main() -> Result<()> {
         .parse()
         .context("API_CORS_ORIGIN must be a valid HTTP header value")?;
     let metrics = ServiceMetrics::new("api");
+    let middleware = MiddlewareState {
+        metrics: metrics.clone(),
+        limiter: RateLimiter::default(),
+        frontend_origin: Arc::from(frontend_origin.as_str()),
+    };
     let state = AppState {
         infrastructure: Infrastructure::connect(&database_url, &redis_url).await?,
         auth: AuthState::new(&database_url, &frontend_origin).await?,
@@ -207,6 +254,10 @@ async fn main() -> Result<()> {
         )
         .route("/v1/guilds/{guild_id}/channels", get(get_guild_channels))
         .route("/v1/guilds/{guild_id}/roles", get(get_guild_roles))
+        .route(
+            "/v1/guilds/{guild_id}/resources/diagnostics",
+            get(get_resource_diagnostics),
+        )
         .route(
             "/v1/guilds/{guild_id}/temporary-voice",
             get(get_temporary_voice_channels),
@@ -377,7 +428,7 @@ async fn main() -> Result<()> {
                 .allow_headers([CONTENT_TYPE, HeaderName::from_static("x-request-id")]),
         )
         .layer(TraceLayer::new_for_http())
-        .layer(from_fn_with_state(metrics.clone(), instrument_request))
+        .layer(from_fn_with_state(middleware, instrument_request))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
@@ -395,17 +446,35 @@ async fn main() -> Result<()> {
 }
 
 async fn instrument_request(
-    State(metrics): State<ServiceMetrics>,
+    State(state): State<MiddlewareState>,
     mut request: Request,
     next: Next,
 ) -> Response {
+    if let Some(response) = reject_cross_site_mutation(&request, &state.frontend_origin) {
+        return response;
+    }
+    if let Some(retry_after) = state.limiter.retry_after(&request) {
+        let mut response = (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Too many dashboard requests. Wait briefly and retry."
+            })),
+        )
+            .into_response();
+        response.headers_mut().insert(
+            "retry-after",
+            HeaderValue::from_str(&retry_after.to_string())
+                .unwrap_or_else(|_| HeaderValue::from_static("60")),
+        );
+        return response;
+    }
     let request_id = request
         .headers()
         .get("x-request-id")
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty() && value.len() <= 128)
         .map(str::to_owned)
-        .unwrap_or_else(|| metrics.request_id());
+        .unwrap_or_else(|| state.metrics.request_id());
     if let Ok(value) = HeaderValue::from_str(&request_id) {
         request.headers_mut().insert("x-request-id", value);
     }
@@ -414,10 +483,30 @@ async fn instrument_request(
     let started = Instant::now();
     let mut response = next.run(request).await;
     let status = response.status();
-    metrics.record_request(status.is_server_error(), started.elapsed());
+    state
+        .metrics
+        .record_request(status.is_server_error(), started.elapsed());
     if let Ok(value) = HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", value);
     }
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+        .headers_mut()
+        .insert("x-frame-options", HeaderValue::from_static("DENY"));
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    response.headers_mut().insert(
+        "permissions-policy",
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+    );
     tracing::info!(
         %request_id,
         %method,
@@ -427,6 +516,88 @@ async fn instrument_request(
         "request completed"
     );
     response
+}
+
+impl RateLimiter {
+    fn retry_after(&self, request: &Request) -> Option<u64> {
+        let path = request.uri().path();
+        if !path.starts_with("/v1/") {
+            return None;
+        }
+        let mutation = !matches!(*request.method(), Method::GET | Method::OPTIONS);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        request
+            .headers()
+            .get("cookie")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("anonymous")
+            .hash(&mut hasher);
+        if let Some(connect) = request
+            .extensions()
+            .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        {
+            connect.0.ip().hash(&mut hasher);
+        }
+        let key = hasher.finish();
+        let now = Instant::now();
+        let mut windows = self.windows.lock().expect("rate limiter lock poisoned");
+        if windows.len() > 10_000 {
+            windows
+                .retain(|_, window| now.duration_since(window.started) < Duration::from_secs(60));
+        }
+        let window = windows.entry(key).or_insert(RateWindow {
+            started: now,
+            reads: 0,
+            mutations: 0,
+        });
+        if now.duration_since(window.started) >= Duration::from_secs(60) {
+            *window = RateWindow {
+                started: now,
+                reads: 0,
+                mutations: 0,
+            };
+        }
+        let counter = if mutation {
+            &mut window.mutations
+        } else {
+            &mut window.reads
+        };
+        let limit = if mutation { 120 } else { 600 };
+        if *counter >= limit {
+            return Some(
+                60_u64
+                    .saturating_sub(now.duration_since(window.started).as_secs())
+                    .max(1),
+            );
+        }
+        *counter += 1;
+        None
+    }
+}
+
+fn reject_cross_site_mutation(request: &Request, frontend_origin: &str) -> Option<Response> {
+    if matches!(*request.method(), Method::GET | Method::OPTIONS)
+        || !request.uri().path().starts_with("/v1/")
+    {
+        return None;
+    }
+    let cross_site = request
+        .headers()
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        == Some("cross-site");
+    let wrong_origin = request
+        .headers()
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin != frontend_origin);
+    (cross_site || wrong_origin).then(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Cross-site dashboard mutation rejected" })),
+        )
+            .into_response()
+    })
 }
 
 async fn liveness() -> impl IntoResponse {
@@ -740,13 +911,7 @@ async fn get_guild_channels(
     let channels = discord
         .guild_channels(guild_id.parse().expect("validated Discord snowflake"))
         .await
-        .map_err(|error| {
-            tracing::error!(%guild_id, %error, "failed to fetch Discord guild channels");
-            ApiError(
-                StatusCode::BAD_GATEWAY,
-                "Discord channel lookup failed".to_owned(),
-            )
-        })?;
+        .map_err(|error| discord_resource_error(&guild_id, "channels", error))?;
     record_read(
         &state,
         Some(&guild_id),
@@ -783,13 +948,7 @@ async fn get_guild_roles(
     let mut roles = discord
         .guild_roles(guild_id.parse().expect("validated Discord snowflake"))
         .await
-        .map_err(|error| {
-            tracing::error!(%guild_id, %error, "failed to fetch Discord guild roles");
-            ApiError(
-                StatusCode::BAD_GATEWAY,
-                "Discord role lookup failed".to_owned(),
-            )
-        })?;
+        .map_err(|error| discord_resource_error(&guild_id, "roles", error))?;
     roles.retain(|role| !role.managed && role.id != guild_id);
     roles.sort_by_key(|role| std::cmp::Reverse(role.position));
     record_read(
@@ -801,6 +960,199 @@ async fn get_guild_roles(
     )
     .await;
     Ok(Json(roles))
+}
+
+async fn get_resource_diagnostics(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<ResourceDiagnostics>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let config = state
+        .infrastructure
+        .guild_config(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    let token = state.discord_token.as_ref().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Discord resource checks are unavailable because the bot token is not configured"
+                .to_owned(),
+        )
+    })?;
+    let discord = TwilightDiscord::connect(token.clone())
+        .await
+        .map_err(internal_error)?;
+    let channels_result = discord
+        .guild_channels(guild_id.parse().expect("validated Discord snowflake"))
+        .await;
+    let roles_result = discord
+        .guild_roles(guild_id.parse().expect("validated Discord snowflake"))
+        .await;
+    let channels_available = channels_result.is_ok();
+    let roles_available = roles_result.is_ok();
+    let channel_ids = channels_result
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let role_ids = roles_result
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut references = Vec::new();
+    collect_resource_references(
+        &serde_json::to_value(&config).map_err(internal_error)?,
+        String::new(),
+        &mut references,
+    );
+    let mut issues = Vec::new();
+    if let Err(error) = channels_result {
+        issues.push(ResourceIssue {
+            path: "Discord channels".to_owned(),
+            kind: "access",
+            id: None,
+            message: discord_resource_message("channels", &error.to_string()),
+        });
+    }
+    if let Err(error) = roles_result {
+        issues.push(ResourceIssue {
+            path: "Discord roles".to_owned(),
+            kind: "access",
+            id: None,
+            message: discord_resource_message("roles", &error.to_string()),
+        });
+    }
+    for (path, kind, id) in references {
+        let missing = match kind {
+            "channel" => channels_available && !channel_ids.contains(id.as_str()),
+            "role" => roles_available && !role_ids.contains(id.as_str()),
+            _ => false,
+        };
+        if missing {
+            issues.push(ResourceIssue {
+                path,
+                kind,
+                id: Some(id),
+                message: format!(
+                    "This configured {kind} no longer exists or is no longer visible to Orivane. Select a replacement and save the module."
+                ),
+            });
+        }
+    }
+    let status = if issues.is_empty() {
+        "healthy"
+    } else {
+        "attention"
+    };
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "guild.resources.diagnosed",
+    )
+    .await;
+    Ok(Json(ResourceDiagnostics {
+        status,
+        channels_available,
+        roles_available,
+        issues,
+    }))
+}
+
+fn collect_resource_references(
+    value: &Value,
+    path: String,
+    output: &mut Vec<(String, &'static str, String)>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                let kind = if key.ends_with("channel_id") || key == "category_id" {
+                    Some("channel")
+                } else if key.ends_with("role_id") {
+                    Some("role")
+                } else {
+                    None
+                };
+                let plural_kind = if key.ends_with("channel_ids") {
+                    Some("channel")
+                } else if key.ends_with("role_ids") {
+                    Some("role")
+                } else {
+                    None
+                };
+                if let (Some(kind), Some(id)) = (kind, child.as_str())
+                    && !id.is_empty()
+                {
+                    output.push((child_path.clone(), kind, id.to_owned()));
+                } else if let (Some(kind), Some(ids)) = (plural_kind, child.as_array()) {
+                    for (index, id) in ids.iter().filter_map(Value::as_str).enumerate() {
+                        if !id.is_empty() {
+                            output.push((format!("{child_path}[{index}]"), kind, id.to_owned()));
+                        }
+                    }
+                }
+                collect_resource_references(child, child_path, output);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                collect_resource_references(child, format!("{path}[{index}]"), output);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn discord_resource_error(
+    guild_id: &str,
+    resource: &'static str,
+    error: impl std::fmt::Display,
+) -> ApiError {
+    let error = error.to_string();
+    tracing::error!(%guild_id, %error, resource, "failed to fetch Discord guild resources");
+    let status = if error.contains("429") {
+        StatusCode::TOO_MANY_REQUESTS
+    } else if error.contains("403") || error.contains("Missing Access") {
+        StatusCode::FORBIDDEN
+    } else if error.contains("404") {
+        StatusCode::NOT_FOUND
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+    ApiError(status, discord_resource_message(resource, &error))
+}
+
+fn discord_resource_message(resource: &str, error: &str) -> String {
+    if error.contains("429") {
+        format!("Discord is rate-limiting {resource} checks. Wait a moment and retry.")
+    } else if error.contains("403") || error.contains("Missing Access") {
+        format!(
+            "Orivane cannot read this server's {resource}. Confirm the bot is still installed and has View Channels and Manage Roles where required."
+        )
+    } else if error.contains("404") {
+        "Discord reports that this server is unavailable to Orivane. The bot may have been removed."
+            .to_owned()
+    } else {
+        format!("Discord's {resource} service could not be reached. Retry shortly.")
+    }
 }
 
 async fn get_temporary_voice_channels(
@@ -3392,4 +3744,93 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
     tracing::info!("shutdown requested; draining API requests");
+}
+
+#[cfg(test)]
+mod resource_diagnostic_tests {
+    use super::*;
+    use axum::body::Body;
+
+    #[test]
+    fn collects_nested_channel_and_role_references() {
+        let value = serde_json::json!({
+            "guild_id": "1",
+            "modules": {
+                "welcome": { "channel_id": "10" },
+                "automod": { "ignored_channel_ids": ["11"], "ignored_role_ids": ["20"] },
+                "tickets": { "panels": [{ "category_id": "12", "support_role_ids": ["21"] }] }
+            }
+        });
+        let mut output = Vec::new();
+        collect_resource_references(&value, String::new(), &mut output);
+        assert!(
+            output
+                .iter()
+                .any(|(_, kind, id)| *kind == "channel" && id == "10")
+        );
+        assert!(
+            output
+                .iter()
+                .any(|(_, kind, id)| *kind == "channel" && id == "12")
+        );
+        assert!(
+            output
+                .iter()
+                .any(|(_, kind, id)| *kind == "role" && id == "21")
+        );
+        assert!(!output.iter().any(|(_, _, id)| id == "1"));
+    }
+
+    #[test]
+    fn classifies_common_discord_failures() {
+        assert!(discord_resource_message("roles", "403 Missing Access").contains("cannot read"));
+        assert!(discord_resource_message("channels", "429").contains("rate-limiting"));
+        assert!(discord_resource_message("channels", "404").contains("removed"));
+    }
+
+    #[test]
+    fn rejects_cross_site_mutations_but_allows_reads() {
+        let mutation = Request::builder()
+            .method(Method::PUT)
+            .uri("/v1/guilds/1/config")
+            .header("origin", "https://evil.example")
+            .body(Body::empty())
+            .unwrap();
+        assert!(reject_cross_site_mutation(&mutation, "https://orivane.example").is_some());
+        let read = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/guilds/1/config")
+            .header("origin", "https://evil.example")
+            .body(Body::empty())
+            .unwrap();
+        assert!(reject_cross_site_mutation(&read, "https://orivane.example").is_none());
+    }
+
+    #[test]
+    fn rate_limits_mutations_independently_from_reads() {
+        let limiter = RateLimiter::default();
+        for _ in 0..120 {
+            let request = Request::builder()
+                .method(Method::POST)
+                .uri("/v1/activity")
+                .header("cookie", "session=test")
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(limiter.retry_after(&request), None);
+        }
+        let limited = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/activity")
+            .header("cookie", "session=test")
+            .body(Body::empty())
+            .unwrap();
+        assert!(limiter.retry_after(&limited).is_some());
+        let read = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/health")
+            .header("cookie", "session=test")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(limiter.retry_after(&read), None);
+    }
 }

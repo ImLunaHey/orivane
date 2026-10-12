@@ -153,6 +153,20 @@ export type GuildRole = {
   managed: boolean
 }
 
+export type ResourceIssue = {
+  path: string
+  kind: 'channel' | 'role' | 'access'
+  id: string | null
+  message: string
+}
+
+export type ResourceDiagnostics = {
+  status: 'healthy' | 'attention'
+  channels_available: boolean
+  roles_available: boolean
+  issues: ResourceIssue[]
+}
+
 export type AnalyticsEvent = {
   id: string
   event: string
