@@ -37,10 +37,7 @@ export type GuildConfig = {
       goodbye_channel_id: string | null
       goodbye_message: string
     }
-    logging: {
-      enabled: boolean
-      channel_id: string | null
-    }
+    logging: LoggingConfig
     utility: { enabled: boolean; ephemeral_responses: boolean }
     moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string }
     autorole: { enabled: boolean; role_ids: string[]; delay_seconds: number; remove_role_ids: string[]; remove_delay_seconds: number; joinable_role_ids: string[]; single_joinable_role: boolean }
@@ -58,6 +55,26 @@ export type GuildConfig = {
     auto_delete: { enabled: boolean; rules: AutoDeleteRule[] }
     managed_embeds: { enabled: boolean }
   }
+}
+
+export type LoggingConfig = {
+  enabled: boolean
+  channel_id: string | null
+  command_events: boolean
+  message_events: boolean
+  member_events: boolean
+  moderation_events: boolean
+  role_events: boolean
+  channel_events: boolean
+  voice_events: boolean
+  command_channel_id: string | null
+  message_channel_id: string | null
+  member_channel_id: string | null
+  moderation_channel_id: string | null
+  role_channel_id: string | null
+  channel_event_channel_id: string | null
+  voice_channel_id: string | null
+  ignored_channel_ids: string[]
 }
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     env,
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -8,8 +8,8 @@ use std::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{
-    Giveaway, Infrastructure, NewAuditEvent, NewEmbedDelivery, NewFormSubmission, NewGiveaway,
-    NewModerationCase, NewReminder, NewSuggestion, Reminder, Suggestion, level_for_xp,
+    Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery, NewFormSubmission,
+    NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, Reminder, Suggestion, level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -17,7 +17,7 @@ use bot_discord::{
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, FormSubmissionInput, GiveawayInput, GiveawayResult,
+    AuditNotice, BotModule, DiscordLogEvent, FormSubmissionInput, GiveawayInput, GiveawayResult,
     ManagedEmbedDeliveryInput, ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate,
     MessageDeletionJobResult, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
     ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
@@ -50,6 +50,7 @@ use twilight_model::application::interaction::{
 };
 use twilight_model::channel::message::EmojiReactionType;
 use twilight_model::gateway::payload::incoming::GuildCreate;
+use twilight_model::guild::audit_log::AuditLogEventType;
 
 #[derive(Clone)]
 struct GatewayModuleServices {
@@ -734,6 +735,7 @@ fn reminder_result(reminder: &Reminder) -> ReminderResult {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     init_tracing();
     let token = required_env("DISCORD_TOKEN")?;
     let database_url = required_env("DATABASE_URL")?;
@@ -772,10 +774,13 @@ async fn main() -> Result<()> {
     };
     let intents = Intents::GUILDS
         | Intents::GUILD_MEMBERS
+        | Intents::GUILD_MODERATION
         | Intents::GUILD_MESSAGES
         | Intents::MESSAGE_CONTENT
-        | Intents::GUILD_MESSAGE_REACTIONS;
+        | Intents::GUILD_MESSAGE_REACTIONS
+        | Intents::GUILD_VOICE_STATES;
     let mut shard = Shard::new(ShardId::ONE, token, intents);
+    let mut voice_channels: HashMap<(u64, u64), u64> = HashMap::new();
 
     tokio::spawn(run_scheduler(
         context.clone(),
@@ -797,9 +802,84 @@ async fn main() -> Result<()> {
             Event::GatewayClose(frame) => {
                 tracing::error!(?frame, "Discord closed the gateway connection");
             }
+            Event::GuildAuditLogEntryCreate(entry) => {
+                let Some(guild_id) = entry.guild_id else {
+                    continue;
+                };
+                let guild_id_string = guild_id.to_string();
+                let config = match infrastructure.guild_config(&guild_id_string).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for audit-log event");
+                        continue;
+                    }
+                };
+                let action_debug = format!("{:?}", entry.action_type);
+                let action_name = snake_case(&action_debug);
+                let category = audit_category(entry.action_type);
+                let target_type = match category {
+                    "roles" => "role",
+                    "channels" => "channel",
+                    "messages" => "message",
+                    _ => "member",
+                };
+                let mut details = vec![("Audit action".into(), action_debug)];
+                if !entry.changes.is_empty() {
+                    let changed_fields = serde_json::to_value(&entry.changes)
+                        .ok()
+                        .and_then(|value| value.as_array().cloned())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|change| {
+                            change
+                                .get("key")
+                                .and_then(|key| key.as_str())
+                                .map(str::to_owned)
+                        })
+                        .collect::<Vec<_>>();
+                    details.push((
+                        "Changes".into(),
+                        if changed_fields.is_empty() {
+                            format!("{} fields changed", entry.changes.len())
+                        } else {
+                            changed_fields.join(", ")
+                        },
+                    ));
+                }
+                if let Some(reason) = entry.reason.as_deref() {
+                    details.push(("Reason".into(), reason.chars().take(1_000).collect()));
+                }
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: guild_id.get(),
+                        category: category.into(),
+                        action: format!("discord.audit.{action_name}"),
+                        title: "Discord administrative action".into(),
+                        summary: format!("Discord recorded a `{action_name}` audit-log entry."),
+                        actor_id: entry.user_id.map(|id| id.get()),
+                        target_type: target_type.into(),
+                        target_id: entry.target_id.map(|id| id.to_string()),
+                        channel_id: None,
+                        details,
+                    },
+                )
+                .await;
+            }
             Event::GuildCreate(guild) => {
                 if let GuildCreate::Available(guild) = *guild {
                     let guild_id = guild.id.to_string();
+                    for voice_state in &guild.voice_states {
+                        if let Some(channel_id) = voice_state.channel_id {
+                            voice_channels.insert(
+                                (guild.id.get(), voice_state.user_id.get()),
+                                channel_id.get(),
+                            );
+                        }
+                    }
                     if let Err(error) = infrastructure
                         .upsert_connected_guild(
                             &guild_id,
@@ -852,6 +932,39 @@ async fn main() -> Result<()> {
                     has_avatar: member.user.avatar.is_some(),
                     is_bot: member.user.bot,
                 };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: event.guild_id,
+                        category: "members".into(),
+                        action: "discord.member.joined".into(),
+                        title: "Member joined".into(),
+                        summary: format!("{} joined the server.", event.display_name),
+                        actor_id: Some(event.user_id),
+                        target_type: "member".into(),
+                        target_id: Some(event.user_id.to_string()),
+                        channel_id: None,
+                        details: vec![
+                            ("Username".into(), event.username.clone()),
+                            (
+                                "Account age".into(),
+                                format!("{} days", event.account_age_seconds / 86_400),
+                            ),
+                            (
+                                "Account type".into(),
+                                if event.is_bot {
+                                    "Bot".into()
+                                } else {
+                                    "User".into()
+                                },
+                            ),
+                        ],
+                    },
+                )
+                .await;
                 for module in modules
                     .iter()
                     .filter(|module| module.handles_member_join() && module.enabled(&config))
@@ -911,6 +1024,28 @@ async fn main() -> Result<()> {
                     username,
                     display_name,
                 };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: event.guild_id,
+                        category: "members".into(),
+                        action: "discord.member.left".into(),
+                        title: "Member left".into(),
+                        summary: format!(
+                            "{} left or was removed from the server.",
+                            event.display_name
+                        ),
+                        actor_id: Some(event.user_id),
+                        target_type: "member".into(),
+                        target_id: Some(event.user_id.to_string()),
+                        channel_id: None,
+                        details: vec![("Username".into(), event.username.clone())],
+                    },
+                )
+                .await;
                 for module in modules
                     .iter()
                     .filter(|module| module.handles_member_leave() && module.enabled(&config))
@@ -934,6 +1069,158 @@ async fn main() -> Result<()> {
                         tracing::error!(%error, "failed to persist member leave module audit event");
                     }
                 }
+            }
+            Event::MemberUpdate(member) => {
+                let guild_id = member.guild_id;
+                let guild_id_string = guild_id.to_string();
+                let config = match infrastructure.guild_config(&guild_id_string).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for member update");
+                        continue;
+                    }
+                };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: guild_id.get(),
+                        category: "members".into(),
+                        action: "discord.member.updated".into(),
+                        title: "Member updated".into(),
+                        summary: "Discord reported a member profile, role, or timeout change."
+                            .into(),
+                        actor_id: None,
+                        target_type: "member".into(),
+                        target_id: Some(member.user.id.to_string()),
+                        channel_id: None,
+                        details: vec![
+                            (
+                                "Display name".into(),
+                                member
+                                    .nick
+                                    .clone()
+                                    .or_else(|| member.user.global_name.clone())
+                                    .unwrap_or_else(|| member.user.name.clone()),
+                            ),
+                            ("Roles".into(), member.roles.len().to_string()),
+                            (
+                                "Timed out".into(),
+                                member.communication_disabled_until.is_some().to_string(),
+                            ),
+                        ],
+                    },
+                )
+                .await;
+            }
+            Event::MessageUpdate(message) => {
+                let Some(guild_id) = message.guild_id else {
+                    continue;
+                };
+                let config = match infrastructure.guild_config(&guild_id.to_string()).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for message update");
+                        continue;
+                    }
+                };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: guild_id.get(),
+                        category: "messages".into(),
+                        action: "discord.message.updated".into(),
+                        title: "Message edited".into(),
+                        summary: "A message was edited. Message content was not retained in logs."
+                            .into(),
+                        actor_id: Some(message.author.id.get()),
+                        target_type: "message".into(),
+                        target_id: Some(message.id.to_string()),
+                        channel_id: Some(message.channel_id.get()),
+                        details: vec![
+                            (
+                                "Content length".into(),
+                                message.content.chars().count().to_string(),
+                            ),
+                            ("Attachments".into(), message.attachments.len().to_string()),
+                            ("Privacy".into(), "Content not retained".into()),
+                        ],
+                    },
+                )
+                .await;
+            }
+            Event::MessageDelete(message) => {
+                let Some(guild_id) = message.guild_id else {
+                    continue;
+                };
+                let config = match infrastructure.guild_config(&guild_id.to_string()).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for message deletion");
+                        continue;
+                    }
+                };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: guild_id.get(),
+                        category: "messages".into(),
+                        action: "discord.message.deleted".into(),
+                        title: "Message deleted".into(),
+                        summary: "A message was deleted. Its content was not retained.".into(),
+                        actor_id: None,
+                        target_type: "message".into(),
+                        target_id: Some(message.id.to_string()),
+                        channel_id: Some(message.channel_id.get()),
+                        details: vec![("Privacy".into(), "Content not retained".into())],
+                    },
+                )
+                .await;
+            }
+            Event::MessageDeleteBulk(messages) => {
+                let Some(guild_id) = messages.guild_id else {
+                    continue;
+                };
+                let config = match infrastructure.guild_config(&guild_id.to_string()).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for bulk message deletion");
+                        continue;
+                    }
+                };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: guild_id.get(),
+                        category: "messages".into(),
+                        action: "discord.message.bulk_deleted".into(),
+                        title: "Messages bulk deleted".into(),
+                        summary: format!(
+                            "{} messages were deleted. Their content was not retained.",
+                            messages.ids.len()
+                        ),
+                        actor_id: None,
+                        target_type: "channel".into(),
+                        target_id: Some(messages.channel_id.to_string()),
+                        channel_id: Some(messages.channel_id.get()),
+                        details: vec![
+                            ("Messages".into(), messages.ids.len().to_string()),
+                            ("Privacy".into(), "Content not retained".into()),
+                        ],
+                    },
+                )
+                .await;
             }
             Event::MessageCreate(message) => {
                 let Some(guild_id) = message.guild_id else {
@@ -1133,6 +1420,77 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
+            }
+            Event::VoiceStateUpdate(voice) => {
+                let Some(guild_id) = voice.guild_id else {
+                    continue;
+                };
+                let key = (guild_id.get(), voice.user_id.get());
+                let previous_channel_id = match voice.channel_id {
+                    Some(channel_id) => voice_channels.insert(key, channel_id.get()),
+                    None => voice_channels.remove(&key),
+                };
+                let next_channel_id = voice.channel_id.map(|id| id.get());
+                if previous_channel_id == next_channel_id {
+                    continue;
+                }
+                let config = match infrastructure.guild_config(&guild_id.to_string()).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for voice-state event");
+                        continue;
+                    }
+                };
+                let (action, title, summary) = match (previous_channel_id, next_channel_id) {
+                    (None, Some(channel_id)) => (
+                        "discord.voice.joined",
+                        "Voice channel joined",
+                        format!("A member joined <#{channel_id}>."),
+                    ),
+                    (Some(channel_id), None) => (
+                        "discord.voice.left",
+                        "Voice channel left",
+                        format!("A member left <#{channel_id}>."),
+                    ),
+                    (Some(from), Some(to)) => (
+                        "discord.voice.moved",
+                        "Voice channel changed",
+                        format!("A member moved from <#{from}> to <#{to}>."),
+                    ),
+                    (None, None) => continue,
+                };
+                dispatch_discord_log_event(
+                    &context,
+                    &modules,
+                    &infrastructure,
+                    &config,
+                    DiscordLogEvent {
+                        guild_id: guild_id.get(),
+                        category: "voice".into(),
+                        action: action.into(),
+                        title: title.into(),
+                        summary,
+                        actor_id: Some(voice.user_id.get()),
+                        target_type: "member".into(),
+                        target_id: Some(voice.user_id.to_string()),
+                        channel_id: next_channel_id.or(previous_channel_id),
+                        details: vec![
+                            (
+                                "From".into(),
+                                previous_channel_id.map_or_else(
+                                    || "Not connected".into(),
+                                    |id| format!("<#{id}>"),
+                                ),
+                            ),
+                            (
+                                "To".into(),
+                                next_channel_id
+                                    .map_or_else(|| "Disconnected".into(), |id| format!("<#{id}>")),
+                            ),
+                        ],
+                    },
+                )
+                .await;
             }
             Event::InteractionCreate(interaction) => {
                 if let Some(author) = interaction.author() {
@@ -1475,6 +1833,70 @@ async fn main() -> Result<()> {
     anyhow::bail!("Discord gateway event stream closed")
 }
 
+async fn dispatch_discord_log_event(
+    context: &ModuleContext,
+    modules: &[Arc<dyn BotModule>],
+    infrastructure: &Infrastructure,
+    config: &GuildConfig,
+    event: DiscordLogEvent,
+) {
+    let mut audit = NewAuditEvent::guild(
+        event.guild_id.to_string(),
+        event
+            .actor_id
+            .map_or_else(|| "system".to_owned(), |id| id.to_string()),
+        &event.action,
+    );
+    audit.actor_kind = if event.actor_id.is_some() {
+        "user".to_owned()
+    } else {
+        "system".to_owned()
+    };
+    audit.source = "discord_gateway".to_owned();
+    audit.target_type = event.target_type.clone();
+    audit.target_id = event.target_id.clone();
+    audit.metadata = serde_json::json!({
+        "category": event.category,
+        "channel_id": event.channel_id.map(|id| id.to_string()),
+        "details": event.details,
+    });
+    if let Err(error) = infrastructure.record_audit_event(&audit).await {
+        tracing::error!(%error, action = %event.action, "failed to persist Discord event audit record");
+    }
+    for module in modules
+        .iter()
+        .filter(|module| module.handles_discord_log_event() && module.enabled(config))
+    {
+        if let Err(error) = module.on_discord_log_event(context, config, &event).await {
+            tracing::error!(module = module.name(), action = %event.action, %error, "failed to deliver Discord event log");
+        }
+    }
+}
+
+fn audit_category(action: AuditLogEventType) -> &'static str {
+    let name = format!("{action:?}");
+    if name.starts_with("Role") || name == "MemberRoleUpdate" {
+        "roles"
+    } else if name.starts_with("Channel") || name.starts_with("Thread") {
+        "channels"
+    } else if name.starts_with("Message") {
+        "messages"
+    } else {
+        "moderation"
+    }
+}
+
+fn snake_case(value: &str) -> String {
+    let mut result = String::with_capacity(value.len() + 8);
+    for (index, character) in value.chars().enumerate() {
+        if character.is_ascii_uppercase() && index > 0 {
+            result.push('_');
+        }
+        result.push(character.to_ascii_lowercase());
+    }
+    result
+}
+
 fn modal_values(components: &[ModalInteractionComponent]) -> BTreeMap<String, String> {
     let mut values = BTreeMap::new();
     for component in components {
@@ -1609,4 +2031,30 @@ fn init_tracing() {
                 .unwrap_or_else(|_| "info,sqlx=warn,twilight_gateway=warn".into()),
         )
         .init();
+}
+
+#[cfg(test)]
+mod logging_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_discord_audit_actions() {
+        assert_eq!(audit_category(AuditLogEventType::RoleUpdate), "roles");
+        assert_eq!(audit_category(AuditLogEventType::MemberRoleUpdate), "roles");
+        assert_eq!(audit_category(AuditLogEventType::ChannelDelete), "channels");
+        assert_eq!(
+            audit_category(AuditLogEventType::MessageBulkDelete),
+            "messages"
+        );
+        assert_eq!(audit_category(AuditLogEventType::MemberKick), "moderation");
+    }
+
+    #[test]
+    fn normalizes_audit_action_names() {
+        assert_eq!(snake_case("MemberRoleUpdate"), "member_role_update");
+        assert_eq!(
+            snake_case("ChannelOverwriteDelete"),
+            "channel_overwrite_delete"
+        );
+    }
 }

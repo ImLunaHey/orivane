@@ -41,7 +41,7 @@ export const defaultConfig: GuildConfig = {
       goodbye_channel_id: null,
       goodbye_message: '{username} has left {server}.',
     },
-    logging: { enabled: true, channel_id: '901256781234567892' },
+    logging: { enabled: true, channel_id: '901256781234567892', command_events: true, message_events: true, member_events: true, moderation_events: true, role_events: true, channel_events: true, voice_events: true, command_channel_id: null, message_channel_id: null, member_channel_id: null, moderation_channel_id: null, role_channel_id: null, channel_event_channel_id: null, voice_channel_id: null, ignored_channel_ids: [] },
     utility: { enabled: true, ephemeral_responses: false },
     moderation: { enabled: true, dm_on_action: true, default_reason: 'No reason provided' },
     autorole: { enabled: false, role_ids: [], delay_seconds: 0, remove_role_ids: [], remove_delay_seconds: 0, joinable_role_ids: [], single_joinable_role: false },

@@ -18,7 +18,7 @@ Reference feature sets:
 | Welcome | Live | Public welcome, optional DM, goodbye, variables and preview | Images, embeds, multiple randomized messages, join/leave/ban announcements |
 | Autorole | Live | Delayed join roles, delayed removals, `/role` self-service roles, exclusive self-service mode | Persistent delayed-job recovery and role-hierarchy preflight diagnostics |
 | Reaction roles | Live | Existing-message emoji mappings; role add and remove; custom emoji IDs | Bot-created messages, buttons/dropdowns, add-only/remove-only, exclusive groups |
-| Logging | Live, narrow | Content-safe command outcomes plus durable global/guild audit records | Discord event categories for edits/deletes, role/channel changes, voice and moderation audit-log attribution |
+| Logging | Live | Category routing for commands, content-safe message edits/deletes, member lifecycle and updates, voice transitions, and attributed Discord audit-log actions for moderation/roles/channels; durable global/guild audit records and analytics | Cached before/after diffs, webhook/integration events, and configurable retention |
 | Leveling | Live | Durable XP, cooldown, exclusions, `/rank`, `/leaderboard`, announcements | Role rewards, XP administration, cards, voice XP, anti-farming policy |
 | Starboard | Live | Threshold, emoji, ignored channels, self-star policy, deduplication | Rich source embeds, attachments, edits/deletes, per-channel thresholds |
 | Tickets | Live | Private ticket channels, duplicate protection, support roles, close command, closure log | Panel/buttons, claims, transcripts, intake forms, per-user limits, reopen/transfer |

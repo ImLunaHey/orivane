@@ -120,11 +120,65 @@ pub struct WelcomeConfig {
     pub goodbye_message: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct LoggingConfig {
     #[serde(default)]
     pub enabled: bool,
     pub channel_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub command_events: bool,
+    #[serde(default = "default_true")]
+    pub message_events: bool,
+    #[serde(default = "default_true")]
+    pub member_events: bool,
+    #[serde(default = "default_true")]
+    pub moderation_events: bool,
+    #[serde(default = "default_true")]
+    pub role_events: bool,
+    #[serde(default = "default_true")]
+    pub channel_events: bool,
+    #[serde(default = "default_true")]
+    pub voice_events: bool,
+    #[serde(default)]
+    pub command_channel_id: Option<String>,
+    #[serde(default)]
+    pub message_channel_id: Option<String>,
+    #[serde(default)]
+    pub member_channel_id: Option<String>,
+    #[serde(default)]
+    pub moderation_channel_id: Option<String>,
+    #[serde(default)]
+    pub role_channel_id: Option<String>,
+    #[serde(default)]
+    pub channel_event_channel_id: Option<String>,
+    #[serde(default)]
+    pub voice_channel_id: Option<String>,
+    #[serde(default)]
+    pub ignored_channel_ids: Vec<String>,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            channel_id: None,
+            command_events: true,
+            message_events: true,
+            member_events: true,
+            moderation_events: true,
+            role_events: true,
+            channel_events: true,
+            voice_events: true,
+            command_channel_id: None,
+            message_channel_id: None,
+            member_channel_id: None,
+            moderation_channel_id: None,
+            role_channel_id: None,
+            channel_event_channel_id: None,
+            voice_channel_id: None,
+            ignored_channel_ids: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -447,6 +501,8 @@ pub enum ConfigValidationError {
     InvalidWelcomeMessages,
     #[error("a logging channel is required when the logging module is enabled")]
     MissingLoggingChannel,
+    #[error("logging category channels or ignored channels are invalid")]
+    InvalidLogging,
     #[error("autorole role IDs must be valid Discord snowflakes and contain at most 10 roles")]
     InvalidAutoroles,
     #[error("a starboard channel is required when the starboard module is enabled")]
@@ -570,6 +626,23 @@ impl GuildConfig {
                 .is_none_or(|id| !valid_snowflake(id))
         {
             return Err(ConfigValidationError::MissingLoggingChannel);
+        }
+        let logging = &self.modules.logging;
+        if invalid_snowflake_list(&logging.ignored_channel_ids, 100)
+            || [
+                logging.command_channel_id.as_deref(),
+                logging.message_channel_id.as_deref(),
+                logging.member_channel_id.as_deref(),
+                logging.moderation_channel_id.as_deref(),
+                logging.role_channel_id.as_deref(),
+                logging.channel_event_channel_id.as_deref(),
+                logging.voice_channel_id.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|id| !valid_snowflake(id))
+        {
+            return Err(ConfigValidationError::InvalidLogging);
         }
         let autorole = &self.modules.autorole;
         if (autorole.enabled
@@ -1141,6 +1214,8 @@ mod tests {
         assert!(config.modules.utility.enabled);
         assert!(!config.modules.autorole.enabled);
         assert_eq!(config.modules.starboard.threshold, 3);
+        assert!(config.modules.logging.command_events);
+        assert!(config.modules.logging.message_events);
     }
 
     #[test]

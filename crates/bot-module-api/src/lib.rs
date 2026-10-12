@@ -361,6 +361,20 @@ pub struct AuditNotice {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiscordLogEvent {
+    pub guild_id: u64,
+    pub category: String,
+    pub action: String,
+    pub title: String,
+    pub summary: String,
+    pub actor_id: Option<u64>,
+    pub target_type: String,
+    pub target_id: Option<String>,
+    pub channel_id: Option<u64>,
+    pub details: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageCreate {
     pub guild_id: u64,
     pub channel_id: u64,
@@ -420,6 +434,9 @@ pub trait BotModule: Send + Sync {
     fn handles_audit_notice(&self) -> bool {
         false
     }
+    fn handles_discord_log_event(&self) -> bool {
+        false
+    }
     fn handles_message_create(&self) -> bool {
         false
     }
@@ -471,6 +488,15 @@ pub trait BotModule: Send + Sync {
         _context: &ModuleContext,
         _config: &GuildConfig,
         _event: &AuditNotice,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn on_discord_log_event(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &DiscordLogEvent,
     ) -> Result<()> {
         Ok(())
     }

@@ -41,7 +41,6 @@ describe('module configuration pages', () => {
       ['utility', 'Utility settings', 'Ephemeral responses', 'switch', true],
       ['welcome', 'Welcome settings', 'Welcome channel', null, null],
       ['autorole', 'Autorole settings', 'Roles to assign', null, null],
-      ['logging', 'Server logging settings', 'Logging channel', null, null],
       ['moderation', 'Moderation settings', 'Default reason', 'text', 'Be kind'],
       ['automod', 'Automod settings', 'Maximum mentions', 'number', '8'],
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
@@ -63,6 +62,24 @@ describe('module configuration pages', () => {
       if (kind) expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
       expect(screen.queryByText('Not active in Discord yet')).not.toBeInTheDocument()
     }
+  })
+
+  it('configures category-based Discord event logging on its dedicated page', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/logging`)
+    await screen.findByRole('heading', { name: 'Discord event logging' })
+
+    expect(screen.getByRole('combobox', { name: 'Default logging channel' })).toBeVisible()
+    expect(screen.getByRole('switch', { name: 'Log messages' })).toBeChecked()
+    expect(screen.getByRole('switch', { name: 'Log moderation' })).toBeChecked()
+    expect(screen.getByRole('table', { name: 'Recent Discord logging events' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Log voice' }))
+    const save = screen.getByRole('button', { name: 'Save changes' })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+    await screen.findByText('Saved')
+    expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging.voice_events).toBe(false)
   })
 
   it('handles unknown module URLs without crashing', async () => {

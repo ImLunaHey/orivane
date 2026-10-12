@@ -9,6 +9,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bot-core.workspace = true
+bot-discord.workspace = true
 bot-module-api.workspace = true
 
 [dev-dependencies]

@@ -17,7 +17,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   utility: { title: 'Utility', description: 'Ping, help, and server information slash commands.', icon: TerminalSquare, tone: 'blue', runtime: 'Live' },
   welcome: { title: 'Welcome', description: 'Greet new members with server-specific messages.', icon: Sparkles, tone: 'blue', runtime: 'Live' },
   autorole: { title: 'Autorole', description: 'Assign configured roles when a member joins.', icon: UserPlus, tone: 'green', runtime: 'Live' },
-  logging: { title: 'Server logging', description: 'Send accountable command outcomes to a channel.', icon: ScrollText, tone: 'green', runtime: 'Live' },
+  logging: { title: 'Server logging', description: 'Route attributed Discord events and command outcomes with content-safe durable history.', icon: ScrollText, tone: 'green', runtime: 'Live' },
   moderation: { title: 'Moderation', description: 'Cases and defaults for warn, timeout, kick, ban, and unban.', icon: Gavel, tone: 'violet', runtime: 'Live' },
   automod: { title: 'Automod', description: 'Block unsafe messages with configurable filters, exclusions, and actions.', icon: ShieldCheck, tone: 'violet', runtime: 'Live' },
   leveling: { title: 'Leveling', description: 'Reward healthy participation with persistent XP and level announcements.', icon: Trophy, tone: 'amber', runtime: 'Live' },
