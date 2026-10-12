@@ -86,7 +86,9 @@ const demoSubmissions: FormSubmission[] = [{
   id: 1,
   guild_id: demoGuildId,
   form_id: 'staff-application',
-  submitter_id: demoActorId,
+  submitter_id: '118742006320914432',
+  username: 'silver.arc',
+  display_name: 'Silver',
   answers: [{ question_id: 'experience', label: 'What relevant experience do you have?', answer: 'I have moderated community servers for several years.' }],
   created_at: '2026-10-12T15:18:00Z',
 }]
@@ -278,6 +280,8 @@ export async function getHealthReport(): Promise<InfrastructureHealth> {
 
 export type GuildMemberSummary = {
   id: string
+  username: string | null
+  display_name: string | null
   commands_30d: number
   cases: number
   last_seen: string | null

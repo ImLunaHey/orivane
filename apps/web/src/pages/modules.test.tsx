@@ -203,7 +203,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules/forms/staff-application/submissions/1`)
     await screen.findByRole('heading', { name: 'Submitted answers' })
     expect(screen.getByText('I have moderated community servers for several years.')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'View submitter' })).toBeVisible()
+    expect(screen.getByRole('link', { name: /Silver.*@silver\.arc/ })).toHaveAttribute('href', `/servers/${serverId}/members/118742006320914432`)
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

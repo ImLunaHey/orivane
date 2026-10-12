@@ -82,8 +82,8 @@ export function MemberDetailPage() {
 function observedMember(member: Awaited<ReturnType<typeof getGuildMembers>>[number]): typeof members[number] {
   return {
     id: member.id,
-    name: `Discord user ${member.id.slice(-4)}`,
-    displayName: `Discord user ${member.id.slice(-4)}`,
+    name: member.username ?? `Discord user ${member.id.slice(-4)}`,
+    displayName: member.display_name ?? member.username ?? `Discord user ${member.id.slice(-4)}`,
     role: 'Observed',
     joined: 'Not tracked',
     joinedAt: 'Not available from operational telemetry',

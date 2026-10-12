@@ -412,6 +412,11 @@ small { font-size: 14px !important; line-height: 1.45; }
 .form-name-cell span, .form-name-cell a, .form-name-cell small { display: block; }
 .form-name-cell a { color: #eeeef1; font-weight: 700; }
 .form-name-cell small { margin-top: 3px; color: #96969f; }
+.discord-member-link { display: inline-flex; align-items: center; gap: 9px; min-width: 170px; color: inherit; }
+.discord-member-link > span:last-child, .discord-member-link strong, .discord-member-link small { display: block; }
+.discord-member-link strong { color: #eeeef1; font-size: 15px; }
+.discord-member-link small { margin-top: 2px; color: #9999a3; font-size: 14px; }
+.discord-member-link:hover strong { color: #c4b5fd; }
 .table-action { min-height: 36px; padding: 7px 11px; }
 .table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 210px; }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 82px; margin: 0; padding: 17px 18px; border-bottom: 1px solid #302f36; }

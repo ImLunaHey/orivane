@@ -61,7 +61,7 @@ export type ScheduledMessage = { enabled: boolean; id: string; channel_id: strin
 export type FormQuestion = { id: string; label: string; style: 'short' | 'paragraph'; required: boolean; min_length: number; max_length: number; placeholder: string }
 export type ServerForm = { enabled: boolean; id: string; name: string; description: string; destination_channel_id: string; allowed_role_ids: string[]; anonymous: boolean; questions: FormQuestion[] }
 export type FormSubmissionAnswer = { question_id: string; label: string; answer: string }
-export type FormSubmission = { id: number; guild_id: string; form_id: string; submitter_id: string | null; answers: FormSubmissionAnswer[]; created_at: string }
+export type FormSubmission = { id: number; guild_id: string; form_id: string; submitter_id: string | null; username: string | null; display_name: string | null; answers: FormSubmissionAnswer[]; created_at: string }
 
 export type CustomCommand = {
   enabled: boolean
