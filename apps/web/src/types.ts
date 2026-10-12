@@ -42,24 +42,30 @@ export type GuildConfig = {
       enabled: boolean
       channel_id: string | null
       message: string
+      additional_messages: string[]
+      embed_enabled: boolean
+      embed_title: string
+      embed_color: number
+      image_url: string
       dm_enabled: boolean
       dm_message: string
       goodbye_enabled: boolean
       goodbye_channel_id: string | null
       goodbye_message: string
+      goodbye_additional_messages: string[]
     }
     logging: LoggingConfig
     utility: { enabled: boolean; ephemeral_responses: boolean }
     moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string; moderator_role_ids:string[]; warning_thresholds:WarningThreshold[] }
     autorole: { enabled: boolean; role_ids: string[]; delay_seconds: number; remove_role_ids: string[]; remove_delay_seconds: number; joinable_role_ids: string[]; single_joinable_role: boolean }
-    starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[] }
+    starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[]; channel_thresholds:{channel_id:string;threshold:number}[] }
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
     reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[]; panels: ReactionRolePanel[] }
     autoresponder: { enabled: boolean; responses: Autoresponse[] }
     anti_raid: { enabled: boolean; join_threshold: number; join_window_seconds: number; minimum_account_age_days: number; require_avatar: boolean; punish_all_during_raid: boolean; action: 'log' | 'quarantine' | 'timeout' | 'kick' | 'ban'; timeout_seconds: number; quarantine_role_id: string | null; alert_channel_id: string | null }
     scheduled_messages: { enabled: boolean; schedules: ScheduledMessage[] }
-    forms: { enabled: boolean; forms: ServerForm[] }
+    forms: { enabled: boolean; forms: ServerForm[]; retention_days: number }
     suggestions: { enabled: boolean; channel_id: string | null; staff_role_ids: string[]; allow_anonymous: boolean; cooldown_seconds: number }
     giveaways: { enabled: boolean; default_channel_id: string | null; manager_role_ids: string[]; default_duration_minutes: number; default_winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number }
     reminders: { enabled: boolean; allow_direct_messages: boolean; max_active_per_user: number; minimum_delay_minutes: number; maximum_delay_days: number }
@@ -95,6 +101,7 @@ export type LoggingConfig = {
   channel_event_channel_id: string | null
   voice_channel_id: string | null
   ignored_channel_ids: string[]
+  retention_days: number
 }
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }
@@ -102,8 +109,8 @@ export type WarningThreshold = { warnings:number;action:'timeout'|'kick'|'ban';t
 export type AutomodRule = { id:string;enabled:boolean;kind:'blocked_terms'|'mention_spam'|'invite_links'|'external_links'|'caps'|'lines'|'duplicate_spam'|'rapid_spam'|'attachments'|'stickers'|'emoji_spam'|'zalgo'|'phishing';action:'delete'|'warn'|'timeout'|'ban';timeout_seconds:number;threshold:number;window_seconds:number;patterns:string[] }
 export type ReactionRoleOption = { id:string;label:string;description:string;emoji:string;role_id:string }
 export type ReactionRolePanel = { id:string;enabled:boolean;name:string;title:string;description:string;channel_id:string;message_id:string|null;component_type:'buttons'|'select';mode:'toggle'|'add_only'|'remove_only';exclusive:boolean;required_role_ids:string[];blocked_role_ids:string[];options:ReactionRoleOption[] }
-export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[] }
-export type ScheduledMessage = { enabled: boolean; id: string; channel_id: string; message: string; starts_at_unix: number; interval_minutes: number; ends_at_unix: number | null }
+export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with' | 'regex'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[]; cooldown_seconds:number; reactions:string[]; embed_title:string; embed_color:number }
+export type ScheduledMessage = { enabled: boolean; id: string; channel_id: string; message: string; kind: 'once' | 'interval' | 'weekdays'; weekdays: number[]; timezone_offset_minutes: number; embed_template_id: number | null; starts_at_unix: number; interval_minutes: number; ends_at_unix: number | null }
 export type FormQuestion = { id: string; label: string; style: 'short' | 'paragraph'; required: boolean; min_length: number; max_length: number; placeholder: string }
 export type ServerForm = { enabled: boolean; id: string; name: string; description: string; destination_channel_id: string; allowed_role_ids: string[]; anonymous: boolean; questions: FormQuestion[] }
 export type FormSubmissionAnswer = { question_id: string; label: string; answer: string }
@@ -134,8 +141,11 @@ export type CustomCommand = {
   name: string
   description: string
   response: string
+  additional_responses: string[]
   ephemeral: boolean
   allowed_channel_ids: string[]
+  allowed_role_ids: string[]
+  cooldown_seconds: number
 }
 
 export type GuildChannel = {
@@ -152,6 +162,29 @@ export type GuildRole = {
   position: number
   managed: boolean
 }
+
+export type ResourceIssue = {
+  path: string
+  kind: 'channel' | 'role' | 'access'
+  id: string | null
+  message: string
+}
+
+export type ResourceDiagnostics = {
+  status: 'healthy' | 'attention'
+  channels_available: boolean
+  roles_available: boolean
+  issues: ResourceIssue[]
+}
+
+export type PollRecord = { id:number; guild_id:string; channel_id:string; creator_id:string; creator_username:string|null; creator_display_name:string|null; question:string; options:string[]; counts:number[]; total_votes:number; anonymous:boolean; status:'active'|'closed'|'expired'; ends_at:string; closed_at:string|null; created_at:string }
+export type InviteAttributionRecord = { id:number; guild_id:string; joined_user_id:string; joined_username:string|null; joined_display_name:string|null; invite_code:string; inviter_id:string|null; inviter_username:string|null; inviter_display_name:string|null; attributed_at:string }
+export type InviteLeaderboardRecord = { inviter_id:string; username:string|null; display_name:string|null; attributed_joins:number; latest_attribution:string }
+export type AfkStatusRecord = { guild_id:string; user_id:string; username:string|null; display_name:string|null; reason:string; set_at:string; expires_at:string }
+export type VerificationAttemptRecord = { id:number; guild_id:string; user_id:string; username:string|null; display_name:string|null; outcome:'pending'|'verified'|'rejected'|'failed'; reason:string|null; account_age_days:number; has_avatar:boolean; occurred_at:string }
+export type CounterRunRecord = { id:number; guild_id:string; counter_id:string; channel_id:string; value:number; rendered_name:string; outcome:'success'|'failure'; error:string|null; occurred_at:string }
+export type VoiceLinkEventRecord = { id:number; guild_id:string; user_id:string; username:string|null; display_name:string|null; voice_channel_id:string; text_channel_id:string; action:'joined'|'left'; occurred_at:string }
+export type OperationalRecord = FormSubmission | PollRecord | InviteAttributionRecord | InviteLeaderboardRecord | AfkStatusRecord | VerificationAttemptRecord | CounterRunRecord | VoiceLinkEventRecord
 
 export type AnalyticsEvent = {
   id: string
@@ -186,14 +219,15 @@ export type ModerationCase = {
   guild_id: string
   member_id: string
   moderator_id: string
-  action: 'note' | 'warn' | 'timeout' | 'kick' | 'ban'
+  action: 'note' | 'warn' | 'timeout' | 'kick' | 'ban' | 'unban'
   reason: string
+  evidence_urls: string[]
   status: 'open' | 'resolved' | 'reversed'
   created_at: string
   updated_at: string
 }
 
-export type NewModerationCase = Pick<ModerationCase, 'member_id' | 'action' | 'reason'>
+export type NewModerationCase = Pick<ModerationCase, 'member_id' | 'action' | 'reason'> & { evidence_urls?: string[] }
 export type TemporaryVoiceChannel = { id:number;guild_id:string;channel_id:string;owner_id:string;name:string;user_limit:number;locked:boolean;status:string;created_at:string;updated_at:string;deleted_at:string|null;delete_after:string|null }
 export type EconomyAccount = { guild_id:string;user_id:string;balance:number;lifetime_earned:number;lifetime_spent:number;updated_at:string }
 export type EconomyTransaction = { id:number;guild_id:string;user_id:string;counterparty_id:string|null;amount:number;kind:string;reference:string;metadata:Record<string,unknown>;created_at:string }

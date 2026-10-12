@@ -312,7 +312,7 @@ impl BotModule for EconomyModule {
                 if !matches!(choice.as_str(), "heads" | "tails") {
                     bail!("choice must be heads or tails")
                 };
-                let result = if seeded(interaction) % 2 == 0 {
+                let result = if seeded(interaction).is_multiple_of(2) {
                     "heads"
                 } else {
                     "tails"

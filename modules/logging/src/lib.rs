@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{GuildConfig, LoggingConfig};
 use bot_discord::{RichEmbed, RichEmbedField};
-use bot_module_api::{AuditNotice, BotModule, DiscordLogEvent, ModuleContext};
+use bot_module_api::{
+    AuditNotice, BotModule, DiscordLogEvent, ModuleContext, ModuleEventOutcome, ScheduledTick,
+};
 
 pub struct LoggingModule;
 
@@ -19,6 +21,32 @@ impl BotModule for LoggingModule {
     }
     fn handles_discord_log_event(&self) -> bool {
         true
+    }
+    fn handles_scheduled_tick(&self) -> bool {
+        true
+    }
+
+    async fn on_scheduled_tick(
+        &self,
+        context: &ModuleContext,
+        config: &GuildConfig,
+        _event: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        let deleted = context
+            .services
+            .purge_guild_audit_events(
+                config.guild_id.parse().context("guild ID is invalid")?,
+                config.modules.logging.retention_days,
+            )
+            .await?;
+        if deleted == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(vec![ModuleEventOutcome {
+            action: "logging.retention_purged".into(),
+            target_type: "audit_events".into(),
+            target_id: Some(deleted.to_string()),
+        }])
     }
 
     async fn on_audit_notice(
@@ -257,5 +285,29 @@ mod tests {
             .await
             .unwrap();
         assert!(discord.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn purges_records_older_than_the_configured_retention() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.logging.retention_days = 90;
+        let outcomes = LoggingModule
+            .on_scheduled_tick(&context, &config, &ScheduledTick { now_unix: 1 })
+            .await
+            .unwrap();
+        assert_eq!(outcomes[0].action, "logging.retention_purged");
+        assert!(services.calls().iter().any(|call| matches!(
+            call,
+            bot_test_support::ServiceCall::PurgeGuildAuditEvents {
+                guild_id: 10,
+                retention_days: 90,
+            }
+        )));
     }
 }
