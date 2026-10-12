@@ -128,6 +128,12 @@ pub struct GuildRole {
     pub managed: bool,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MessageReactionSummary {
+    pub author_id: u64,
+    pub count: u64,
+}
+
 impl CommandResponse {
     pub fn public(content: impl Into<String>) -> Self {
         Self {
@@ -231,6 +237,13 @@ pub trait DiscordApi: Send + Sync {
     ) -> Result<u64, DiscordError>;
 
     async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError>;
+
+    async fn message_reaction_summary(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<MessageReactionSummary, DiscordError>;
 }
 
 pub struct TwilightDiscord {
@@ -546,6 +559,39 @@ impl DiscordApi for TwilightDiscord {
             .await
             .map_err(request_error)?;
         Ok(())
+    }
+
+    async fn message_reaction_summary(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<MessageReactionSummary, DiscordError> {
+        let message = self
+            .http
+            .message(Id::new(channel_id), Id::new(message_id))
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        let count = message
+            .reactions
+            .iter()
+            .find(|reaction| emoji_key(&reaction.emoji) == emoji)
+            .map(|reaction| reaction.count)
+            .unwrap_or_default();
+        Ok(MessageReactionSummary {
+            author_id: message.author.id.get(),
+            count,
+        })
+    }
+}
+
+fn emoji_key(emoji: &twilight_model::channel::message::EmojiReactionType) -> String {
+    match emoji {
+        twilight_model::channel::message::EmojiReactionType::Unicode { name } => name.clone(),
+        twilight_model::channel::message::EmojiReactionType::Custom { id, .. } => id.to_string(),
     }
 }
 

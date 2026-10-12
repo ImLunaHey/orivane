@@ -327,6 +327,24 @@ impl Infrastructure {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn claim_starboard_post(
+        &self,
+        guild_id: &str,
+        source_message_id: &str,
+        starboard_channel_id: &str,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            "INSERT INTO starboard_posts (guild_id, source_message_id, starboard_channel_id) \
+             VALUES ($1, $2, $3) ON CONFLICT (guild_id, source_message_id) DO NOTHING",
+        )
+        .bind(guild_id)
+        .bind(source_message_id)
+        .bind(starboard_channel_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn health(&self) -> Result<(), StoreError> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         let mut cache = self.redis.clone();

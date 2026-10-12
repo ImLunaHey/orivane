@@ -135,6 +135,10 @@ pub struct StarboardConfig {
     pub emoji: String,
     #[serde(default = "default_starboard_threshold")]
     pub threshold: u16,
+    #[serde(default)]
+    pub allow_self_stars: bool,
+    #[serde(default)]
+    pub ignored_channel_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -309,6 +313,9 @@ impl GuildConfig {
         if !(1..=100).contains(&self.modules.starboard.threshold) {
             return Err(ConfigValidationError::InvalidStarboardThreshold);
         }
+        if invalid_snowflake_list(&self.modules.starboard.ignored_channel_ids, 100) {
+            return Err(ConfigValidationError::InvalidStarboardThreshold);
+        }
         if self.modules.tickets.enabled
             && (self
                 .modules
@@ -392,6 +399,8 @@ impl Default for StarboardConfig {
             channel_id: None,
             emoji: default_starboard_emoji(),
             threshold: default_starboard_threshold(),
+            allow_self_stars: false,
+            ignored_channel_ids: Vec::new(),
         }
     }
 }

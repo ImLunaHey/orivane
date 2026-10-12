@@ -55,6 +55,12 @@ pub trait ModuleServices: Send + Sync {
         channel_id: u64,
         closed_by: u64,
     ) -> Result<bool>;
+    async fn claim_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        starboard_channel_id: u64,
+    ) -> Result<bool>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,6 +90,16 @@ pub struct MessageCreate {
     pub role_ids: Vec<u64>,
     pub mention_count: usize,
     pub content: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReactionAdd {
+    pub guild_id: u64,
+    pub channel_id: u64,
+    pub message_id: u64,
+    pub reactor_id: u64,
+    pub message_author_id: Option<u64>,
+    pub emoji: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,6 +135,9 @@ pub trait BotModule: Send + Sync {
     fn handles_message_create(&self) -> bool {
         false
     }
+    fn handles_reaction_add(&self) -> bool {
+        false
+    }
 
     async fn on_command(
         &self,
@@ -152,6 +171,15 @@ pub trait BotModule: Send + Sync {
         _context: &ModuleContext,
         _config: &GuildConfig,
         _event: &MessageCreate,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        Ok(None)
+    }
+
+    async fn on_reaction_add(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &ReactionAdd,
     ) -> Result<Option<ModuleEventOutcome>> {
         Ok(None)
     }

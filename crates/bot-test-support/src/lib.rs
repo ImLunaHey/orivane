@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
-    GuildRole,
+    GuildRole, MessageReactionSummary,
 };
 use bot_module_api::{
     ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult,
@@ -85,6 +85,11 @@ pub enum DiscordCall {
         channel_id: u64,
         reason: String,
     },
+    MessageReactionSummary {
+        channel_id: u64,
+        message_id: u64,
+        emoji: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +105,11 @@ pub enum ServiceCall {
         guild_id: u64,
         channel_id: u64,
         closed_by: u64,
+    },
+    ClaimStarboardPost {
+        guild_id: u64,
+        source_message_id: u64,
+        starboard_channel_id: u64,
     },
 }
 
@@ -174,6 +184,23 @@ impl ModuleServices for FakeModuleServices {
             });
         Ok(true)
     }
+
+    async fn claim_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        starboard_channel_id: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimStarboardPost {
+                guild_id,
+                source_message_id,
+                starboard_channel_id,
+            });
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -188,6 +215,7 @@ struct FakeState {
     guild_channels: Vec<GuildChannel>,
     guild_roles: Vec<GuildRole>,
     next_channel_id: u64,
+    message_reaction_summary: MessageReactionSummary,
 }
 
 impl FakeDiscord {
@@ -227,6 +255,13 @@ impl FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .next_channel_id = channel_id;
+    }
+
+    pub fn set_message_reaction_summary(&self, summary: MessageReactionSummary) {
+        self.state
+            .lock()
+            .expect("fake lock poisoned")
+            .message_reaction_summary = summary;
     }
 
     fn record(&self, call: DiscordCall) -> Result<(), DiscordError> {
@@ -418,6 +453,25 @@ impl DiscordApi for FakeDiscord {
             channel_id,
             reason: reason.to_owned(),
         })
+    }
+
+    async fn message_reaction_summary(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<MessageReactionSummary, DiscordError> {
+        self.record(DiscordCall::MessageReactionSummary {
+            channel_id,
+            message_id,
+            emoji: emoji.to_owned(),
+        })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .message_reaction_summary
+            .clone())
     }
 }
 

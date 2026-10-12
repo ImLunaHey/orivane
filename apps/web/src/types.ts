@@ -39,7 +39,7 @@ export type GuildConfig = {
     utility: { enabled: boolean; ephemeral_responses: boolean }
     moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string }
     autorole: { enabled: boolean; role_ids: string[]; delay_seconds: number }
-    starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number }
+    starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[] }
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
   }
