@@ -32,6 +32,9 @@ const managedEmbedsRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const managedEmbedNewRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/managed_embeds/new', component: lazyRouteComponent(() => import('./pages/managed-embeds'), 'ManagedEmbedEditorPage') })
 const managedEmbedEditorRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/managed_embeds/$templateId', component: lazyRouteComponent(() => import('./pages/managed-embeds'), 'ManagedEmbedEditorPage') })
 const loggingRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/logging', component: lazyRouteComponent(() => import('./pages/logging'), 'LoggingPage') })
+const ticketsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/tickets', component: lazyRouteComponent(() => import('./pages/tickets'), 'TicketsPage') })
+const ticketPanelRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/tickets/panels/$panelId', component: lazyRouteComponent(() => import('./pages/tickets'), 'TicketPanelEditorPage') })
+const ticketDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/tickets/$ticketId', component: lazyRouteComponent(() => import('./pages/tickets'), 'TicketDetailPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -72,6 +75,9 @@ const routeTree = rootRoute.addChildren([
   managedEmbedNewRoute,
   managedEmbedEditorRoute,
   loggingRoute,
+  ticketsRoute,
+  ticketPanelRoute,
+  ticketDetailRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

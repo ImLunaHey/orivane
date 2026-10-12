@@ -45,7 +45,6 @@ describe('module configuration pages', () => {
       ['automod', 'Automod settings', 'Maximum mentions', 'number', '8'],
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
       ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
-      ['tickets', 'Tickets settings', 'Support roles', null, null],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
       ['reaction_roles', 'Reaction roles settings', 'Enable Reaction roles', 'switch', true],
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
@@ -80,6 +79,23 @@ describe('module configuration pages', () => {
     fireEvent.click(save)
     await screen.findByText('Saved')
     expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging.voice_events).toBe(false)
+  })
+
+  it('uses dedicated ticket inbox, panel editor, and ticket detail pages', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/tickets`)
+    expect(await screen.findByRole('heading', { name: 'Ticket panels' })).toBeVisible()
+    expect(screen.getByRole('table', { name: 'Support tickets' })).toBeVisible()
+    expect(screen.getByLabelText('Tickets grouped by status')).toBeVisible()
+    fireEvent.click(screen.getByRole('link', { name: 'New panel' }))
+    expect(await screen.findByRole('heading', { name: 'New ticket panel' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Save panel' })).toBeDisabled()
+    await navigateTo(`/servers/${serverId}/modules/tickets/42`)
+    expect(await screen.findByRole('heading', { name: 'Verification help' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Ticket lifecycle' })).toBeVisible()
+    expect(screen.getByText('Silver')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Claim' }))
+    await waitFor(() => expect(screen.queryByText('Unassigned')).not.toBeInTheDocument())
   })
 
   it('handles unknown module URLs without crashing', async () => {
