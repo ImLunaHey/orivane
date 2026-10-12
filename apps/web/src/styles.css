@@ -380,6 +380,21 @@ small { font-size: 14px !important; line-height: 1.45; }
 .discord-channel-option-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .discord-channel-option-name svg { flex: none; color: #9692a2; }
 .discord-channel-check { flex: none; color: #a78bfa; }
+.discord-role-field { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.discord-role-field > span { font-size: 14px; font-weight: 600; }
+.discord-role-field > small { margin: 3px 0 7px; color: #9999a3; font-size: 14px; }
+.discord-role-field.is-open .discord-channel-trigger { border-color: #8b6fe2; box-shadow: 0 0 0 3px #7657ca33; }
+.discord-role-field.is-open .discord-channel-chevron { transform: rotate(180deg); }
+.discord-role-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.discord-role-chips button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 5px 8px; border: 1px solid #4a4261; border-radius: 2px; color: #d8ceff; background: #282337; font: inherit; font-size: 14px; cursor: pointer; }
+.discord-role-menu { position: absolute; z-index: 80; top: calc(100% + 6px); right: 0; left: 0; padding: 7px; border: 1px solid #414049; border-radius: 2px; background: #111114; box-shadow: 0 16px 38px #000a; }
+.discord-role-menu > input { width: 100%; min-height: 42px; margin-bottom: 6px; padding: 8px 10px; border: 1px solid #3b3b43; border-radius: 2px; color: #e5e5e7; background: #17171a; font: inherit; font-size: 16px; }
+.discord-role-menu > div { max-height: 265px; overflow-y: auto; }
+.discord-role-menu [role="option"] { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 40px; padding: 8px 9px; border: 0; border-radius: 2px; color: #c9c7cf; background: transparent; font: inherit; font-size: 15px; cursor: pointer; }
+.discord-role-menu [role="option"] > span { display: flex; align-items: center; gap: 8px; }
+.discord-role-menu [role="option"]:hover, .discord-role-menu [role="option"][aria-selected="true"] { color: #fff; background: #302a42; }
+.discord-role-menu [role="option"]:disabled { opacity: .5; cursor: not-allowed; }
+.discord-role-menu p { margin: 0; padding: 14px 9px; color: #92909a; font-size: 14px; }
 .welcome-editor { display: flex; flex-direction: column; }
 .welcome-editor.wide { grid-column: 1 / -1; }
 .welcome-editor-label { display: flex; flex-direction: column; }

@@ -19,7 +19,7 @@ Vite + React dashboard + Discord OAuth2
 
 ## Run locally
 
-1. Create a Discord application and bot in the Developer Portal. The bot uses application (slash) commands and does not require the Message Content intent. Enable the privileged Server Members intent for welcome and autorole join events.
+1. Create a Discord application and bot in the Developer Portal. The bot uses application (slash) commands rather than prefix commands. Enable the privileged Server Members intent for welcome and autorole events and Message Content intent for AutoMod, leveling, and message-triggered modules.
 2. Copy `.env.example` to `.env`. Add the bot token, a random `BETTER_AUTH_SECRET` of at least 32 bytes, and the Discord OAuth client ID and secret. Add your Discord user ID to `BOT_OWNER_DISCORD_IDS` for bot-wide pages.
 3. Start the complete stack (PostgreSQL, Redis, API, gateway, and web UI):
 

@@ -5,12 +5,31 @@ export const demoGuildId = '901256781234567890'
 export const defaultConfig: GuildConfig = {
   guild_id: demoGuildId,
   modules: {
-    automod: { enabled: true, blocked_words: ['spoiler-link'], max_mentions: 5 },
+    automod: {
+      enabled: true,
+      blocked_words: ['spoiler-link'],
+      max_mentions: 5,
+      block_invites: true,
+      block_links: false,
+      max_caps_percentage: 80,
+      max_lines: 12,
+      action: 'delete',
+      timeout_seconds: 600,
+      ignored_channel_ids: [],
+      ignored_role_ids: [],
+      log_channel_id: null,
+      response: '{user}, that message was removed by AutoMod ({rule}).',
+    },
     leveling: {
       enabled: true,
       xp_per_message_min: 15,
       xp_per_message_max: 25,
       cooldown_seconds: 60,
+      ignored_channel_ids: [],
+      ignored_role_ids: [],
+      announce_level_up: true,
+      announcement_channel_id: null,
+      announcement_message: 'Congratulations {user}, you reached level {level}!',
     },
     welcome: {
       enabled: true,

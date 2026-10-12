@@ -5,12 +5,27 @@ export type GuildConfig = {
       enabled: boolean
       blocked_words: string[]
       max_mentions: number
+      block_invites: boolean
+      block_links: boolean
+      max_caps_percentage: number
+      max_lines: number
+      action: 'delete' | 'warn' | 'timeout' | 'ban'
+      timeout_seconds: number
+      ignored_channel_ids: string[]
+      ignored_role_ids: string[]
+      log_channel_id: string | null
+      response: string
     }
     leveling: {
       enabled: boolean
       xp_per_message_min: number
       xp_per_message_max: number
       cooldown_seconds: number
+      ignored_channel_ids: string[]
+      ignored_role_ids: string[]
+      announce_level_up: boolean
+      announcement_channel_id: string | null
+      announcement_message: string
     }
     welcome: {
       enabled: boolean
@@ -36,6 +51,13 @@ export type GuildChannel = {
   kind: 'GuildText' | 'GuildAnnouncement' | 'GuildCategory' | string
   position: number
   parent_id: string | null
+}
+
+export type GuildRole = {
+  id: string
+  name: string
+  position: number
+  managed: boolean
 }
 
 export type AnalyticsEvent = {

@@ -7,7 +7,8 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
 };
 use bot_module_api::{
-    AuditNotice, BotModule, MemberJoin, ModerationCaseInput, ModuleContext, ModuleServices,
+    AuditNotice, BotModule, MemberJoin, MessageCreate, ModerationCaseInput, ModuleContext,
+    ModuleServices, XpAwardInput, XpAwardResult,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autorole::AutoroleModule;
@@ -58,6 +59,24 @@ impl ModuleServices for GatewayModuleServices {
             .await?;
         Ok(case.id)
     }
+
+    async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult> {
+        let result = self
+            .infrastructure
+            .award_member_xp(
+                &input.guild_id.to_string(),
+                &input.user_id.to_string(),
+                input.amount,
+                input.cooldown_seconds,
+            )
+            .await?;
+        Ok(XpAwardResult {
+            awarded: result.awarded,
+            total_xp: result.total_xp,
+            level: result.level,
+            leveled_up: result.leveled_up,
+        })
+    }
 }
 
 #[tokio::main]
@@ -88,7 +107,11 @@ async fn main() -> Result<()> {
             infrastructure: infrastructure.clone(),
         }),
     };
-    let intents = Intents::GUILDS | Intents::GUILD_MEMBERS;
+    let intents = Intents::GUILDS
+        | Intents::GUILD_MEMBERS
+        | Intents::GUILD_MESSAGES
+        | Intents::MESSAGE_CONTENT
+        | Intents::GUILD_MESSAGE_REACTIONS;
     let mut shard = Shard::new(ShardId::ONE, token, intents);
 
     tracing::info!("gateway worker starting");
@@ -184,6 +207,77 @@ async fn main() -> Result<()> {
                             tracing::error!(%error, "failed to persist member join module audit event");
                         }
                     });
+                }
+            }
+            Event::MessageCreate(message) => {
+                let Some(guild_id) = message.guild_id else {
+                    continue;
+                };
+                let guild_id_string = guild_id.to_string();
+                let config = match infrastructure.guild_config(&guild_id_string).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for message");
+                        continue;
+                    }
+                };
+                let normalized = MessageCreate {
+                    guild_id: guild_id.get(),
+                    channel_id: message.channel_id.get(),
+                    message_id: message.id.get(),
+                    author_id: message.author.id.get(),
+                    author_is_bot: message.author.bot,
+                    role_ids: message
+                        .member
+                        .as_ref()
+                        .map(|member| member.roles.iter().map(|id| id.get()).collect())
+                        .unwrap_or_default(),
+                    mention_count: message.mentions.len() + message.mention_roles.len(),
+                    content: message.content.clone(),
+                };
+                for module in modules
+                    .iter()
+                    .filter(|module| module.handles_message_create() && module.enabled(&config))
+                {
+                    let result = module
+                        .on_message_create(&context, &config, &normalized)
+                        .await;
+                    let outcome = match result {
+                        Ok(Some(outcome)) => outcome,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            let mut audit = NewAuditEvent::guild(
+                                &guild_id_string,
+                                "system",
+                                format!("module.{}.message.failed", module.name()),
+                            );
+                            audit.actor_kind = "system".to_owned();
+                            audit.source = "discord_gateway".to_owned();
+                            audit.target_type = "message".to_owned();
+                            audit.target_id = Some(normalized.message_id.to_string());
+                            audit.outcome = "failure".to_owned();
+                            audit.reason = Some(error.to_string());
+                            audit.metadata = serde_json::json!({ "module": module.name(), "channel_id": normalized.channel_id.to_string() });
+                            if let Err(store_error) =
+                                infrastructure.record_audit_event(&audit).await
+                            {
+                                tracing::error!(%store_error, "failed to persist message module failure");
+                            }
+                            continue;
+                        }
+                    };
+                    let mut audit = NewAuditEvent::guild(
+                        &guild_id_string,
+                        normalized.author_id.to_string(),
+                        outcome.action,
+                    );
+                    audit.source = "discord_gateway".to_owned();
+                    audit.target_type = outcome.target_type;
+                    audit.target_id = outcome.target_id;
+                    audit.metadata = serde_json::json!({ "module": module.name(), "channel_id": normalized.channel_id.to_string() });
+                    if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                        tracing::error!(%error, "failed to persist message module audit event");
+                    }
                 }
             }
             Event::InteractionCreate(interaction) => {

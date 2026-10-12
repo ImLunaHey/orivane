@@ -40,6 +40,25 @@ pub struct AutomodConfig {
     pub blocked_words: Vec<String>,
     #[serde(default = "default_max_mentions")]
     pub max_mentions: u8,
+    #[serde(default)]
+    pub block_invites: bool,
+    #[serde(default)]
+    pub block_links: bool,
+    #[serde(default = "default_max_caps_percentage")]
+    pub max_caps_percentage: u8,
+    #[serde(default = "default_max_lines")]
+    pub max_lines: u16,
+    #[serde(default = "default_automod_action")]
+    pub action: String,
+    #[serde(default = "default_automod_timeout")]
+    pub timeout_seconds: u32,
+    #[serde(default)]
+    pub ignored_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub ignored_role_ids: Vec<String>,
+    pub log_channel_id: Option<String>,
+    #[serde(default = "default_automod_response")]
+    pub response: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -52,6 +71,15 @@ pub struct LevelingConfig {
     pub xp_per_message_max: u16,
     #[serde(default = "default_xp_cooldown")]
     pub cooldown_seconds: u16,
+    #[serde(default)]
+    pub ignored_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub ignored_role_ids: Vec<String>,
+    #[serde(default)]
+    pub announce_level_up: bool,
+    pub announcement_channel_id: Option<String>,
+    #[serde(default = "default_level_up_message")]
+    pub announcement_message: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -133,8 +161,12 @@ pub enum ConfigValidationError {
     InvalidGuildId,
     #[error("blocked_words may contain at most 100 entries of 64 characters each")]
     InvalidBlockedWords,
+    #[error("automod filters, action, timeout, or ignored targets are invalid")]
+    InvalidAutomod,
     #[error("leveling XP minimum must be positive and no greater than its maximum")]
     InvalidXpRange,
+    #[error("leveling ignored targets or announcement settings are invalid")]
+    InvalidLeveling,
     #[error("a welcome channel is required when the welcome module is enabled")]
     MissingWelcomeChannel,
     #[error("a logging channel is required when the logging module is enabled")]
@@ -176,12 +208,39 @@ impl GuildConfig {
         {
             return Err(ConfigValidationError::InvalidBlockedWords);
         }
+        let automod = &self.modules.automod;
+        if !(20..=100).contains(&automod.max_caps_percentage)
+            || !(1..=100).contains(&automod.max_lines)
+            || !matches!(
+                automod.action.as_str(),
+                "delete" | "warn" | "timeout" | "ban"
+            )
+            || (automod.action == "timeout" && !(60..=2_419_200).contains(&automod.timeout_seconds))
+            || invalid_snowflake_list(&automod.ignored_channel_ids, 100)
+            || invalid_snowflake_list(&automod.ignored_role_ids, 100)
+            || automod
+                .log_channel_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+        {
+            return Err(ConfigValidationError::InvalidAutomod);
+        }
 
         let leveling = &self.modules.leveling;
         if leveling.xp_per_message_min == 0
             || leveling.xp_per_message_min > leveling.xp_per_message_max
         {
             return Err(ConfigValidationError::InvalidXpRange);
+        }
+        if invalid_snowflake_list(&leveling.ignored_channel_ids, 100)
+            || invalid_snowflake_list(&leveling.ignored_role_ids, 100)
+            || (leveling.announce_level_up
+                && leveling
+                    .announcement_channel_id
+                    .as_deref()
+                    .is_some_and(|id| !valid_snowflake(id)))
+        {
+            return Err(ConfigValidationError::InvalidLeveling);
         }
 
         if self.modules.welcome.enabled
@@ -299,6 +358,16 @@ impl Default for AutomodConfig {
             enabled: false,
             blocked_words: Vec::new(),
             max_mentions: default_max_mentions(),
+            block_invites: true,
+            block_links: false,
+            max_caps_percentage: default_max_caps_percentage(),
+            max_lines: default_max_lines(),
+            action: default_automod_action(),
+            timeout_seconds: default_automod_timeout(),
+            ignored_channel_ids: Vec::new(),
+            ignored_role_ids: Vec::new(),
+            log_channel_id: None,
+            response: default_automod_response(),
         }
     }
 }
@@ -310,6 +379,11 @@ impl Default for LevelingConfig {
             xp_per_message_min: default_xp_min(),
             xp_per_message_max: default_xp_max(),
             cooldown_seconds: default_xp_cooldown(),
+            ignored_channel_ids: Vec::new(),
+            ignored_role_ids: Vec::new(),
+            announce_level_up: true,
+            announcement_channel_id: None,
+            announcement_message: default_level_up_message(),
         }
     }
 }
@@ -327,6 +401,21 @@ impl Default for WelcomeConfig {
 const fn default_max_mentions() -> u8 {
     5
 }
+const fn default_max_caps_percentage() -> u8 {
+    80
+}
+const fn default_max_lines() -> u16 {
+    12
+}
+const fn default_automod_timeout() -> u32 {
+    600
+}
+fn default_automod_action() -> String {
+    "delete".to_owned()
+}
+fn default_automod_response() -> String {
+    "{user}, that message was removed by AutoMod ({rule}).".to_owned()
+}
 const fn default_xp_min() -> u16 {
     15
 }
@@ -335,6 +424,9 @@ const fn default_xp_max() -> u16 {
 }
 const fn default_xp_cooldown() -> u16 {
     60
+}
+fn default_level_up_message() -> String {
+    "Congratulations {user}, you reached level {level}!".to_owned()
 }
 fn default_welcome_message() -> String {
     "Welcome {user} to {server}!".to_owned()
@@ -356,6 +448,10 @@ fn default_moderation_reason() -> String {
 }
 fn valid_snowflake(value: &str) -> bool {
     value.parse::<u64>().is_ok_and(|id| id > 0)
+}
+
+fn invalid_snowflake_list(values: &[String], limit: usize) -> bool {
+    values.len() > limit || values.iter().any(|value| !valid_snowflake(value))
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, GuildChannel, GuildConfig, ModerationCase, NewModerationCase } from '../types'
+import type { AuditEvent, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewModerationCase } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -56,6 +56,11 @@ export async function getGuildChannels(guildId: string): Promise<GuildChannel[]>
     { id: '100000000000000005', name: 'general', kind: 'GuildText', position: 4, parent_id: '100000000000000004' },
   ]
   return request<GuildChannel[]>(`/v1/guilds/${guildId}/channels`)
+}
+
+export async function getGuildRoles(guildId: string): Promise<GuildRole[]> {
+  if (isDemoMode) return []
+  return request<GuildRole[]>(`/v1/guilds/${guildId}/roles`)
 }
 
 export async function saveGuildConfig(config: GuildConfig): Promise<GuildConfig> {

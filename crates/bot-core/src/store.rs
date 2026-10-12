@@ -6,8 +6,8 @@ use thiserror::Error;
 
 use crate::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildConfig,
-    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, ModerationCase, NewAuditEvent,
-    NewModerationCase, UserGuildContext, config::ConfigValidationError,
+    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, ModerationCase,
+    NewAuditEvent, NewModerationCase, UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -221,6 +221,62 @@ impl Infrastructure {
         insert_audit_event(&mut transaction, event).await?;
         transaction.commit().await?;
         Ok(case)
+    }
+
+    pub async fn award_member_xp(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        amount: u16,
+        cooldown_seconds: u16,
+    ) -> Result<MemberXpAward, StoreError> {
+        let cooldown_key = format!("xp-cooldown:{guild_id}:{user_id}");
+        let mut cache = self.redis.clone();
+        let acquired: Option<String> = redis::cmd("SET")
+            .arg(&cooldown_key)
+            .arg("1")
+            .arg("EX")
+            .arg(cooldown_seconds.max(1))
+            .arg("NX")
+            .query_async(&mut cache)
+            .await?;
+        if acquired.is_none() {
+            let current: Option<i64> =
+                sqlx::query_scalar("SELECT xp FROM member_xp WHERE guild_id = $1 AND user_id = $2")
+                    .bind(guild_id)
+                    .bind(user_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
+            let total_xp = u64::try_from(current.unwrap_or_default()).unwrap_or_default();
+            return Ok(MemberXpAward {
+                awarded: false,
+                total_xp,
+                level: level_for_xp(total_xp),
+                leveled_up: false,
+            });
+        }
+
+        let total: i64 = sqlx::query_scalar(
+            "INSERT INTO member_xp (guild_id, user_id, xp, message_count) VALUES ($1, $2, $3, 1) \
+             ON CONFLICT (guild_id, user_id) DO UPDATE SET \
+                xp = member_xp.xp + EXCLUDED.xp, \
+                message_count = member_xp.message_count + 1, updated_at = now() \
+             RETURNING xp",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .bind(i64::from(amount))
+        .fetch_one(&self.pool)
+        .await?;
+        let total_xp = u64::try_from(total).unwrap_or_default();
+        let previous_xp = total_xp.saturating_sub(u64::from(amount));
+        let level = level_for_xp(total_xp);
+        Ok(MemberXpAward {
+            awarded: true,
+            total_xp,
+            level,
+            leveled_up: level > level_for_xp(previous_xp),
+        })
     }
 
     pub async fn health(&self) -> Result<(), StoreError> {
@@ -466,6 +522,14 @@ impl Infrastructure {
         .await
         .map_err(StoreError::from)
     }
+}
+
+fn level_for_xp(xp: u64) -> u32 {
+    let mut level = 0_u32;
+    while xp >= 100_u64.saturating_mul(u64::from(level + 1).pow(2)) {
+        level = level.saturating_add(1);
+    }
+    level
 }
 
 async fn insert_audit_event(

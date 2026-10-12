@@ -74,3 +74,11 @@ pub struct GuildMemberSummary {
     pub cases: i64,
     pub last_seen: Option<DateTime<Utc>>,
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct MemberXpAward {
+    pub awarded: bool,
+    pub total_xp: u64,
+    pub level: u32,
+    pub leveled_up: bool,
+}

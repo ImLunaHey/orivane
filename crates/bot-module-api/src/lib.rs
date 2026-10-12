@@ -20,9 +20,26 @@ pub struct ModerationCaseInput {
     pub reason: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XpAwardInput {
+    pub guild_id: u64,
+    pub user_id: u64,
+    pub amount: u16,
+    pub cooldown_seconds: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XpAwardResult {
+    pub awarded: bool,
+    pub total_xp: u64,
+    pub level: u32,
+    pub leveled_up: bool,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
+    async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +59,35 @@ pub struct AuditNotice {
     pub outcome: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageCreate {
+    pub guild_id: u64,
+    pub channel_id: u64,
+    pub message_id: u64,
+    pub author_id: u64,
+    pub author_is_bot: bool,
+    pub role_ids: Vec<u64>,
+    pub mention_count: usize,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModuleEventOutcome {
+    pub action: String,
+    pub target_type: String,
+    pub target_id: Option<String>,
+}
+
+impl ModuleEventOutcome {
+    pub fn message(action: impl Into<String>, message_id: u64) -> Self {
+        Self {
+            action: action.into(),
+            target_type: "message".to_owned(),
+            target_id: Some(message_id.to_string()),
+        }
+    }
+}
+
 #[async_trait]
 pub trait BotModule: Send + Sync {
     fn name(&self) -> &'static str;
@@ -53,6 +99,9 @@ pub trait BotModule: Send + Sync {
         false
     }
     fn handles_audit_notice(&self) -> bool {
+        false
+    }
+    fn handles_message_create(&self) -> bool {
         false
     }
 
@@ -81,5 +130,14 @@ pub trait BotModule: Send + Sync {
         _event: &AuditNotice,
     ) -> Result<()> {
         Ok(())
+    }
+
+    async fn on_message_create(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &MessageCreate,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        Ok(None)
     }
 }

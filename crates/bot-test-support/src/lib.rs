@@ -8,7 +8,7 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
     GuildRole,
 };
-use bot_module_api::{ModerationCaseInput, ModuleServices};
+use bot_module_api::{ModerationCaseInput, ModuleServices, XpAwardInput, XpAwardResult};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiscordCall {
@@ -76,6 +76,7 @@ pub enum DiscordCall {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceCall {
     CreateModerationCase(ModerationCaseInput),
+    AwardXp(XpAwardInput),
 }
 
 #[derive(Clone, Default)]
@@ -95,6 +96,19 @@ impl ModuleServices for FakeModuleServices {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
         calls.push(ServiceCall::CreateModerationCase(input));
         Ok(i64::try_from(calls.len()).unwrap_or(i64::MAX))
+    }
+
+    async fn award_xp(&self, input: XpAwardInput) -> anyhow::Result<XpAwardResult> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::AwardXp(input.clone()));
+        Ok(XpAwardResult {
+            awarded: true,
+            total_xp: u64::from(input.amount),
+            level: 0,
+            leveled_up: false,
+        })
     }
 }
 

@@ -15,7 +15,7 @@ use bot_core::{
     GuildMemberSummary, Infrastructure, InfrastructureHealth, ModerationCase, NewAuditEvent,
     NewModerationCase, UserGuildContext,
 };
-use bot_discord::{CommandDefinition, DiscordApi, GuildChannel, TwilightDiscord};
+use bot_discord::{CommandDefinition, DiscordApi, GuildChannel, GuildRole, TwilightDiscord};
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
@@ -106,6 +106,7 @@ async fn main() -> Result<()> {
             get(get_config).put(put_config),
         )
         .route("/v1/guilds/{guild_id}/channels", get(get_guild_channels))
+        .route("/v1/guilds/{guild_id}/roles", get(get_guild_roles))
         .route("/v1/guilds/{guild_id}/stats", get(get_guild_stats))
         .route("/v1/guilds/{guild_id}/members", get(get_guild_members))
         .route(
@@ -416,6 +417,51 @@ async fn get_guild_channels(
     )
     .await;
     Ok(Json(channels))
+}
+
+async fn get_guild_roles(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<GuildRole>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let token = state.discord_token.as_ref().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DISCORD_TOKEN is not configured".to_owned(),
+        )
+    })?;
+    let discord = TwilightDiscord::connect(token.clone())
+        .await
+        .map_err(|error| {
+            tracing::error!(%guild_id, %error, "failed to initialize Discord role lookup");
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                "Discord role lookup failed".to_owned(),
+            )
+        })?;
+    let mut roles = discord
+        .guild_roles(guild_id.parse().expect("validated Discord snowflake"))
+        .await
+        .map_err(|error| {
+            tracing::error!(%guild_id, %error, "failed to fetch Discord guild roles");
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                "Discord role lookup failed".to_owned(),
+            )
+        })?;
+    roles.retain(|role| !role.managed && role.id != guild_id);
+    roles.sort_by(|left, right| right.position.cmp(&left.position));
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "guild.roles.viewed",
+    )
+    .await;
+    Ok(Json(roles))
 }
 
 async fn put_config(

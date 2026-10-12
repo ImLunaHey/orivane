@@ -25,8 +25,8 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(4)
-    expect(screen.getAllByText('Configuration only')).toHaveLength(6)
+    expect(screen.getAllByText('Live')).toHaveLength(7)
+    expect(screen.getAllByText('Configuration only')).toHaveLength(3)
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
     expect(save).toBeEnabled()
@@ -40,13 +40,13 @@ describe('module configuration pages', () => {
     const cases = [
       ['utility', 'Utility settings', 'Ephemeral responses', 'switch', true],
       ['welcome', 'Welcome settings', 'Welcome channel', null, null],
-      ['autorole', 'Autorole settings', 'Role IDs', 'text', '123, 456'],
+      ['autorole', 'Autorole settings', 'Roles to assign', null, null],
       ['logging', 'Server logging settings', 'Logging channel', null, null],
       ['moderation', 'Moderation settings', 'Default reason', 'text', 'Be kind'],
       ['automod', 'Automod settings', 'Maximum mentions', 'number', '8'],
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
       ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
-      ['tickets', 'Tickets settings', 'Support role IDs', 'text', '789, 012'],
+      ['tickets', 'Tickets settings', 'Support roles', null, null],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
     ] as const
 
@@ -57,7 +57,7 @@ describe('module configuration pages', () => {
       if (kind === 'switch') fireEvent.click(input)
       if (kind === 'text' || kind === 'number') fireEvent.change(input, { target: { value } })
       if (kind) expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
-      if (!['utility', 'welcome', 'autorole', 'logging'].includes(moduleId)) {
+      if (['starboard', 'tickets', 'custom_commands'].includes(moduleId)) {
         expect(screen.getByText('Not active in Discord yet')).toBeVisible()
       }
     }

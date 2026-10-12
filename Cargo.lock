@@ -728,9 +728,13 @@ dependencies = [
 name = "bot-module-automod"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bot-core",
+ "bot-discord",
  "bot-module-api",
+ "bot-test-support",
+ "tokio",
 ]
 
 [[package]]
@@ -758,9 +762,12 @@ dependencies = [
 name = "bot-module-leveling"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bot-core",
  "bot-module-api",
+ "bot-test-support",
+ "tokio",
 ]
 
 [[package]]
