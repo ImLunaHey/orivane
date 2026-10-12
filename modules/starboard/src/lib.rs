@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::GuildConfig;
 use bot_discord::{MessageReactionSummary, RichEmbed};
-use bot_module_api::{BotModule, ModuleContext, ModuleEventOutcome, ReactionAdd};
+use bot_module_api::{BotModule, DiscordLogEvent, ModuleContext, ModuleEventOutcome, ReactionAdd};
 
 pub struct StarboardModule;
 
@@ -18,6 +18,9 @@ impl BotModule for StarboardModule {
         true
     }
     fn handles_reaction_remove(&self) -> bool {
+        true
+    }
+    fn handles_discord_log_event(&self) -> bool {
         true
     }
 
@@ -139,6 +142,85 @@ impl BotModule for StarboardModule {
             "starboard.message_updated",
             event.message_id,
         )))
+    }
+
+    async fn on_discord_log_event(
+        &self,
+        context: &ModuleContext,
+        config: &GuildConfig,
+        event: &DiscordLogEvent,
+    ) -> Result<()> {
+        if !matches!(
+            event.action.as_str(),
+            "discord.message.updated" | "discord.message.deleted"
+        ) {
+            return Ok(());
+        }
+        let Some(source_message_id) = event
+            .target_id
+            .as_deref()
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            return Ok(());
+        };
+        let Some(post) = context
+            .services
+            .starboard_post(event.guild_id, source_message_id)
+            .await?
+        else {
+            return Ok(());
+        };
+        if event.action == "discord.message.deleted" {
+            context
+                .discord
+                .delete_message(
+                    post.starboard_channel_id,
+                    post.starboard_message_id,
+                    "Starboard source message was deleted",
+                )
+                .await?;
+            context
+                .services
+                .remove_starboard_post(event.guild_id, source_message_id)
+                .await?;
+            return Ok(());
+        }
+
+        let summary = context
+            .discord
+            .message_reaction_summary(
+                post.source_channel_id,
+                source_message_id,
+                &config.modules.starboard.emoji,
+            )
+            .await?;
+        let source = ReactionAdd {
+            guild_id: event.guild_id,
+            channel_id: post.source_channel_id,
+            message_id: source_message_id,
+            reactor_id: 0,
+            message_author_id: Some(summary.author_id),
+            emoji: config.modules.starboard.emoji.clone(),
+        };
+        context
+            .discord
+            .edit_rich_embed(
+                post.starboard_channel_id,
+                post.starboard_message_id,
+                &starboard_embed(config, &source, &summary),
+            )
+            .await?;
+        context
+            .services
+            .complete_starboard_post(
+                event.guild_id,
+                source_message_id,
+                post.source_channel_id,
+                post.starboard_message_id,
+                summary.count,
+            )
+            .await?;
+        Ok(())
     }
 }
 
@@ -276,6 +358,7 @@ mod tests {
             30,
             StarboardPostResult {
                 source_channel_id: 20,
+                starboard_channel_id: 90,
                 starboard_message_id: 99,
                 reaction_count: 3,
             },
@@ -305,6 +388,63 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(outcome.action, "starboard.message_removed");
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::DeleteMessage {
+                channel_id: 90,
+                message_id: 99,
+                ..
+            }
+        )));
+        assert!(services.calls().iter().any(|call| matches!(
+            call,
+            ServiceCall::RemoveStarboardPost {
+                guild_id: 10,
+                source_message_id: 30,
+            }
+        )));
+    }
+
+    #[tokio::test]
+    async fn deleting_a_source_removes_its_starboard_copy() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        services.set_starboard_post(
+            10,
+            30,
+            StarboardPostResult {
+                source_channel_id: 20,
+                starboard_channel_id: 90,
+                starboard_message_id: 99,
+                reaction_count: 3,
+            },
+        );
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.starboard.enabled = true;
+        config.modules.starboard.channel_id = Some("90".into());
+        StarboardModule
+            .on_discord_log_event(
+                &context,
+                &config,
+                &DiscordLogEvent {
+                    guild_id: 10,
+                    category: "messages".into(),
+                    action: "discord.message.deleted".into(),
+                    title: "Message deleted".into(),
+                    summary: String::new(),
+                    actor_id: None,
+                    target_type: "message".into(),
+                    target_id: Some("30".into()),
+                    channel_id: Some(20),
+                    details: vec![],
+                },
+            )
+            .await
+            .unwrap();
         assert!(discord.calls().iter().any(|call| matches!(
             call,
             DiscordCall::DeleteMessage {

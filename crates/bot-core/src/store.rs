@@ -2362,9 +2362,9 @@ impl Infrastructure {
         &self,
         guild_id: &str,
         source_message_id: &str,
-    ) -> Result<Option<(String, String, u64)>, StoreError> {
-        let row: Option<(Option<String>, Option<String>, i64)> = sqlx::query_as(
-            "SELECT source_channel_id, starboard_message_id, reaction_count \
+    ) -> Result<Option<(String, String, String, u64)>, StoreError> {
+        let row: Option<(Option<String>, String, Option<String>, i64)> = sqlx::query_as(
+            "SELECT source_channel_id, starboard_channel_id, starboard_message_id, reaction_count \
              FROM starboard_posts WHERE guild_id = $1 AND source_message_id = $2",
         )
         .bind(guild_id)
@@ -2372,9 +2372,10 @@ impl Infrastructure {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.and_then(
-            |(source_channel_id, starboard_message_id, reaction_count)| {
+            |(source_channel_id, starboard_channel_id, starboard_message_id, reaction_count)| {
                 Some((
                     source_channel_id?,
+                    starboard_channel_id,
                     starboard_message_id?,
                     u64::try_from(reaction_count).unwrap_or_default(),
                 ))

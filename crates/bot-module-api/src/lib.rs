@@ -267,6 +267,7 @@ pub struct ModerationJobResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StarboardPostResult {
     pub source_channel_id: u64,
+    pub starboard_channel_id: u64,
     pub starboard_message_id: u64,
     pub reaction_count: u64,
 }

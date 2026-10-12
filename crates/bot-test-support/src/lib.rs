@@ -1808,6 +1808,7 @@ impl ModuleServices for FakeModuleServices {
                 (guild_id, source_message_id),
                 StarboardPostResult {
                     source_channel_id,
+                    starboard_channel_id: 0,
                     starboard_message_id,
                     reaction_count,
                 },

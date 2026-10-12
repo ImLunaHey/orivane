@@ -1435,9 +1435,15 @@ impl ModuleServices for GatewayModuleServices {
             .starboard_post(&guild_id.to_string(), &source_message_id.to_string())
             .await?
             .map(
-                |(source_channel_id, starboard_message_id, reaction_count)| {
+                |(
+                    source_channel_id,
+                    starboard_channel_id,
+                    starboard_message_id,
+                    reaction_count,
+                )| {
                     Ok(StarboardPostResult {
                         source_channel_id: source_channel_id.parse()?,
+                        starboard_channel_id: starboard_channel_id.parse()?,
                         starboard_message_id: starboard_message_id.parse()?,
                         reaction_count,
                     })
