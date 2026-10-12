@@ -40,9 +40,18 @@ export type GuildConfig = {
     moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string }
     autorole: { enabled: boolean; role_ids: string[]; delay_seconds: number }
     starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number }
-    tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null }
-    custom_commands: { enabled: boolean; max_commands: number }
+    tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
+    custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
   }
+}
+
+export type CustomCommand = {
+  enabled: boolean
+  name: string
+  description: string
+  response: string
+  ephemeral: boolean
+  allowed_channel_ids: string[]
 }
 
 export type GuildChannel = {

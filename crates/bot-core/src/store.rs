@@ -279,6 +279,54 @@ impl Infrastructure {
         })
     }
 
+    pub async fn open_ticket_channel(
+        &self,
+        guild_id: &str,
+        opener_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        sqlx::query_scalar(
+            "SELECT channel_id FROM tickets WHERE guild_id = $1 AND opener_id = $2 AND status = 'open'",
+        )
+        .bind(guild_id)
+        .bind(opener_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn record_open_ticket(
+        &self,
+        guild_id: &str,
+        opener_id: &str,
+        channel_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO tickets (guild_id, opener_id, channel_id) VALUES ($1, $2, $3)")
+            .bind(guild_id)
+            .bind(opener_id)
+            .bind(channel_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn close_ticket_channel(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        closed_by: &str,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            "UPDATE tickets SET status = 'closed', closed_at = now(), closed_by = $3 \
+             WHERE guild_id = $1 AND channel_id = $2 AND status = 'open'",
+        )
+        .bind(guild_id)
+        .bind(channel_id)
+        .bind(closed_by)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn health(&self) -> Result<(), StoreError> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         let mut cache = self.redis.clone();

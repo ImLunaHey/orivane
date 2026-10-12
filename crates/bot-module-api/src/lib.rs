@@ -36,10 +36,25 @@ pub struct XpAwardResult {
     pub leveled_up: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TicketRecordInput {
+    pub guild_id: u64,
+    pub opener_id: u64,
+    pub channel_id: u64,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
+    async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>>;
+    async fn record_open_ticket(&self, input: TicketRecordInput) -> Result<()>;
+    async fn close_ticket_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        closed_by: u64,
+    ) -> Result<bool>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

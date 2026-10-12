@@ -8,7 +8,9 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
     GuildRole,
 };
-use bot_module_api::{ModerationCaseInput, ModuleServices, XpAwardInput, XpAwardResult};
+use bot_module_api::{
+    ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiscordCall {
@@ -71,12 +73,34 @@ pub enum DiscordCall {
     GuildRoles {
         guild_id: u64,
     },
+    CreateTicketChannel {
+        guild_id: u64,
+        category_id: u64,
+        opener_id: u64,
+        support_role_ids: Vec<u64>,
+        name: String,
+        reason: String,
+    },
+    DeleteChannel {
+        channel_id: u64,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceCall {
     CreateModerationCase(ModerationCaseInput),
     AwardXp(XpAwardInput),
+    FindOpenTicket {
+        guild_id: u64,
+        opener_id: u64,
+    },
+    RecordOpenTicket(TicketRecordInput),
+    CloseTicket {
+        guild_id: u64,
+        channel_id: u64,
+        closed_by: u64,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -110,6 +134,46 @@ impl ModuleServices for FakeModuleServices {
             leveled_up: false,
         })
     }
+
+    async fn open_ticket_channel(
+        &self,
+        guild_id: u64,
+        opener_id: u64,
+    ) -> anyhow::Result<Option<u64>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::FindOpenTicket {
+                guild_id,
+                opener_id,
+            });
+        Ok(None)
+    }
+
+    async fn record_open_ticket(&self, input: TicketRecordInput) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RecordOpenTicket(input));
+        Ok(())
+    }
+
+    async fn close_ticket_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        closed_by: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CloseTicket {
+                guild_id,
+                channel_id,
+                closed_by,
+            });
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -123,6 +187,7 @@ struct FakeState {
     failures: VecDeque<DiscordError>,
     guild_channels: Vec<GuildChannel>,
     guild_roles: Vec<GuildRole>,
+    next_channel_id: u64,
 }
 
 impl FakeDiscord {
@@ -155,6 +220,13 @@ impl FakeDiscord {
 
     pub fn set_guild_roles(&self, roles: Vec<GuildRole>) {
         self.state.lock().expect("fake lock poisoned").guild_roles = roles;
+    }
+
+    pub fn set_next_channel_id(&self, channel_id: u64) {
+        self.state
+            .lock()
+            .expect("fake lock poisoned")
+            .next_channel_id = channel_id;
     }
 
     fn record(&self, call: DiscordCall) -> Result<(), DiscordError> {
@@ -315,6 +387,37 @@ impl DiscordApi for FakeDiscord {
             .expect("fake lock poisoned")
             .guild_roles
             .clone())
+    }
+
+    async fn create_ticket_channel(
+        &self,
+        guild_id: u64,
+        category_id: u64,
+        opener_id: u64,
+        support_role_ids: &[u64],
+        name: &str,
+        reason: &str,
+    ) -> Result<u64, DiscordError> {
+        self.record(DiscordCall::CreateTicketChannel {
+            guild_id,
+            category_id,
+            opener_id,
+            support_role_ids: support_role_ids.to_vec(),
+            name: name.to_owned(),
+            reason: reason.to_owned(),
+        })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .next_channel_id)
+    }
+
+    async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError> {
+        self.record(DiscordCall::DeleteChannel {
+            channel_id,
+            reason: reason.to_owned(),
+        })
     }
 }
 

@@ -12,7 +12,10 @@ use twilight_model::{
     application::command::{
         CommandOption, CommandOptionType, CommandOptionValue as TwilightCommandOptionValue,
     },
-    channel::message::MessageFlags,
+    channel::{
+        message::MessageFlags,
+        permission_overwrite::{PermissionOverwrite, PermissionOverwriteType},
+    },
     guild::Permissions,
     http::interaction::{
         InteractionResponse as TwilightInteractionResponse, InteractionResponseType,
@@ -216,6 +219,18 @@ pub trait DiscordApi: Send + Sync {
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError>;
 
     async fn guild_roles(&self, guild_id: u64) -> Result<Vec<GuildRole>, DiscordError>;
+
+    async fn create_ticket_channel(
+        &self,
+        guild_id: u64,
+        category_id: u64,
+        opener_id: u64,
+        support_role_ids: &[u64],
+        name: &str,
+        reason: &str,
+    ) -> Result<u64, DiscordError>;
+
+    async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError>;
 }
 
 pub struct TwilightDiscord {
@@ -476,6 +491,61 @@ impl DiscordApi for TwilightDiscord {
                 managed: role.managed,
             })
             .collect())
+    }
+
+    async fn create_ticket_channel(
+        &self,
+        guild_id: u64,
+        category_id: u64,
+        opener_id: u64,
+        support_role_ids: &[u64],
+        name: &str,
+        reason: &str,
+    ) -> Result<u64, DiscordError> {
+        let access = Permissions::VIEW_CHANNEL
+            | Permissions::SEND_MESSAGES
+            | Permissions::READ_MESSAGE_HISTORY;
+        let mut overwrites = vec![
+            PermissionOverwrite {
+                allow: Permissions::empty(),
+                deny: Permissions::VIEW_CHANNEL,
+                id: Id::new(guild_id),
+                kind: PermissionOverwriteType::Role,
+            },
+            PermissionOverwrite {
+                allow: access,
+                deny: Permissions::empty(),
+                id: Id::new(opener_id),
+                kind: PermissionOverwriteType::Member,
+            },
+        ];
+        overwrites.extend(support_role_ids.iter().map(|role_id| PermissionOverwrite {
+            allow: access,
+            deny: Permissions::empty(),
+            id: Id::new(*role_id),
+            kind: PermissionOverwriteType::Role,
+        }));
+        let channel = self
+            .http
+            .create_guild_channel(Id::new(guild_id), name)
+            .parent_id(Id::new(category_id))
+            .permission_overwrites(&overwrites)
+            .reason(reason)
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(channel.id.get())
+    }
+
+    async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError> {
+        self.http
+            .delete_channel(Id::new(channel_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
     }
 }
 

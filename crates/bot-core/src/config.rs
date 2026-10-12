@@ -137,7 +137,7 @@ pub struct StarboardConfig {
     pub threshold: u16,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TicketsConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -145,6 +145,10 @@ pub struct TicketsConfig {
     #[serde(default)]
     pub support_role_ids: Vec<String>,
     pub transcript_channel_id: Option<String>,
+    #[serde(default = "default_ticket_welcome")]
+    pub welcome_message: String,
+    #[serde(default = "default_ticket_name")]
+    pub channel_name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -153,6 +157,22 @@ pub struct CustomCommandsConfig {
     pub enabled: bool,
     #[serde(default = "default_custom_command_limit")]
     pub max_commands: u16,
+    #[serde(default)]
+    pub commands: Vec<CustomCommandConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CustomCommandConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub response: String,
+    #[serde(default)]
+    pub ephemeral: bool,
+    #[serde(default)]
+    pub allowed_channel_ids: Vec<String>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -183,6 +203,8 @@ pub enum ConfigValidationError {
     InvalidTickets,
     #[error("custom command limit must be between 1 and 100")]
     InvalidCustomCommandLimit,
+    #[error("custom command names, responses, channel restrictions, or count are invalid")]
+    InvalidCustomCommands,
 }
 
 impl GuildConfig {
@@ -301,12 +323,43 @@ impl GuildConfig {
                     .tickets
                     .support_role_ids
                     .iter()
-                    .any(|id| !valid_snowflake(id)))
+                    .any(|id| !valid_snowflake(id))
+                || self
+                    .modules
+                    .tickets
+                    .transcript_channel_id
+                    .as_deref()
+                    .is_some_and(|id| !valid_snowflake(id))
+                || self.modules.tickets.channel_name.trim().is_empty()
+                || self.modules.tickets.channel_name.chars().count() > 100
+                || self.modules.tickets.welcome_message.chars().count() > 2_000)
         {
             return Err(ConfigValidationError::InvalidTickets);
         }
         if !(1..=100).contains(&self.modules.custom_commands.max_commands) {
             return Err(ConfigValidationError::InvalidCustomCommandLimit);
+        }
+        let custom = &self.modules.custom_commands;
+        let mut names = std::collections::HashSet::new();
+        if custom.commands.len() > usize::from(custom.max_commands)
+            || custom.commands.iter().any(|command| {
+                let normalized = command.name.to_ascii_lowercase();
+                command.name.is_empty()
+                    || command.name.len() > 32
+                    || !command.name.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                            || character == '_'
+                    })
+                    || !names.insert(normalized)
+                    || command.description.chars().count() > 100
+                    || command.response.is_empty()
+                    || command.response.chars().count() > 2_000
+                    || invalid_snowflake_list(&command.allowed_channel_ids, 100)
+            })
+        {
+            return Err(ConfigValidationError::InvalidCustomCommands);
         }
 
         Ok(())
@@ -348,6 +401,20 @@ impl Default for CustomCommandsConfig {
         Self {
             enabled: false,
             max_commands: default_custom_command_limit(),
+            commands: Vec::new(),
+        }
+    }
+}
+
+impl Default for TicketsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            category_id: None,
+            support_role_ids: Vec::new(),
+            transcript_channel_id: None,
+            welcome_message: default_ticket_welcome(),
+            channel_name: default_ticket_name(),
         }
     }
 }
@@ -445,6 +512,12 @@ fn default_starboard_emoji() -> String {
 }
 fn default_moderation_reason() -> String {
     "No reason provided".to_owned()
+}
+fn default_ticket_welcome() -> String {
+    "Welcome {user}. Please describe what you need help with. A member of {support_roles} will respond soon.".to_owned()
+}
+fn default_ticket_name() -> String {
+    "ticket-{user_id}".to_owned()
 }
 fn valid_snowflake(value: &str) -> bool {
     value.parse::<u64>().is_ok_and(|id| id > 0)

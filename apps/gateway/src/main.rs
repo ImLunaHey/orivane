@@ -8,7 +8,7 @@ use bot_discord::{
 };
 use bot_module_api::{
     AuditNotice, BotModule, MemberJoin, MessageCreate, ModerationCaseInput, ModuleContext,
-    ModuleServices, XpAwardInput, XpAwardResult,
+    ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autorole::AutoroleModule;
@@ -76,6 +76,45 @@ impl ModuleServices for GatewayModuleServices {
             level: result.level,
             leveled_up: result.leveled_up,
         })
+    }
+
+    async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>> {
+        self.infrastructure
+            .open_ticket_channel(&guild_id.to_string(), &opener_id.to_string())
+            .await?
+            .map(|channel_id| {
+                channel_id
+                    .parse()
+                    .context("stored ticket channel is invalid")
+            })
+            .transpose()
+    }
+
+    async fn record_open_ticket(&self, input: TicketRecordInput) -> Result<()> {
+        self.infrastructure
+            .record_open_ticket(
+                &input.guild_id.to_string(),
+                &input.opener_id.to_string(),
+                &input.channel_id.to_string(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn close_ticket_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        closed_by: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .close_ticket_channel(
+                &guild_id.to_string(),
+                &channel_id.to_string(),
+                &closed_by.to_string(),
+            )
+            .await?)
     }
 }
 

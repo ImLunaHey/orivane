@@ -395,6 +395,12 @@ small { font-size: 14px !important; line-height: 1.45; }
 .discord-role-menu [role="option"]:hover, .discord-role-menu [role="option"][aria-selected="true"] { color: #fff; background: #302a42; }
 .discord-role-menu [role="option"]:disabled { opacity: .5; cursor: not-allowed; }
 .discord-role-menu p { margin: 0; padding: 14px 9px; color: #92909a; font-size: 14px; }
+.custom-command-editor { display: grid; gap: 16px; }
+.custom-command-toolbar, .custom-command-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.custom-command-toolbar strong, .custom-command-toolbar small { display: block; }
+.custom-command-toolbar small { margin-top: 4px; color: #9999a3; }
+.custom-command-card { padding: 16px; border: 1px solid #34333b; background: #131316; }
+.custom-command-card-head { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #2b2a31; }
 .welcome-editor { display: flex; flex-direction: column; }
 .welcome-editor.wide { grid-column: 1 / -1; }
 .welcome-editor-label { display: flex; flex-direction: column; }

@@ -753,9 +753,13 @@ dependencies = [
 name = "bot-module-custom-commands"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bot-core",
+ "bot-discord",
  "bot-module-api",
+ "bot-test-support",
+ "tokio",
 ]
 
 [[package]]
@@ -808,9 +812,13 @@ dependencies = [
 name = "bot-module-tickets"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bot-core",
+ "bot-discord",
  "bot-module-api",
+ "bot-test-support",
+ "tokio",
 ]
 
 [[package]]

@@ -25,8 +25,8 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(7)
-    expect(screen.getAllByText('Configuration only')).toHaveLength(3)
+    expect(screen.getAllByText('Live')).toHaveLength(9)
+    expect(screen.getAllByText('Configuration only')).toHaveLength(1)
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
     expect(save).toBeEnabled()
@@ -57,7 +57,7 @@ describe('module configuration pages', () => {
       if (kind === 'switch') fireEvent.click(input)
       if (kind === 'text' || kind === 'number') fireEvent.change(input, { target: { value } })
       if (kind) expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
-      if (['starboard', 'tickets', 'custom_commands'].includes(moduleId)) {
+      if (moduleId === 'starboard') {
         expect(screen.getByText('Not active in Discord yet')).toBeVisible()
       }
     }
