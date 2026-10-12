@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(14)
+    expect(screen.getAllByText('Live')).toHaveLength(15)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -52,6 +52,7 @@ describe('module configuration pages', () => {
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
       ['scheduled_messages', 'Scheduled messages settings', 'Enable Scheduled messages', 'switch', true],
+      ['forms', 'Forms settings', 'Enable Forms', 'switch', true],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -162,6 +163,23 @@ describe('module configuration pages', () => {
     expect(screen.getByLabelText(/^Final delivery cutoff/)).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No schedules yet')).toBeVisible()
+  })
+
+  it('creates a native modal form and manages its questions', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/forms`)
+    await screen.findByRole('heading', { name: 'Forms settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add form' }))
+    fireEvent.change(screen.getByLabelText(/^Form ID/), { target: { value: 'staff application!' } })
+    fireEvent.change(screen.getByLabelText(/^Form name/), { target: { value: 'Staff application' } })
+    fireEvent.change(screen.getByLabelText(/^Label/), { target: { value: 'Why should we choose you?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add question' }))
+    expect(screen.getByLabelText(/^Form ID/)).toHaveValue('staffapplication')
+    expect(screen.getAllByText(/Question [12]/)).toHaveLength(2)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove question' })[1])
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove form' }))
+    expect(screen.getByText('No forms yet')).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

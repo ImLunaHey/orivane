@@ -38,6 +38,8 @@ pub struct ModulesConfig {
     pub anti_raid: AntiRaidConfig,
     #[serde(default)]
     pub scheduled_messages: ScheduledMessagesConfig,
+    #[serde(default)]
+    pub forms: FormsConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -302,6 +304,47 @@ pub struct ScheduledMessageConfig {
     pub ends_at_unix: Option<u64>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct FormsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub forms: Vec<FormConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct FormConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub destination_channel_id: String,
+    #[serde(default)]
+    pub allowed_role_ids: Vec<String>,
+    #[serde(default)]
+    pub anonymous: bool,
+    #[serde(default)]
+    pub questions: Vec<FormQuestionConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct FormQuestionConfig {
+    pub id: String,
+    pub label: String,
+    #[serde(default = "default_form_question_style")]
+    pub style: String,
+    #[serde(default = "default_true")]
+    pub required: bool,
+    #[serde(default)]
+    pub min_length: u16,
+    #[serde(default = "default_form_max_length")]
+    pub max_length: u16,
+    #[serde(default)]
+    pub placeholder: String,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -342,6 +385,8 @@ pub enum ConfigValidationError {
     InvalidAntiRaid,
     #[error("scheduled messages contain invalid IDs, channels, messages, intervals, or dates")]
     InvalidScheduledMessages,
+    #[error("forms contain invalid IDs, destinations, roles, questions, or field limits")]
+    InvalidForms,
 }
 
 impl GuildConfig {
@@ -593,8 +638,56 @@ impl GuildConfig {
             return Err(ConfigValidationError::InvalidScheduledMessages);
         }
 
+        let forms = &self.modules.forms;
+        let mut form_ids = std::collections::HashSet::new();
+        if (forms.enabled && forms.forms.is_empty())
+            || forms.forms.len() > 25
+            || forms.forms.iter().any(|form| {
+                let mut question_ids = std::collections::HashSet::new();
+                form.id.is_empty()
+                    || form.id.len() > 64
+                    || !form
+                        .id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    || !form_ids.insert(form.id.clone())
+                    || form.name.trim().is_empty()
+                    || form.name.chars().count() > 45
+                    || form.description.chars().count() > 100
+                    || !valid_snowflake(&form.destination_channel_id)
+                    || invalid_snowflake_list(&form.allowed_role_ids, 25)
+                    || form.questions.is_empty()
+                    || form.questions.len() > 5
+                    || form.questions.iter().any(|question| {
+                        question.id.is_empty()
+                            || question.id.len() > 64
+                            || !question
+                                .id
+                                .chars()
+                                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                            || !question_ids.insert(question.id.clone())
+                            || question.label.trim().is_empty()
+                            || question.label.chars().count() > 45
+                            || !matches!(question.style.as_str(), "short" | "paragraph")
+                            || question.min_length > question.max_length
+                            || question.max_length == 0
+                            || question.max_length > 4_000
+                            || question.placeholder.chars().count() > 100
+                    })
+            })
+        {
+            return Err(ConfigValidationError::InvalidForms);
+        }
+
         Ok(())
     }
+}
+
+fn default_form_question_style() -> String {
+    "short".to_owned()
+}
+fn default_form_max_length() -> u16 {
+    300
 }
 
 impl Default for UtilityConfig {
@@ -835,5 +928,34 @@ mod tests {
         assert!(config.modules.utility.enabled);
         assert!(!config.modules.autorole.enabled);
         assert_eq!(config.modules.starboard.threshold, 3);
+    }
+
+    #[test]
+    fn forms_require_valid_unique_questions_and_a_destination() {
+        let mut config = GuildConfig::for_guild("123");
+        config.modules.forms.enabled = true;
+        assert_eq!(config.validate(), Err(ConfigValidationError::InvalidForms));
+        config.modules.forms.forms.push(FormConfig {
+            enabled: true,
+            id: "application".into(),
+            name: "Application".into(),
+            description: String::new(),
+            destination_channel_id: "456".into(),
+            allowed_role_ids: vec![],
+            anonymous: false,
+            questions: vec![FormQuestionConfig {
+                id: "reason".into(),
+                label: "Why are you applying?".into(),
+                style: "paragraph".into(),
+                required: true,
+                min_length: 1,
+                max_length: 1_000,
+                placeholder: String::new(),
+            }],
+        });
+        assert_eq!(config.validate(), Ok(()));
+        let duplicate = config.modules.forms.forms[0].questions[0].clone();
+        config.modules.forms.forms[0].questions.push(duplicate);
+        assert_eq!(config.validate(), Err(ConfigValidationError::InvalidForms));
     }
 }

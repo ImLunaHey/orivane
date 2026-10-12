@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use bot_core::GuildConfig;
-use bot_discord::{CommandDefinition, CommandInteraction, DiscordApi};
+use bot_discord::{CommandDefinition, CommandInteraction, DiscordApi, ModalSubmitInteraction};
 
 #[derive(Clone)]
 pub struct ModuleContext {
@@ -196,6 +196,9 @@ pub trait BotModule: Send + Sync {
     fn handles_scheduled_tick(&self) -> bool {
         false
     }
+    fn handles_modal_submit(&self, _custom_id: &str) -> bool {
+        false
+    }
 
     async fn on_command(
         &self,
@@ -267,5 +270,14 @@ pub trait BotModule: Send + Sync {
         _event: &ScheduledTick,
     ) -> Result<Vec<ModuleEventOutcome>> {
         Ok(Vec::new())
+    }
+
+    async fn on_modal_submit(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _interaction: &ModalSubmitInteraction,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        Ok(None)
     }
 }

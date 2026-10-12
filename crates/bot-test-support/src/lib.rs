@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
-    GuildRole, MessageReactionSummary,
+    GuildRole, MessageReactionSummary, ModalDefinition, ModalSubmitInteraction,
 };
 use bot_module_api::{
     ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
@@ -18,6 +18,14 @@ pub enum DiscordCall {
         commands: Vec<CommandDefinition>,
     },
     RespondToCommand {
+        interaction_id: u64,
+        response: CommandResponse,
+    },
+    OpenModal {
+        interaction_id: u64,
+        modal: ModalDefinition,
+    },
+    RespondToModal {
         interaction_id: u64,
         response: CommandResponse,
     },
@@ -453,6 +461,28 @@ impl DiscordApi for FakeDiscord {
         response: CommandResponse,
     ) -> Result<(), DiscordError> {
         self.record(DiscordCall::RespondToCommand {
+            interaction_id: interaction.id,
+            response,
+        })
+    }
+
+    async fn open_modal(
+        &self,
+        interaction: &CommandInteraction,
+        modal: ModalDefinition,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::OpenModal {
+            interaction_id: interaction.id,
+            modal,
+        })
+    }
+
+    async fn respond_to_modal(
+        &self,
+        interaction: &ModalSubmitInteraction,
+        response: CommandResponse,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::RespondToModal {
             interaction_id: interaction.id,
             response,
         })

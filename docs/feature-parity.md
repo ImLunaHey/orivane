@@ -36,7 +36,9 @@ These are not represented as fake or configuration-only cards in the dashboard.
 | --- | --- | --- |
 | Suggestions and voting | Carl-bot and similar community bots | Not built |
 | Giveaways | Dyno and MEE6-class bots | Not built |
-| Reminders and scheduled messages | Dyno and similar bots | Not built |
+| Reminders | Dyno and similar bots | Not built |
+| Scheduled messages | Dyno and similar bots | Live: durable recurring delivery, channel routing, start/end dates, audits |
+| Forms | Sapphire and specialized form bots | Live: native Discord modals, five configurable questions, role access, anonymous routing, audits |
 | Auto-delete and scheduled purge | Dyno | Not built |
 | Forms | Dyno | Not built |
 | Managed embeds | Dyno and Carl-bot-class bots | Not built |

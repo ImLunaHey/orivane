@@ -8,10 +8,10 @@ pub use audit::{AuditEvent, NewAuditEvent};
 pub use cases::{ModerationCase, NewModerationCase};
 pub use config::{
     AntiRaidConfig, AutomodConfig, AutoresponderConfig, AutoresponseConfig, AutoroleConfig,
-    CustomCommandConfig, CustomCommandsConfig, GuildConfig, LevelingConfig, LoggingConfig,
-    ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRolesConfig,
-    ScheduledMessageConfig, ScheduledMessagesConfig, StarboardConfig, TicketsConfig, UtilityConfig,
-    WelcomeConfig,
+    CustomCommandConfig, CustomCommandsConfig, FormConfig, FormQuestionConfig, FormsConfig,
+    GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig,
+    ReactionRoleBinding, ReactionRolesConfig, ScheduledMessageConfig, ScheduledMessagesConfig,
+    StarboardConfig, TicketsConfig, UtilityConfig, WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,

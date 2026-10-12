@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{Infrastructure, NewAuditEvent, NewModerationCase, level_for_xp};
 use bot_discord::{
-    CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
+    CommandDefinition, CommandInteraction, CommandResponse, CommandValue, DiscordApi,
+    ModalSubmitInteraction, TwilightDiscord,
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
@@ -21,6 +22,7 @@ use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
 use bot_module_autorole::AutoroleModule;
 use bot_module_custom_commands::CustomCommandsModule;
+use bot_module_forms::FormsModule;
 use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_moderation::ModerationModule;
@@ -34,6 +36,7 @@ use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt
 use twilight_model::application::interaction::{
     InteractionData,
     application_command::{CommandDataOption, CommandOptionValue as TwilightCommandValue},
+    modal::ModalInteractionComponent,
 };
 use twilight_model::channel::message::EmojiReactionType;
 use twilight_model::gateway::payload::incoming::GuildCreate;
@@ -261,6 +264,7 @@ async fn main() -> Result<()> {
         Arc::new(AutoresponderModule),
         Arc::new(AntiRaidModule::default()),
         Arc::new(ScheduledMessagesModule),
+        Arc::new(FormsModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -633,6 +637,114 @@ async fn main() -> Result<()> {
                 }
             }
             Event::InteractionCreate(interaction) => {
+                if let Some(InteractionData::ModalSubmit(modal)) = interaction.data.as_ref() {
+                    let Some(guild_id) = interaction.guild_id else {
+                        continue;
+                    };
+                    let config = match infrastructure.guild_config(&guild_id.to_string()).await {
+                        Ok(config) => config,
+                        Err(error) => {
+                            tracing::error!(%guild_id, %error, "could not load guild configuration for modal");
+                            continue;
+                        }
+                    };
+                    let actor_id = interaction
+                        .author_id()
+                        .map(|id| id.get())
+                        .unwrap_or_default();
+                    let modal_interaction = ModalSubmitInteraction {
+                        id: interaction.id.get(),
+                        token: interaction.token.clone(),
+                        guild_id: guild_id.get(),
+                        actor_id,
+                        actor_role_ids: interaction
+                            .member
+                            .as_ref()
+                            .map(|member| member.roles.iter().map(|role| role.get()).collect())
+                            .unwrap_or_default(),
+                        custom_id: modal.custom_id.clone(),
+                        values: modal_values(&modal.components),
+                    };
+                    for module in modules
+                        .iter()
+                        .filter(|module| module.handles_modal_submit(&modal.custom_id))
+                    {
+                        let module_enabled = module.enabled(&config);
+                        let result = if module_enabled {
+                            module
+                                .on_modal_submit(&context, &config, &modal_interaction)
+                                .await
+                        } else {
+                            context
+                                .discord
+                                .respond_to_modal(
+                                    &modal_interaction,
+                                    CommandResponse::ephemeral(format!(
+                                        "The {} module is disabled in this server.",
+                                        module.name()
+                                    )),
+                                )
+                                .await
+                                .map_err(anyhow::Error::from)
+                                .map(|()| None)
+                        };
+                        if let Err(error) = &result {
+                            tracing::error!(module = module.name(), %error, "modal submission failed");
+                            if let Err(response_error) = context.discord.respond_to_modal(&modal_interaction, CommandResponse::ephemeral("That form could not be submitted. Please try again or contact a server administrator.")).await {
+                                tracing::error!(%response_error, "failed to acknowledge failed modal submission");
+                            }
+                        }
+                        let outcome = result.as_ref().ok().and_then(|outcome| outcome.as_ref());
+                        let mut audit = NewAuditEvent::guild(
+                            guild_id.to_string(),
+                            actor_id.to_string(),
+                            outcome.map_or_else(
+                                || format!("module.{}.modal_submit", module.name()),
+                                |value| value.action.clone(),
+                            ),
+                        );
+                        audit.source = "discord_gateway".into();
+                        audit.target_type = outcome
+                            .map_or_else(|| "form".into(), |value| value.target_type.clone());
+                        audit.target_id = outcome
+                            .and_then(|value| value.target_id.clone())
+                            .or_else(|| {
+                                modal
+                                    .custom_id
+                                    .strip_prefix("orivane:form:")
+                                    .map(str::to_owned)
+                            });
+                        audit.metadata = serde_json::json!({ "module": module.name(), "interaction_id": modal_interaction.id.to_string() });
+                        if !module_enabled {
+                            audit.outcome = "denied".into();
+                            audit.reason = Some("module is disabled for this server".into());
+                        }
+                        if let Err(error) = &result {
+                            audit.outcome = "failure".into();
+                            audit.reason = Some(error.to_string());
+                        }
+                        if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                            tracing::error!(%error, "failed to persist modal audit event");
+                        }
+                        let notice = AuditNotice {
+                            guild_id: guild_id.get(),
+                            action: audit.action.clone(),
+                            actor_id: audit.actor_id.clone(),
+                            outcome: audit.outcome.clone(),
+                        };
+                        for logging_module in modules.iter().filter(|candidate| {
+                            candidate.handles_audit_notice() && candidate.enabled(&config)
+                        }) {
+                            if let Err(error) = logging_module
+                                .on_audit_notice(&context, &config, &notice)
+                                .await
+                            {
+                                tracing::error!(module = logging_module.name(), %error, "failed to deliver modal server log notice");
+                            }
+                        }
+                    }
+                    continue;
+                }
                 let Some(InteractionData::ApplicationCommand(command)) = interaction.data.as_ref()
                 else {
                     continue;
@@ -737,6 +849,25 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn modal_values(components: &[ModalInteractionComponent]) -> BTreeMap<String, String> {
+    let mut values = BTreeMap::new();
+    for component in components {
+        match component {
+            ModalInteractionComponent::TextInput(input) => {
+                values.insert(input.custom_id.clone(), input.value.clone());
+            }
+            ModalInteractionComponent::ActionRow(row) => {
+                values.extend(modal_values(&row.components))
+            }
+            ModalInteractionComponent::Label(label) => {
+                values.extend(modal_values(std::slice::from_ref(&label.component)))
+            }
+            _ => {}
+        }
+    }
+    values
 }
 
 async fn run_scheduler(

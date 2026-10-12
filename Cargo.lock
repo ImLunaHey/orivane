@@ -789,6 +789,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-forms"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-leveling"
 version = "0.1.0"
 dependencies = [
@@ -1578,6 +1591,7 @@ dependencies = [
  "bot-module-autoresponder",
  "bot-module-autorole",
  "bot-module-custom-commands",
+ "bot-module-forms",
  "bot-module-leveling",
  "bot-module-logging",
  "bot-module-moderation",

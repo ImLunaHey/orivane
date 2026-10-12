@@ -11,9 +11,12 @@ use twilight_http::{Client, request::AuditLogReason};
 use twilight_model::{
     application::command::{
         CommandOption, CommandOptionType, CommandOptionValue as TwilightCommandOptionValue,
+        CommandType,
     },
+    application::interaction::InteractionContextType,
     channel::{
         message::MessageFlags,
+        message::component::{Component, Label, TextInput, TextInputStyle},
         permission_overwrite::{PermissionOverwrite, PermissionOverwriteType},
     },
     guild::Permissions,
@@ -28,7 +31,7 @@ use twilight_model::{
     },
     util::Timestamp,
 };
-use twilight_util::builder::InteractionResponseDataBuilder;
+use twilight_util::builder::{InteractionResponseDataBuilder, command::CommandBuilder};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommandDefinition {
@@ -119,6 +122,41 @@ pub struct CommandResponse {
     pub ephemeral: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModalFieldStyle {
+    Short,
+    Paragraph,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalFieldDefinition {
+    pub custom_id: String,
+    pub label: String,
+    pub style: ModalFieldStyle,
+    pub required: bool,
+    pub min_length: u16,
+    pub max_length: u16,
+    pub placeholder: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalDefinition {
+    pub custom_id: String,
+    pub title: String,
+    pub fields: Vec<ModalFieldDefinition>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModalSubmitInteraction {
+    pub id: u64,
+    pub token: String,
+    pub guild_id: u64,
+    pub actor_id: u64,
+    pub actor_role_ids: Vec<u64>,
+    pub custom_id: String,
+    pub values: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct GuildChannel {
     pub id: String,
@@ -171,6 +209,18 @@ pub trait DiscordApi: Send + Sync {
     async fn respond_to_command(
         &self,
         interaction: &CommandInteraction,
+        response: CommandResponse,
+    ) -> Result<(), DiscordError>;
+
+    async fn open_modal(
+        &self,
+        interaction: &CommandInteraction,
+        modal: ModalDefinition,
+    ) -> Result<(), DiscordError>;
+
+    async fn respond_to_modal(
+        &self,
+        interaction: &ModalSubmitInteraction,
         response: CommandResponse,
     ) -> Result<(), DiscordError>;
 
@@ -280,31 +330,100 @@ impl TwilightDiscord {
 impl DiscordApi for TwilightDiscord {
     async fn register_commands(&self, commands: &[CommandDefinition]) -> Result<(), DiscordError> {
         let client = self.http.interaction(self.application_id);
-        for command in commands {
-            let options = command
-                .options
-                .iter()
-                .map(to_twilight_option)
-                .collect::<Vec<_>>();
-            let mut request = client
-                .create_global_command()
-                .chat_input(command.name, command.description)
-                .dm_permission(!command.guild_only);
-            if !options.is_empty() {
-                request = request.command_options(&options);
-            }
-            if let Some(permissions) = command.default_permissions {
-                request = request
-                    .default_member_permissions(Permissions::from_bits_truncate(permissions));
-            }
-            request.await.map_err(request_error)?;
-        }
+        let commands = commands
+            .iter()
+            .map(|command| {
+                let mut builder =
+                    CommandBuilder::new(command.name, command.description, CommandType::ChatInput);
+                if command.guild_only {
+                    builder = builder.contexts([InteractionContextType::Guild]);
+                }
+                if let Some(permissions) = command.default_permissions {
+                    builder = builder
+                        .default_member_permissions(Permissions::from_bits_truncate(permissions));
+                }
+                for option in command.options {
+                    builder = builder.option(to_twilight_option(option));
+                }
+                builder.build()
+            })
+            .collect::<Vec<_>>();
+        client
+            .set_global_commands(&commands)
+            .await
+            .map_err(request_error)?;
         Ok(())
     }
 
     async fn respond_to_command(
         &self,
         interaction: &CommandInteraction,
+        response: CommandResponse,
+    ) -> Result<(), DiscordError> {
+        let mut data = InteractionResponseDataBuilder::new().content(response.content);
+        if response.ephemeral {
+            data = data.flags(MessageFlags::EPHEMERAL);
+        }
+        let response = TwilightInteractionResponse {
+            kind: InteractionResponseType::ChannelMessageWithSource,
+            data: Some(data.build()),
+        };
+        self.http
+            .interaction(self.application_id)
+            .create_response(Id::new(interaction.id), &interaction.token, &response)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    #[allow(deprecated)]
+    async fn open_modal(
+        &self,
+        interaction: &CommandInteraction,
+        modal: ModalDefinition,
+    ) -> Result<(), DiscordError> {
+        let components = modal.fields.into_iter().map(|field| {
+            Component::Label(Label {
+                id: None,
+                label: field.label,
+                description: None,
+                component: Box::new(Component::TextInput(TextInput {
+                    id: None,
+                    custom_id: field.custom_id,
+                    label: None,
+                    max_length: Some(field.max_length),
+                    min_length: Some(field.min_length),
+                    placeholder: (!field.placeholder.is_empty()).then_some(field.placeholder),
+                    required: Some(field.required),
+                    style: match field.style {
+                        ModalFieldStyle::Short => TextInputStyle::Short,
+                        ModalFieldStyle::Paragraph => TextInputStyle::Paragraph,
+                    },
+                    value: None,
+                })),
+            })
+        });
+        let response = TwilightInteractionResponse {
+            kind: InteractionResponseType::Modal,
+            data: Some(
+                InteractionResponseDataBuilder::new()
+                    .custom_id(modal.custom_id)
+                    .title(modal.title)
+                    .components(components)
+                    .build(),
+            ),
+        };
+        self.http
+            .interaction(self.application_id)
+            .create_response(Id::new(interaction.id), &interaction.token, &response)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn respond_to_modal(
+        &self,
+        interaction: &ModalSubmitInteraction,
         response: CommandResponse,
     ) -> Result<(), DiscordError> {
         let mut data = InteractionResponseDataBuilder::new().content(response.content);

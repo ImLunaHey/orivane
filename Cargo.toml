@@ -20,6 +20,7 @@ members = [
     "modules/autoresponder",
     "modules/anti-raid",
     "modules/scheduled-messages",
+    "modules/forms",
 ]
 resolver = "3"
 
@@ -50,6 +51,7 @@ bot-module-reaction-roles = { path = "modules/reaction-roles" }
 bot-module-autoresponder = { path = "modules/autoresponder" }
 bot-module-anti-raid = { path = "modules/anti-raid" }
 bot-module-scheduled-messages = { path = "modules/scheduled-messages" }
+bot-module-forms = { path = "modules/forms" }
 chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
