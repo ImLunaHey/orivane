@@ -236,6 +236,23 @@ impl Infrastructure {
         };
         Ok(Some((code.clone(), *inviter, total)))
     }
+    pub async fn claim_appeal_cooldown(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        seconds: u64,
+    ) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        let result: Option<String> = redis::cmd("SET")
+            .arg(format!("appeal-cooldown:{guild_id}:{user_id}"))
+            .arg("1")
+            .arg("EX")
+            .arg(seconds.max(1))
+            .arg("NX")
+            .query_async(&mut cache)
+            .await?;
+        Ok(result.is_some())
+    }
     pub async fn economy_account(
         &self,
         guild_id: &str,
@@ -1181,9 +1198,9 @@ impl Infrastructure {
             "WITH inserted AS ( \
                INSERT INTO form_submissions (guild_id, form_id, submitter_id, answers) \
                VALUES ($1, $2, $3, $4) \
-               RETURNING id, guild_id, form_id, submitter_id, answers, created_at \
+               RETURNING id, guild_id, form_id, submitter_id, answers, status, reviewer_id, review_note, reviewed_at, created_at \
              ) SELECT i.id, i.guild_id, i.form_id, i.submitter_id, d.username, d.display_name, \
-                      i.answers, i.created_at FROM inserted i \
+                      i.answers, i.status, i.reviewer_id, i.review_note, i.reviewed_at, i.created_at FROM inserted i \
                LEFT JOIN discord_identities d ON d.user_id = i.submitter_id",
         )
         .bind(&input.guild_id)
@@ -1203,7 +1220,7 @@ impl Infrastructure {
     ) -> Result<Vec<FormSubmission>, StoreError> {
         sqlx::query_as::<_, FormSubmission>(
             "SELECT s.id, s.guild_id, s.form_id, s.submitter_id, d.username, d.display_name, \
-                    s.answers, s.created_at FROM form_submissions s \
+                    s.answers, s.status, s.reviewer_id, s.review_note, s.reviewed_at, s.created_at FROM form_submissions s \
              LEFT JOIN discord_identities d ON d.user_id = s.submitter_id \
              WHERE s.guild_id = $1 AND s.form_id = $2 ORDER BY s.id DESC LIMIT $3",
         )
@@ -1223,7 +1240,7 @@ impl Infrastructure {
     ) -> Result<Option<FormSubmission>, StoreError> {
         sqlx::query_as::<_, FormSubmission>(
             "SELECT s.id, s.guild_id, s.form_id, s.submitter_id, d.username, d.display_name, \
-                    s.answers, s.created_at FROM form_submissions s \
+                    s.answers, s.status, s.reviewer_id, s.review_note, s.reviewed_at, s.created_at FROM form_submissions s \
              LEFT JOIN discord_identities d ON d.user_id = s.submitter_id \
              WHERE s.guild_id = $1 AND s.form_id = $2 AND s.id = $3",
         )
@@ -1235,9 +1252,30 @@ impl Infrastructure {
         .map_err(StoreError::from)
     }
 
+    pub async fn review_form_submission_audited(
+        &self,
+        guild_id: &str,
+        form_id: &str,
+        submission_id: i64,
+        status: &str,
+        reviewer_id: &str,
+        note: Option<&str>,
+        event: &NewAuditEvent,
+    ) -> Result<Option<FormSubmission>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let updated=sqlx::query_scalar::<_,i64>("UPDATE form_submissions SET status=$4,reviewer_id=$5,review_note=$6,reviewed_at=now() WHERE guild_id=$1 AND form_id=$2 AND id=$3 RETURNING id").bind(guild_id).bind(form_id).bind(submission_id).bind(status).bind(reviewer_id).bind(note).fetch_optional(&mut *tx).await?;
+        if updated.is_none() {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        insert_audit_event(&mut tx, event).await?;
+        tx.commit().await?;
+        self.form_submission(guild_id, form_id, submission_id).await
+    }
+
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;

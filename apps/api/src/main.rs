@@ -351,7 +351,7 @@ async fn main() -> Result<()> {
         )
         .route(
             "/v1/guilds/{guild_id}/forms/{form_id}/submissions/{submission_id}",
-            get(get_form_submission),
+            get(get_form_submission).patch(review_form_submission),
         )
         .merge(auth_router)
         .layer(
@@ -3080,6 +3080,67 @@ async fn get_form_submission(
     )
     .await;
     Ok(Json(submission))
+}
+
+#[derive(Deserialize)]
+struct ReviewFormSubmission {
+    status: String,
+    note: Option<String>,
+}
+async fn review_form_submission(
+    State(state): State<AppState>,
+    Path((guild_id, form_id, submission_id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<ReviewFormSubmission>,
+) -> Result<Json<FormSubmission>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_form_id(&form_id)?;
+    if form_id != "moderation-appeals"
+        || submission_id <= 0
+        || !matches!(input.status.as_str(), "approved" | "rejected" | "closed")
+        || input
+            .note
+            .as_ref()
+            .is_some_and(|note| note.chars().count() > 1000)
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid appeal decision".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .form_submission(&guild_id, &form_id, submission_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    let mut event = NewAuditEvent::guild(
+        &guild_id,
+        &actor.discord_user_id,
+        "moderation_appeal.reviewed",
+    );
+    event.source = "dashboard_api".into();
+    event.target_type = "moderation_appeal".into();
+    event.target_id = Some(submission_id.to_string());
+    event.before_state = Some(serde_json::json!({"status":before.status}));
+    event.after_state = Some(serde_json::json!({"status":input.status,"note":input.note}));
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    let item = state
+        .infrastructure
+        .review_form_submission_audited(
+            &guild_id,
+            &form_id,
+            submission_id,
+            &input.status,
+            &actor.discord_user_id,
+            input.note.as_deref(),
+            &event,
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    Ok(Json(item))
 }
 
 async fn create_case(

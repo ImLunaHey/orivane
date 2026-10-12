@@ -89,6 +89,27 @@ impl BotModule for ModerationAppealsModule {
         config: &GuildConfig,
         interaction: &ModalSubmitInteraction,
     ) -> Result<Option<ModuleEventOutcome>> {
+        if !context
+            .services
+            .claim_appeal_cooldown(
+                interaction.guild_id,
+                interaction.actor_id,
+                u64::from(config.modules.moderation_appeals.cooldown_hours) * 3600,
+            )
+            .await?
+        {
+            context
+                .discord
+                .respond_to_modal(
+                    interaction,
+                    CommandResponse::ephemeral(format!(
+                        "You may submit one appeal every {} hour(s).",
+                        config.modules.moderation_appeals.cooldown_hours
+                    )),
+                )
+                .await?;
+            return Ok(None);
+        }
         let case = interaction
             .values
             .get("case")

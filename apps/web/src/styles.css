@@ -613,6 +613,29 @@ small { font-size: 14px !important; line-height: 1.45; }
 .discord-embed-image { display: block; max-width: 100%; max-height: 300px; margin-top: 12px; object-fit: contain; }
 .discord-embed-thumbnail { width: 80px; height: 80px; margin: 12px 12px 0 0; flex: none; object-fit: cover; }
 .discord-embed-footer { display: flex; align-items: center; margin-top: 10px; color: #b5bac1; font-size: 12px; }
+
+/* Readability baseline: operational data and controls must remain legible at 100% zoom. */
+.brand-row span, .guild-picker strong, .guild-picker small, .server-option strong, .server-option small,
+.all-servers-link, .nav-heading, .live-row strong, .live-row small, .user-row strong, .user-row small,
+.breadcrumb, .status-pill, .eyebrow, .stat-card p, .stat-change, .health-list strong, .health-list small,
+.health-list em, .badge, .activity-list strong, .activity-list small, .activity-list em,
+.activity-list time, .case-list strong, .case-list small, .case-list em, .case-list time, .text-link,
+.saved-label, .error-banner, .module-card p, .module-status > span, .back-link, .insight-row strong,
+.insight-row small, .report-notes dl div, .system-metrics small, .system-metrics em,
+.service-table strong, .service-table small, .service-table em, .member-list strong,
+.member-list small, .command-list strong, .command-list small, .server-directory strong,
+.server-directory small, .server-directory em, .installer-list strong, .installer-list small,
+.installer-list em, .table-primary-link strong, .table-primary-link small, .table-person strong,
+.table-person small, .table-user-link small, .detail-list > div, .member-case strong,
+.member-case small, .member-case time, .quiet-state strong, .quiet-state span, .select-label,
+.audit-meta dt, .welcome-variable-list span { font-size: 14px; }
+.primary-action, .button, .form-grid input, .form-grid textarea, .form-grid select, .search-box,
+.search-box input, .data-table th, .data-table td, th, td { font-size: 14px; }
+.form-grid label > span { font-size: 14px; }
+.form-grid label > small, .section-header small, .module-save-toggle small { font-size: 13px; line-height: 1.45; }
+.panel, .button, .primary-action, .form-grid input, .form-grid textarea, .form-grid select,
+.search-box, .error-banner, .server-menu, .command-palette, .discord-channel-picker,
+.discord-role-picker, .bottom-save-bar { border-radius: 0; }
 .discord-embed-footer img { width: 18px; height: 18px; margin-right: 6px; }
 .embed-form { display: grid; gap: 18px; }
 .embed-text-editor { min-width: 0; }

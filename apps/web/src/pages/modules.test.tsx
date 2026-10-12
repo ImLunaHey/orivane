@@ -80,7 +80,9 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules/invite_tracking`)
     fireEvent.click(await screen.findByRole('combobox', { name: 'Join attribution log' }))
     fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Invite reward roles' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add reward' }))
+    fireEvent.change(screen.getByLabelText(/^Attributed invites/), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reward role' }))
     fireEvent.click(screen.getByRole('option', { name: 'Member' }))
 
     await navigateTo(`/servers/${serverId}/modules/polls`)
@@ -113,6 +115,20 @@ describe('module configuration pages', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Announce leaves' }))
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No linked rooms')).toBeVisible()
+  })
+
+  it('keeps moderation appeal submissions separate and reviews them on a detail page', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/moderation_appeals`)
+    fireEvent.click(await screen.findByRole('link', { name: 'View submissions' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/servers/${serverId}/modules/forms/moderation-appeals/submissions`))
+    expect(await screen.findByRole('table', { name: 'Submissions for Moderation appeals' })).toBeVisible()
+    fireEvent.click(await screen.findByRole('link', { name: 'Inspect' }))
+    expect(await screen.findByRole('heading', { name: 'Review appeal' })).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^Decision note/), { target: { value: 'Reviewed by the moderation team.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    await screen.findByText('approved')
+    expect(screen.getAllByText('Reviewed by the moderation team.')).toHaveLength(2)
   })
 
   it('configures category-based Discord event logging on its dedicated page', async () => {

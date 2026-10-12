@@ -294,6 +294,14 @@ pub trait ModuleServices: Send + Sync {
     ) -> Result<Option<InviteAttributionResult>> {
         Ok(None)
     }
+    async fn claim_appeal_cooldown(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _seconds: u64,
+    ) -> Result<bool> {
+        Ok(true)
+    }
     async fn guild_name(&self, _guild_id: u64) -> Result<Option<String>> {
         Ok(None)
     }

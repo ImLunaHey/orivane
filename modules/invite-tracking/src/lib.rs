@@ -55,6 +55,19 @@ impl BotModule for InviteTrackingModule {
                     ),
                 )
                 .await?;
+            if let Some(inviter_id) = a.inviter_id {
+                for reward in c
+                    .modules
+                    .invite_tracking
+                    .rewards
+                    .iter()
+                    .filter(|reward| reward.invites <= a.inviter_total)
+                {
+                    ctx.discord
+                        .add_member_role(e.guild_id, inviter_id, reward.role_id.parse()?)
+                        .await?;
+                }
+            }
         }
         Ok(())
     }

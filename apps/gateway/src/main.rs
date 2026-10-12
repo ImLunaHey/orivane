@@ -162,6 +162,12 @@ impl ModuleServices for GatewayModuleServices {
                 },
             ))
     }
+    async fn claim_appeal_cooldown(&self, g: u64, u: u64, s: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .claim_appeal_cooldown(&g.to_string(), &u.to_string(), s)
+            .await?)
+    }
     async fn guild_name(&self, guild_id: u64) -> Result<Option<String>> {
         Ok(self
             .infrastructure

@@ -69,7 +69,7 @@ export type GuildConfig = {
     economy: { enabled:boolean;currency_name:string;currency_symbol:string;daily_amount:number;work_min:number;work_max:number;work_cooldown_seconds:number;transfer_tax_percent:number;games_enabled:boolean;minimum_wager:number;maximum_wager:number;shop_items:{id:string;name:string;description:string;price:number;role_id:string|null}[] }
     verification: { enabled:boolean;channel_id:string|null;verified_role_id:string|null;pending_role_id:string|null;minimum_account_age_days:number;require_avatar:boolean;message:string;rejection_message:string }
     moderation_appeals: { enabled:boolean;review_channel_id:string|null;reviewer_role_ids:string[];cooldown_hours:number;prompt:string }
-    invite_tracking: { enabled:boolean;log_channel_id:string|null;reward_role_ids:string[] }
+    invite_tracking: { enabled:boolean;log_channel_id:string|null;reward_role_ids:string[];rewards:{invites:number;role_id:string}[] }
     polls: { enabled:boolean;default_duration_minutes:number;maximum_options:number;allow_anonymous:boolean;manager_role_ids:string[] }
     counters: { enabled:boolean;counters:{id:string;enabled:boolean;channel_id:string;label:string;kind:string;value:number;goal:number|null}[] }
     afk: { enabled:boolean;maximum_hours:number;clear_on_message:boolean;notify_mentions:boolean }
@@ -107,7 +107,7 @@ export type ScheduledMessage = { enabled: boolean; id: string; channel_id: strin
 export type FormQuestion = { id: string; label: string; style: 'short' | 'paragraph'; required: boolean; min_length: number; max_length: number; placeholder: string }
 export type ServerForm = { enabled: boolean; id: string; name: string; description: string; destination_channel_id: string; allowed_role_ids: string[]; anonymous: boolean; questions: FormQuestion[] }
 export type FormSubmissionAnswer = { question_id: string; label: string; answer: string }
-export type FormSubmission = { id: number; guild_id: string; form_id: string; submitter_id: string | null; username: string | null; display_name: string | null; answers: FormSubmissionAnswer[]; created_at: string }
+export type FormSubmission = { id: number; guild_id: string; form_id: string; submitter_id: string | null; username: string | null; display_name: string | null; answers: FormSubmissionAnswer[]; status:'submitted'|'approved'|'rejected'|'closed';reviewer_id:string|null;review_note:string|null;reviewed_at:string|null; created_at: string }
 export type SuggestionStatus = 'pending' | 'approved' | 'rejected' | 'implemented' | 'duplicate'
 export type Suggestion = { id: number; guild_id: string; channel_id: string; message_id: string | null; author_id: string | null; username: string | null; display_name: string | null; content: string; status: SuggestionStatus; staff_note: string | null; upvotes: number; downvotes: number; created_at: string; updated_at: string }
 export type GiveawayStatus = 'pending_delivery' | 'active' | 'ended' | 'cancelled' | 'delivery_failed'

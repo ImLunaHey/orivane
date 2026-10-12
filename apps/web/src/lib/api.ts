@@ -121,7 +121,7 @@ export async function getEmbedDeliveries(guildId:string):Promise<EmbedDelivery[]
 export async function sendEmbedTemplate(input:{guildId:string;templateId:string;channelId:string}):Promise<EmbedDelivery>{if(isDemoMode){const item:EmbedDelivery={id:Date.now(),guild_id:input.guildId,template_id:Number(input.templateId),channel_id:input.channelId,message_id:String(Date.now()+1),actor_id:demoActorId,action:'send',status:'delivered',error:null,created_at:new Date().toISOString()};localStorage.setItem(embedDeliveryKey(input.guildId),JSON.stringify([item,...demoEmbedDeliveries(input.guildId)]));return item}return request(`/v1/guilds/${input.guildId}/embeds/${input.templateId}/send`,{method:'POST',body:JSON.stringify({channel_id:input.channelId})})}
 export async function syncEmbedDelivery(input:{guildId:string;templateId:string;deliveryId:string}):Promise<EmbedDelivery>{if(isDemoMode){const previous=demoEmbedDeliveries(input.guildId).find(x=>String(x.id)===input.deliveryId);if(!previous)throw new Error('Embed delivery not found');const item={...previous,id:Date.now(),action:'edit' as const,created_at:new Date().toISOString()};localStorage.setItem(embedDeliveryKey(input.guildId),JSON.stringify([item,...demoEmbedDeliveries(input.guildId)]));return item}return request(`/v1/guilds/${input.guildId}/embeds/${input.templateId}/deliveries/${input.deliveryId}/sync`,{method:'POST'})}
 
-const demoSubmissions: FormSubmission[] = [{
+let demoSubmissions: FormSubmission[] = [{
   id: 1,
   guild_id: demoGuildId,
   form_id: 'staff-application',
@@ -129,8 +129,9 @@ const demoSubmissions: FormSubmission[] = [{
   username: 'silver.arc',
   display_name: 'Silver',
   answers: [{ question_id: 'experience', label: 'What relevant experience do you have?', answer: 'I have moderated community servers for several years.' }],
+  status:'submitted',reviewer_id:null,review_note:null,reviewed_at:null,
   created_at: '2026-10-12T15:18:00Z',
-}]
+},{id:2,guild_id:demoGuildId,form_id:'moderation-appeals',submitter_id:'118742006320914432',username:'silver.arc',display_name:'Silver',answers:[{question_id:'case',label:'Case or action',answer:'Case #42'},{question_id:'reason',label:'Appeal',answer:'Please review the context for this warning.'}],status:'submitted',reviewer_id:null,review_note:null,reviewed_at:null,created_at:'2026-10-12T16:18:00Z'}]
 
 export async function getFormSubmissions(guildId: string, formId: string): Promise<FormSubmission[]> {
   if (isDemoMode) return demoSubmissions.filter((submission) => submission.form_id === formId).map((submission) => ({ ...submission, guild_id: guildId }))
@@ -145,6 +146,7 @@ export async function getFormSubmission(guildId: string, formId: string, submiss
   }
   return request<FormSubmission>(`/v1/guilds/${guildId}/forms/${encodeURIComponent(formId)}/submissions/${submissionId}`)
 }
+export async function reviewFormSubmission(input:{guildId:string;formId:string;submissionId:string;status:'approved'|'rejected'|'closed';note:string|null}):Promise<FormSubmission>{if(isDemoMode){const current=await getFormSubmission(input.guildId,input.formId,input.submissionId);const updated={...current,status:input.status,reviewer_id:'784365843810222080',review_note:input.note,reviewed_at:new Date().toISOString()};demoSubmissions=demoSubmissions.map(item=>item.id===updated.id&&item.form_id===updated.form_id?updated:item);return updated}return request<FormSubmission>(`/v1/guilds/${input.guildId}/forms/${encodeURIComponent(input.formId)}/submissions/${input.submissionId}`,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({status:input.status,note:input.note})})}
 
 const starterSuggestions: Suggestion[] = [
   { id: 3, guild_id: demoGuildId, channel_id: '100000000000000003', message_id: '200000000000000003', author_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', content: 'Add a monthly community showcase for member projects.', status: 'pending', staff_note: null, upvotes: 18, downvotes: 2, created_at: '2026-10-12T14:42:00Z', updated_at: '2026-10-12T14:42:00Z' },

@@ -11,6 +11,10 @@ pub struct FormSubmission {
     pub username: Option<String>,
     pub display_name: Option<String>,
     pub answers: serde_json::Value,
+    pub status: String,
+    pub reviewer_id: Option<String>,
+    pub review_note: Option<String>,
+    pub reviewed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
