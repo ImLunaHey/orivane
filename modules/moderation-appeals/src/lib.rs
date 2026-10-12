@@ -160,3 +160,19 @@ fn safe(value: &str) -> String {
         .replace('@', "@\u{200b}")
         .replace("```", "`\u{200b}`\u{200b}`")
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn appeal_is_slash_only_and_guild_scoped() {
+        assert_eq!(COMMANDS.len(), 1);
+        assert_eq!(COMMANDS[0].name, "appeal");
+        assert!(COMMANDS[0].guild_only);
+    }
+    #[test]
+    fn sanitizes_mentions_and_fences() {
+        let value = safe("@everyone ```x```");
+        assert!(!value.contains("@everyone"));
+        assert!(!value.contains("```"));
+    }
+}

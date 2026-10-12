@@ -90,6 +90,18 @@ pub struct PollResult {
     pub total_votes: u64,
     pub anonymous: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InviteUsageInput {
+    pub code: String,
+    pub inviter_id: Option<u64>,
+    pub uses: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InviteAttributionResult {
+    pub code: String,
+    pub inviter_id: Option<u64>,
+    pub inviter_total: u64,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketRecordInput {
@@ -270,6 +282,16 @@ pub trait ModuleServices: Send + Sync {
         _user_id: u64,
         _option: usize,
     ) -> Result<Option<PollResult>> {
+        Ok(None)
+    }
+    async fn close_poll(&self, _guild_id: u64, _poll_id: i64) -> Result<bool> {
+        Ok(false)
+    }
+    async fn attribute_invite(
+        &self,
+        _guild_id: u64,
+        _invites: &[InviteUsageInput],
+    ) -> Result<Option<InviteAttributionResult>> {
         Ok(None)
     }
     async fn guild_name(&self, _guild_id: u64) -> Result<Option<String>> {

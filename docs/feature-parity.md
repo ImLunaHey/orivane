@@ -36,6 +36,12 @@ Reference feature sets:
 | Managed embeds | Live | Reusable rich embed templates, Discord-style preview, variable autocomplete, fields/media/author/footer/timestamp controls, `/embed-send`, dashboard sends, synchronized edits, durable delivery history and analytics | Attachments, webhook identity overrides and scheduled template delivery |
 | Economy and games | Live | Durable per-server balances and immutable transaction ledger; `/balance`, `/daily`, `/work`, taxed `/pay`, `/economy-leaderboard`; configurable role shop with purchase refunds; bounded `/coinflip` and `/slots`; permission-gated add/remove/set administration; dashboard policy, shop, account and ledger views | Inventory collectibles and seasonal resets are optional future depth |
 | Verification and onboarding | Live | Join-time account-age and avatar policy, optional pending role, personal button verification, verified-role assignment, configurable messages and audited outcomes | CAPTCHA and external identity providers are intentionally deferred |
+| Moderation appeals | Live | Native `/appeal` modal, durable attributed submissions, configurable staff routing, and audited submission outcomes | Public appeals from users who are no longer in the server still require a dedicated OAuth intake route |
+| Invite tracking | Live | Join attribution from Discord invite-use deltas, inviter totals, configurable logging, and graceful degradation when invite permissions are unavailable | Vanity URL attribution and reward milestones need additional Discord metadata |
+| Polls | Live | Timed two-to-five-option polls, anonymous policy, replacement voting, live private tallies, manager-role early close, and automatic expiry | Dashboard poll history and scheduled result announcements |
+| Counters and goals | Live | Scheduled member, online, boost, and manual-goal voice-channel names with count, goal, and remaining variables | Historical goal charts and automatic goal sources |
+| AFK | Live | Durable expiring away status, `/afk`, automatic return-on-message, mention notices, and configurable expiry | Keyword highlights are a separate privacy-sensitive capability |
+| Voice/text linking | Live | Reusable channel-pair editor and audited join/leave announcements for linked voice rooms | Temporary private text-channel lifecycle |
 
 ## Popular-bot areas not yet implemented
 
@@ -43,7 +49,7 @@ These are not represented as fake or configuration-only cards in the dashboard.
 
 | Capability family | Seen in | Orivane status |
 | --- | --- | --- |
-| AFK and keyword highlights | Dyno | Not built |
+| Keyword highlights | Dyno | Not built; requires explicit privacy and notification controls |
 
 Social-feed integrations, anti-nuke/server-recovery systems, and music are permanently out of scope for Orivane and are not part of the parity backlog.
 

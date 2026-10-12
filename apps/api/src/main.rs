@@ -610,6 +610,8 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_voice_text_linking::COMMANDS,
         bot_module_afk::COMMANDS,
         bot_module_polls::COMMANDS,
+        bot_module_invite_tracking::COMMANDS,
+        bot_module_counters::COMMANDS,
     ];
     groups
         .iter()

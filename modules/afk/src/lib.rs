@@ -146,3 +146,15 @@ fn mentioned_users(content: &str) -> Vec<u64> {
 fn safe(v: &str) -> String {
     v.replace('@', "@\u{200b}").chars().take(300).collect()
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn extracts_standard_and_nickname_mentions() {
+        assert_eq!(mentioned_users("hi <@123> and <@!456>"), vec![123, 456]);
+    }
+    #[test]
+    fn neutralizes_mass_mentions() {
+        assert_eq!(safe("@everyone away"), "@\u{200b}everyone away");
+    }
+}

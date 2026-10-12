@@ -264,6 +264,18 @@ pub struct GuildRole {
     pub position: i64,
     pub managed: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuildInvite {
+    pub code: String,
+    pub inviter_id: Option<u64>,
+    pub uses: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuildMetrics {
+    pub members: u64,
+    pub online: u64,
+    pub boosts: u64,
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MessageReactionSummary {
@@ -523,6 +535,20 @@ pub trait DiscordApi: Send + Sync {
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError>;
 
     async fn guild_roles(&self, guild_id: u64) -> Result<Vec<GuildRole>, DiscordError>;
+    async fn guild_invites(&self, _guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
+        Err(DiscordError::Request("invite access unavailable".into()))
+    }
+    async fn guild_metrics(&self, _guild_id: u64) -> Result<GuildMetrics, DiscordError> {
+        Err(DiscordError::Request("guild metrics unavailable".into()))
+    }
+    async fn rename_channel(
+        &self,
+        _channel_id: u64,
+        _name: &str,
+        _reason: &str,
+    ) -> Result<(), DiscordError> {
+        Err(DiscordError::Request("channel updates unavailable".into()))
+    }
 
     async fn create_ticket_channel(
         &self,
@@ -1272,6 +1298,57 @@ impl DiscordApi for TwilightDiscord {
                 managed: role.managed,
             })
             .collect())
+    }
+    async fn guild_invites(&self, guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
+        let invites = self
+            .http
+            .guild_invites(Id::<GuildMarker>::new(guild_id))
+            .await
+            .map_err(request_error)?
+            .models()
+            .await
+            .map_err(request_error)?;
+        Ok(invites
+            .into_iter()
+            .map(|invite| GuildInvite {
+                code: invite.code,
+                inviter_id: invite.inviter.map(|user| user.id.get()),
+                uses: invite.uses.unwrap_or_default(),
+            })
+            .collect())
+    }
+    async fn guild_metrics(&self, guild_id: u64) -> Result<GuildMetrics, DiscordError> {
+        let guild = self
+            .http
+            .guild(Id::<GuildMarker>::new(guild_id))
+            .with_counts(true)
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(GuildMetrics {
+            members: guild
+                .approximate_member_count
+                .or(guild.member_count)
+                .unwrap_or_default(),
+            online: guild.approximate_presence_count.unwrap_or_default(),
+            boosts: guild.premium_subscription_count.unwrap_or_default(),
+        })
+    }
+    async fn rename_channel(
+        &self,
+        channel_id: u64,
+        name: &str,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .update_channel(Id::new(channel_id))
+            .name(name)
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
     }
 
     async fn create_ticket_channel(

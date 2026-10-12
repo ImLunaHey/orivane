@@ -184,6 +184,58 @@ impl Infrastructure {
             values.get(2).and_then(|v| v.as_deref()) == Some("1"),
         )))
     }
+    pub async fn close_poll(&self, guild_id: &str, poll_id: i64) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        let removed: u64 = redis::cmd("DEL")
+            .arg(format!("poll:{guild_id}:{poll_id}"))
+            .arg(format!("poll:{guild_id}:{poll_id}:votes"))
+            .query_async(&mut cache)
+            .await?;
+        Ok(removed > 0)
+    }
+    pub async fn attribute_invite(
+        &self,
+        guild_id: &str,
+        invites: &[(String, Option<u64>, u64)],
+    ) -> Result<Option<(String, Option<u64>, u64)>, StoreError> {
+        let mut cache = self.redis.clone();
+        let key = format!("invite-snapshot:{guild_id}");
+        let previous: Option<String> = redis::cmd("GET").arg(&key).query_async(&mut cache).await?;
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(serde_json::to_string(invites)?)
+            .query_async::<()>(&mut cache)
+            .await?;
+        let Some(previous) = previous else {
+            return Ok(None);
+        };
+        let previous: Vec<(String, Option<u64>, u64)> = serde_json::from_str(&previous)?;
+        let chosen = invites
+            .iter()
+            .filter_map(|(code, inviter, uses)| {
+                let before = previous
+                    .iter()
+                    .find(|(old, _, _)| old == code)
+                    .map(|(_, _, uses)| *uses)
+                    .unwrap_or_default();
+                uses.checked_sub(before)
+                    .filter(|delta| *delta > 0)
+                    .map(|delta| (delta, code, inviter))
+            })
+            .max_by_key(|(delta, _, _)| *delta);
+        let Some((_, code, inviter)) = chosen else {
+            return Ok(None);
+        };
+        let total = if let Some(inviter) = inviter {
+            redis::cmd("INCR")
+                .arg(format!("invite-total:{guild_id}:{inviter}"))
+                .query_async(&mut cache)
+                .await?
+        } else {
+            0
+        };
+        Ok(Some((code.clone(), *inviter, total)))
+    }
     pub async fn economy_account(
         &self,
         guild_id: &str,

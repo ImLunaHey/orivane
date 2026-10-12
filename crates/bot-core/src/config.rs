@@ -127,7 +127,7 @@ impl Default for PollsConfig {
         Self {
             enabled: false,
             default_duration_minutes: 1440,
-            maximum_options: 10,
+            maximum_options: 5,
             allow_anonymous: true,
             manager_role_ids: vec![],
         }
@@ -137,7 +137,7 @@ fn default_poll_duration() -> u32 {
     1440
 }
 fn default_poll_options() -> u8 {
-    10
+    5
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -155,6 +155,8 @@ pub struct CounterConfig {
     pub channel_id: String,
     pub label: String,
     pub kind: String,
+    #[serde(default)]
+    pub value: u64,
     #[serde(default)]
     pub goal: Option<u64>,
 }
@@ -911,6 +913,8 @@ pub enum ConfigValidationError {
     InvalidEconomy,
     #[error("verification channels, roles, account policy, or messages are invalid")]
     InvalidVerification,
+    #[error("community module channels, roles, limits, or templates are invalid")]
+    InvalidCommunityFeatures,
 }
 
 impl GuildConfig {
@@ -1492,6 +1496,61 @@ impl GuildConfig {
             return Err(ConfigValidationError::InvalidAutoDelete);
         }
 
+        let appeals = &self.modules.moderation_appeals;
+        let invite = &self.modules.invite_tracking;
+        let polls = &self.modules.polls;
+        let counters = &self.modules.counters;
+        let links = &self.modules.voice_text_linking;
+        if appeals.cooldown_hours == 0
+            || appeals.prompt.trim().is_empty()
+            || appeals.prompt.chars().count() > 1000
+            || appeals
+                .review_channel_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || invalid_snowflake_list(&appeals.reviewer_role_ids, 100)
+            || (appeals.enabled && appeals.review_channel_id.is_none())
+            || invite
+                .log_channel_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || invalid_snowflake_list(&invite.reward_role_ids, 100)
+            || !(2..=5).contains(&polls.maximum_options)
+            || polls.default_duration_minutes == 0
+            || polls.default_duration_minutes > 525_600
+            || invalid_snowflake_list(&polls.manager_role_ids, 100)
+            || !(1..=8_760).contains(&self.modules.afk.maximum_hours)
+            || counters.counters.len() > 100
+            || counters
+                .counters
+                .iter()
+                .enumerate()
+                .any(|(index, counter)| {
+                    counter.id.trim().is_empty()
+                        || counter.id.len() > 64
+                        || counters.counters[..index]
+                            .iter()
+                            .any(|other| other.id == counter.id)
+                        || !valid_snowflake(&counter.channel_id)
+                        || counter.label.trim().is_empty()
+                        || counter.label.chars().count() > 100
+                        || !matches!(
+                            counter.kind.as_str(),
+                            "members" | "online" | "boosts" | "goal"
+                        )
+                })
+            || links.links.len() > 100
+            || links.links.iter().enumerate().any(|(index, link)| {
+                !valid_snowflake(&link.voice_channel_id)
+                    || !valid_snowflake(&link.text_channel_id)
+                    || link.voice_channel_id == link.text_channel_id
+                    || links.links[..index]
+                        .iter()
+                        .any(|other| other.voice_channel_id == link.voice_channel_id)
+            })
+        {
+            return Err(ConfigValidationError::InvalidCommunityFeatures);
+        }
         Ok(())
     }
 }

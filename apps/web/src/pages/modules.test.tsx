@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(23)
+    expect(screen.getAllByText('Live')).toHaveLength(29)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -50,6 +50,12 @@ describe('module configuration pages', () => {
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
       ['scheduled_messages', 'Scheduled messages settings', 'Enable Scheduled messages', 'switch', true],
       ['verification', 'Verification settings', 'Minimum account age', 'number', '7'],
+      ['moderation_appeals', 'Moderation appeals settings', 'Submission cooldown', 'number', '48'],
+      ['invite_tracking', 'Invite tracking settings', 'Enable Invite tracking', 'switch', true],
+      ['polls', 'Polls settings', 'Default duration', 'number', '60'],
+      ['counters', 'Counters and goals settings', 'Enable Counters and goals', 'switch', true],
+      ['afk', 'AFK settings', 'Maximum AFK duration', 'number', '72'],
+      ['voice_text_linking', 'Voice and text linking settings', 'Enable Voice and text linking', 'switch', true],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -61,6 +67,52 @@ describe('module configuration pages', () => {
       if (kind) expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
       expect(screen.queryByText('Not active in Discord yet')).not.toBeInTheDocument()
     }
+  })
+
+  it('configures the new community workflow editors', async () => {
+    renderDashboard()
+
+    await navigateTo(`/servers/${serverId}/modules/moderation_appeals`)
+    fireEvent.click(await screen.findByRole('combobox', { name: 'Review channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
+    fireEvent.change(screen.getByLabelText(/^Appeal prompt/), { target: { value: 'Tell the team what happened.' } })
+
+    await navigateTo(`/servers/${serverId}/modules/invite_tracking`)
+    fireEvent.click(await screen.findByRole('combobox', { name: 'Join attribution log' }))
+    fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Invite reward roles' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Member' }))
+
+    await navigateTo(`/servers/${serverId}/modules/polls`)
+    fireEvent.change(await screen.findByLabelText(/^Maximum options/), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Allow anonymous polls' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poll manager roles' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Support' }))
+
+    await navigateTo(`/servers/${serverId}/modules/counters`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add counter' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Counter channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Lounge' }))
+    fireEvent.change(screen.getByLabelText(/^Metric/), { target: { value: 'goal' } })
+    fireEvent.change(screen.getByLabelText(/^Current progress/), { target: { value: '25' } })
+    fireEvent.change(screen.getByLabelText(/^Goal/), { target: { value: '100' } })
+    fireEvent.change(screen.getByLabelText(/^Channel name template/), { target: { value: 'Goal: {count}/{goal}' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('No counters configured')).toBeVisible()
+
+    await navigateTo(`/servers/${serverId}/modules/afk`)
+    fireEvent.click(await screen.findByRole('switch', { name: 'Clear on message' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Mention notifications' }))
+
+    await navigateTo(`/servers/${serverId}/modules/voice_text_linking`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add link' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Voice channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Lounge' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Linked text channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Announce leaves' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('No linked rooms')).toBeVisible()
   })
 
   it('configures category-based Discord event logging on its dedicated page', async () => {

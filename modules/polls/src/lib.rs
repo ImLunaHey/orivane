@@ -25,40 +25,58 @@ const fn text(
         max_length: Some(max),
     }
 }
-pub const COMMANDS: &[CommandDefinition] = &[CommandDefinition {
-    name: "poll",
-    description: "Create a timed poll",
-    guild_only: true,
-    default_permissions: None,
-    options: &[
-        text("question", "Question to ask", true, 300),
-        text("option-1", "First choice", true, 80),
-        text("option-2", "Second choice", true, 80),
-        text("option-3", "Optional third choice", false, 80),
-        text("option-4", "Optional fourth choice", false, 80),
-        text("option-5", "Optional fifth choice", false, 80),
-        CommandOptionDefinition {
-            name: "minutes",
-            description: "Duration in minutes",
+pub const COMMANDS: &[CommandDefinition] = &[
+    CommandDefinition {
+        name: "poll",
+        description: "Create a timed poll",
+        guild_only: true,
+        default_permissions: None,
+        options: &[
+            text("question", "Question to ask", true, 300),
+            text("option-1", "First choice", true, 80),
+            text("option-2", "Second choice", true, 80),
+            text("option-3", "Optional third choice", false, 80),
+            text("option-4", "Optional fourth choice", false, 80),
+            text("option-5", "Optional fifth choice", false, 80),
+            CommandOptionDefinition {
+                name: "minutes",
+                description: "Duration in minutes",
+                kind: CommandOptionKind::Integer,
+                required: false,
+                min_value: Some(1),
+                max_value: Some(525600),
+                min_length: None,
+                max_length: None,
+            },
+            CommandOptionDefinition {
+                name: "anonymous",
+                description: "Hide individual voter identities",
+                kind: CommandOptionKind::Boolean,
+                required: false,
+                min_value: None,
+                max_value: None,
+                min_length: None,
+                max_length: None,
+            },
+        ],
+    },
+    CommandDefinition {
+        name: "poll-close",
+        description: "Close a poll early",
+        guild_only: true,
+        default_permissions: None,
+        options: &[CommandOptionDefinition {
+            name: "id",
+            description: "Poll ID",
             kind: CommandOptionKind::Integer,
-            required: false,
+            required: true,
             min_value: Some(1),
-            max_value: Some(525600),
-            min_length: None,
-            max_length: None,
-        },
-        CommandOptionDefinition {
-            name: "anonymous",
-            description: "Hide individual voter identities",
-            kind: CommandOptionKind::Boolean,
-            required: false,
-            min_value: None,
             max_value: None,
             min_length: None,
             max_length: None,
-        },
-    ],
-}];
+        }],
+    },
+];
 #[async_trait]
 impl BotModule for PollsModule {
     fn name(&self) -> &'static str {
@@ -79,6 +97,30 @@ impl BotModule for PollsModule {
         c: &GuildConfig,
         i: &CommandInteraction,
     ) -> Result<()> {
+        if i.command_name == "poll-close" {
+            let allowed = c.modules.polls.manager_role_ids.is_empty()
+                || c.modules
+                    .polls
+                    .manager_role_ids
+                    .iter()
+                    .any(|role| i.actor_role_ids.iter().any(|id| role == &id.to_string()));
+            if !allowed {
+                bail!("you do not have a poll manager role")
+            }
+            let id = i.integer("id").context("poll ID required")?;
+            let closed = ctx.services.close_poll(i.guild_id, id).await?;
+            ctx.discord
+                .respond_to_command(
+                    i,
+                    CommandResponse::ephemeral(if closed {
+                        format!("Poll #{id} closed.")
+                    } else {
+                        format!("Poll #{id} was not active.")
+                    }),
+                )
+                .await?;
+            return Ok(());
+        }
         if i.command_name != "poll" {
             return Ok(());
         }
@@ -192,4 +234,19 @@ impl BotModule for PollsModule {
 }
 fn safe(v: &str) -> String {
     v.replace('@', "@\u{200b}")
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn exposes_create_and_close_commands() {
+        assert_eq!(
+            COMMANDS.iter().map(|c| c.name).collect::<Vec<_>>(),
+            vec!["poll", "poll-close"]
+        );
+    }
+    #[test]
+    fn neutralizes_mentions() {
+        assert!(safe("@here").contains('\u{200b}'));
+    }
 }

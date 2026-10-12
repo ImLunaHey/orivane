@@ -31,10 +31,12 @@ use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
 use bot_module_autorole::AutoroleModule;
+use bot_module_counters::CountersModule;
 use bot_module_custom_commands::CustomCommandsModule;
 use bot_module_economy::EconomyModule;
 use bot_module_forms::FormsModule;
 use bot_module_giveaways::GiveawaysModule;
+use bot_module_invite_tracking::InviteTrackingModule;
 use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_managed_embeds::ManagedEmbedsModule;
@@ -135,6 +137,30 @@ impl ModuleServices for GatewayModuleServices {
                     anonymous,
                 }
             }))
+    }
+    async fn close_poll(&self, g: u64, p: i64) -> Result<bool> {
+        Ok(self.infrastructure.close_poll(&g.to_string(), p).await?)
+    }
+    async fn attribute_invite(
+        &self,
+        g: u64,
+        i: &[bot_module_api::InviteUsageInput],
+    ) -> Result<Option<bot_module_api::InviteAttributionResult>> {
+        let values = i
+            .iter()
+            .map(|invite| (invite.code.clone(), invite.inviter_id, invite.uses))
+            .collect::<Vec<_>>();
+        Ok(self
+            .infrastructure
+            .attribute_invite(&g.to_string(), &values)
+            .await?
+            .map(
+                |(code, inviter_id, inviter_total)| bot_module_api::InviteAttributionResult {
+                    code,
+                    inviter_id,
+                    inviter_total,
+                },
+            ))
     }
     async fn guild_name(&self, guild_id: u64) -> Result<Option<String>> {
         Ok(self
@@ -1251,6 +1277,8 @@ async fn main() -> Result<()> {
         Arc::new(VoiceTextLinkingModule),
         Arc::new(AfkModule),
         Arc::new(PollsModule),
+        Arc::new(InviteTrackingModule),
+        Arc::new(CountersModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;

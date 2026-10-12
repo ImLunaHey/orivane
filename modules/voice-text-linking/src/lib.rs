@@ -66,3 +66,15 @@ impl BotModule for VoiceTextLinkingModule {
         }))
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn module_uses_dedicated_config_switch() {
+        let mut c = GuildConfig::for_guild("1");
+        let module = VoiceTextLinkingModule;
+        assert!(!module.enabled(&c));
+        c.modules.voice_text_linking.enabled = true;
+        assert!(module.enabled(&c));
+    }
+}

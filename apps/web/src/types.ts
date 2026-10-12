@@ -71,7 +71,7 @@ export type GuildConfig = {
     moderation_appeals: { enabled:boolean;review_channel_id:string|null;reviewer_role_ids:string[];cooldown_hours:number;prompt:string }
     invite_tracking: { enabled:boolean;log_channel_id:string|null;reward_role_ids:string[] }
     polls: { enabled:boolean;default_duration_minutes:number;maximum_options:number;allow_anonymous:boolean;manager_role_ids:string[] }
-    counters: { enabled:boolean;counters:{id:string;enabled:boolean;channel_id:string;label:string;kind:string;goal:number|null}[] }
+    counters: { enabled:boolean;counters:{id:string;enabled:boolean;channel_id:string;label:string;kind:string;value:number;goal:number|null}[] }
     afk: { enabled:boolean;maximum_hours:number;clear_on_message:boolean;notify_mentions:boolean }
     voice_text_linking: { enabled:boolean;links:{voice_channel_id:string;text_channel_id:string;announce_joins:boolean;announce_leaves:boolean}[] }
   }
