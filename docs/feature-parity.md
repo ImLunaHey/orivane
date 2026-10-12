@@ -13,7 +13,7 @@ Reference feature sets:
 
 | Area | Status | Implemented now | Remaining depth |
 | --- | --- | --- | --- |
-| Moderation | Live | Note, warn, timeout, kick, ban, unban; cases; reasons; optional DMs; Discord permission defaults | Warning thresholds, bulk purge, lockdown, slowmode, role-based moderator policy |
+| Moderation | Live | Note, warn, timeout, kick, ban, unban; durable cases; reasons; optional DMs; configurable moderator roles; exact-count warning escalation to timeout/kick/ban; bulk purge; channel lock/unlock; slowmode | Timed bans and case evidence attachments |
 | AutoMod | Live | Blocked terms, invites, links, caps, lines, mention limit, ignored roles/channels, delete/warn/timeout/ban, responses and logs | Per-rule objects, duplicate/rapid spam, phishing reputation, attachment/sticker/emoji/Zalgo filters |
 | Welcome | Live | Public welcome, optional DM, goodbye, variables and preview | Images, embeds, multiple randomized messages, join/leave/ban announcements |
 | Autorole | Live | Delayed join roles, delayed removals, `/role` self-service roles, exclusive self-service mode | Persistent delayed-job recovery and role-hierarchy preflight diagnostics |

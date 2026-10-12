@@ -80,6 +80,27 @@ describe('module configuration pages', () => {
     expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging.voice_events).toBe(false)
   })
 
+  it('configures moderator roles and warning escalation thresholds', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/moderation`)
+    await screen.findByRole('heading', { name: 'Moderation settings' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Moderator roles' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Support' }))
+    expect(screen.getByRole('button', { name: 'Remove Support' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add threshold' }))
+    fireEvent.change(screen.getByLabelText(/^Warning count/), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText(/^Escalation action/), { target: { value: 'ban' } })
+    expect(screen.queryByLabelText(/^Timeout length/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+    const moderation = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.moderation
+    expect(moderation.moderator_role_ids).toEqual(['100000000000000101'])
+    expect(moderation.warning_thresholds).toEqual([{ warnings: 3, action: 'ban', timeout_minutes: 60 }])
+  })
+
   it('uses dedicated ticket inbox, panel editor, and ticket detail pages', async () => {
     renderDashboard()
     await navigateTo(`/servers/${serverId}/modules/tickets`)

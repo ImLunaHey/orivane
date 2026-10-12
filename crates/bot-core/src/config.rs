@@ -197,6 +197,18 @@ pub struct ModerationConfig {
     pub dm_on_action: bool,
     #[serde(default = "default_moderation_reason")]
     pub default_reason: String,
+    #[serde(default)]
+    pub moderator_role_ids: Vec<String>,
+    #[serde(default)]
+    pub warning_thresholds: Vec<WarningThresholdConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct WarningThresholdConfig {
+    pub warnings: u16,
+    pub action: String,
+    #[serde(default)]
+    pub timeout_minutes: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -532,6 +544,8 @@ pub enum ConfigValidationError {
     InvalidXpRange,
     #[error("leveling ignored targets or announcement settings are invalid")]
     InvalidLeveling,
+    #[error("moderation role policy or warning thresholds are invalid")]
+    InvalidModeration,
     #[error("a welcome channel is required when the welcome module is enabled")]
     MissingWelcomeChannel,
     #[error("welcome direct-message or goodbye settings are invalid")]
@@ -630,6 +644,22 @@ impl GuildConfig {
                     .is_some_and(|id| !valid_snowflake(id)))
         {
             return Err(ConfigValidationError::InvalidLeveling);
+        }
+        let moderation = &self.modules.moderation;
+        let mut warning_counts = std::collections::HashSet::new();
+        if moderation.default_reason.trim().is_empty()
+            || moderation.default_reason.chars().count() > 512
+            || invalid_snowflake_list(&moderation.moderator_role_ids, 100)
+            || moderation.warning_thresholds.len() > 20
+            || moderation.warning_thresholds.iter().any(|threshold| {
+                threshold.warnings == 0
+                    || !warning_counts.insert(threshold.warnings)
+                    || !matches!(threshold.action.as_str(), "timeout" | "kick" | "ban")
+                    || (threshold.action == "timeout"
+                        && !(1..=40_320).contains(&threshold.timeout_minutes))
+            })
+        {
+            return Err(ConfigValidationError::InvalidModeration);
         }
 
         if self.modules.welcome.enabled
@@ -1071,6 +1101,8 @@ impl Default for ModerationConfig {
             enabled: false,
             dm_on_action: true,
             default_reason: default_moderation_reason(),
+            moderator_role_ids: Vec::new(),
+            warning_thresholds: Vec::new(),
         }
     }
 }

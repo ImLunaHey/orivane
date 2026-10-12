@@ -118,6 +118,22 @@ pub enum DiscordCall {
         message_id: u64,
         reason: String,
     },
+    PurgeMessages {
+        channel_id: u64,
+        count: u16,
+        reason: String,
+    },
+    SetChannelLocked {
+        guild_id: u64,
+        channel_id: u64,
+        locked: bool,
+        reason: String,
+    },
+    SetChannelSlowmode {
+        channel_id: u64,
+        seconds: u16,
+        reason: String,
+    },
     GuildChannels {
         guild_id: u64,
     },
@@ -155,6 +171,10 @@ pub enum DiscordCall {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceCall {
     CreateModerationCase(ModerationCaseInput),
+    ModerationWarningCount {
+        guild_id: u64,
+        member_id: u64,
+    },
     AwardXp(XpAwardInput),
     XpProfile {
         guild_id: u64,
@@ -326,6 +346,18 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn moderation_warning_count(&self, guild_id: u64, member_id: u64) -> anyhow::Result<u64> {
+        let mut calls = self.calls.lock().expect("fake lock poisoned");
+        let count = calls
+            .iter()
+            .filter(|call| matches!(call, ServiceCall::CreateModerationCase(input) if input.guild_id == guild_id && input.member_id == member_id && input.action == "warn"))
+            .count() as u64;
+        calls.push(ServiceCall::ModerationWarningCount {
+            guild_id,
+            member_id,
+        });
+        Ok(count)
+    }
     async fn ticket_panel(
         &self,
         _: u64,
@@ -1421,6 +1453,48 @@ impl DiscordApi for FakeDiscord {
             channel_id,
             message_id,
             reason: reason.to_owned(),
+        })
+    }
+
+    async fn purge_messages(
+        &self,
+        channel_id: u64,
+        count: u16,
+        reason: &str,
+    ) -> Result<u16, DiscordError> {
+        self.record(DiscordCall::PurgeMessages {
+            channel_id,
+            count,
+            reason: reason.into(),
+        })?;
+        Ok(count)
+    }
+
+    async fn set_channel_locked(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        locked: bool,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::SetChannelLocked {
+            guild_id,
+            channel_id,
+            locked,
+            reason: reason.into(),
+        })
+    }
+
+    async fn set_channel_slowmode(
+        &self,
+        channel_id: u64,
+        seconds: u16,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::SetChannelSlowmode {
+            channel_id,
+            seconds,
+            reason: reason.into(),
         })
     }
 

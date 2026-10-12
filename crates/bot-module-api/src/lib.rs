@@ -207,6 +207,9 @@ pub trait ModuleServices: Send + Sync {
         Ok(())
     }
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
+    async fn moderation_warning_count(&self, _guild_id: u64, _member_id: u64) -> Result<u64> {
+        Ok(0)
+    }
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
     async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;
     async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>>;

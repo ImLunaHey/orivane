@@ -21,7 +21,7 @@ pub use config::{
     ManagedEmbedsConfig, ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRoleOption,
     ReactionRolePanel, ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig,
     ScheduledMessagesConfig, StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig,
-    WelcomeConfig,
+    WarningThresholdConfig, WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,

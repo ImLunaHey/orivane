@@ -481,6 +481,25 @@ pub trait DiscordApi: Send + Sync {
         message_id: u64,
         reason: &str,
     ) -> Result<(), DiscordError>;
+    async fn purge_messages(
+        &self,
+        channel_id: u64,
+        count: u16,
+        reason: &str,
+    ) -> Result<u16, DiscordError>;
+    async fn set_channel_locked(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        locked: bool,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+    async fn set_channel_slowmode(
+        &self,
+        channel_id: u64,
+        seconds: u16,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
     async fn recent_message_ids(
         &self,
         _channel_id: u64,
@@ -1034,6 +1053,109 @@ impl DiscordApi for TwilightDiscord {
                 Id::<ChannelMarker>::new(channel_id),
                 Id::<MessageMarker>::new(message_id),
             )
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn purge_messages(
+        &self,
+        channel_id: u64,
+        count: u16,
+        reason: &str,
+    ) -> Result<u16, DiscordError> {
+        let messages = self
+            .http
+            .channel_messages(Id::<ChannelMarker>::new(channel_id))
+            .limit(count.clamp(1, 100))
+            .await
+            .map_err(request_error)?
+            .models()
+            .await
+            .map_err(request_error)?;
+        let mut deleted = 0;
+        for message in messages {
+            self.http
+                .delete_message(Id::new(channel_id), message.id)
+                .reason(reason)
+                .await
+                .map_err(request_error)?;
+            deleted += 1;
+        }
+        Ok(deleted)
+    }
+
+    async fn set_channel_locked(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        locked: bool,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        let channel = self
+            .http
+            .channel(Id::new(channel_id))
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        let existing = channel
+            .permission_overwrites
+            .unwrap_or_default()
+            .into_iter()
+            .find(|overwrite| {
+                overwrite.id.get() == guild_id && overwrite.kind == PermissionOverwriteType::Role
+            });
+        let mut allow = existing
+            .as_ref()
+            .map(|overwrite| overwrite.allow)
+            .unwrap_or_else(Permissions::empty);
+        let mut deny = existing
+            .as_ref()
+            .map(|overwrite| overwrite.deny)
+            .unwrap_or_else(Permissions::empty);
+        if locked {
+            allow.remove(Permissions::SEND_MESSAGES);
+            deny.insert(Permissions::SEND_MESSAGES);
+        } else {
+            deny.remove(Permissions::SEND_MESSAGES);
+        }
+        if !locked && allow.is_empty() && deny.is_empty() {
+            if existing.is_some() {
+                self.http
+                    .delete_channel_permission(Id::new(channel_id))
+                    .role(Id::new(guild_id))
+                    .reason(reason)
+                    .await
+                    .map_err(request_error)?;
+            }
+            return Ok(());
+        }
+        let overwrite = HttpPermissionOverwrite {
+            allow: Some(allow),
+            deny: Some(deny),
+            id: Id::<RoleMarker>::new(guild_id).cast(),
+            kind: HttpPermissionOverwriteType::Role,
+        };
+        self.http
+            .update_channel_permission(Id::new(channel_id), &overwrite)
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn set_channel_slowmode(
+        &self,
+        channel_id: u64,
+        seconds: u16,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .update_channel(Id::new(channel_id))
+            .rate_limit_per_user(seconds.min(21_600))
             .reason(reason)
             .await
             .map_err(request_error)?;

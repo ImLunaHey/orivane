@@ -12,6 +12,9 @@ pub struct ModerationModule;
 const KICK_MEMBERS: u64 = 1 << 1;
 const BAN_MEMBERS: u64 = 1 << 2;
 const MODERATE_MEMBERS: u64 = 1 << 40;
+const ADMINISTRATOR: u64 = 1 << 3;
+const MANAGE_CHANNELS: u64 = 1 << 4;
+const MANAGE_MESSAGES: u64 = 1 << 13;
 
 const USER_REASON_OPTIONS: &[CommandOptionDefinition] = &[user_option(), reason_option()];
 const TIMEOUT_OPTIONS: &[CommandOptionDefinition] = &[
@@ -41,6 +44,33 @@ const BAN_OPTIONS: &[CommandOptionDefinition] = &[
         min_length: None,
         max_length: None,
     },
+];
+const PURGE_OPTIONS: &[CommandOptionDefinition] = &[
+    CommandOptionDefinition {
+        name: "count",
+        description: "Number of recent messages to delete",
+        kind: CommandOptionKind::Integer,
+        required: true,
+        min_value: Some(1),
+        max_value: Some(100),
+        min_length: None,
+        max_length: None,
+    },
+    reason_option(),
+];
+const CHANNEL_REASON_OPTIONS: &[CommandOptionDefinition] = &[reason_option()];
+const SLOWMODE_OPTIONS: &[CommandOptionDefinition] = &[
+    CommandOptionDefinition {
+        name: "seconds",
+        description: "Delay between member messages; use 0 to disable",
+        kind: CommandOptionKind::Integer,
+        required: true,
+        min_value: Some(0),
+        max_value: Some(21_600),
+        min_length: None,
+        max_length: None,
+    },
+    reason_option(),
 ];
 
 const fn user_option() -> CommandOptionDefinition {
@@ -106,19 +136,43 @@ pub const COMMANDS: &[CommandDefinition] = &[
         BAN_MEMBERS,
         USER_REASON_OPTIONS,
     ),
+    command(
+        "purge",
+        "Delete recent messages in this channel",
+        MANAGE_MESSAGES,
+        PURGE_OPTIONS,
+    ),
+    command(
+        "lock",
+        "Prevent members from sending in this channel",
+        MANAGE_CHANNELS,
+        CHANNEL_REASON_OPTIONS,
+    ),
+    command(
+        "unlock",
+        "Allow members to send in this channel again",
+        MANAGE_CHANNELS,
+        CHANNEL_REASON_OPTIONS,
+    ),
+    command(
+        "slowmode",
+        "Set this channel's message cooldown",
+        MANAGE_CHANNELS,
+        SLOWMODE_OPTIONS,
+    ),
 ];
 
 const fn command(
     name: &'static str,
     description: &'static str,
-    permission: u64,
+    _permission: u64,
     options: &'static [CommandOptionDefinition],
 ) -> CommandDefinition {
     CommandDefinition {
         name,
         description,
         guild_only: true,
-        default_permissions: Some(permission),
+        default_permissions: None,
         options,
     }
 }
@@ -142,17 +196,23 @@ impl BotModule for ModerationModule {
         config: &GuildConfig,
         interaction: &CommandInteraction,
     ) -> Result<()> {
-        let member_id = interaction.user("member").context("member is required")?;
-        if member_id == interaction.actor_id {
-            bail!("moderators cannot target themselves");
-        }
+        authorize(config, interaction)?;
         let reason = interaction
             .string("reason")
             .map(str::trim)
             .filter(|reason| !reason.is_empty())
             .unwrap_or(&config.modules.moderation.default_reason)
             .to_owned();
-
+        if matches!(
+            interaction.command_name.as_str(),
+            "purge" | "lock" | "unlock" | "slowmode"
+        ) {
+            return run_channel_command(context, interaction, &reason).await;
+        }
+        let member_id = interaction.user("member").context("member is required")?;
+        if member_id == interaction.actor_id {
+            bail!("moderators cannot target themselves");
+        }
         match interaction.command_name.as_str() {
             "note" | "warn" => {}
             "timeout" => {
@@ -206,6 +266,66 @@ impl BotModule for ModerationModule {
             })
             .await?;
 
+        let escalation = if interaction.command_name == "warn" {
+            let warnings = context
+                .services
+                .moderation_warning_count(interaction.guild_id, member_id)
+                .await?;
+            if let Some(threshold) = config
+                .modules
+                .moderation
+                .warning_thresholds
+                .iter()
+                .find(|threshold| u64::from(threshold.warnings) == warnings)
+            {
+                let escalation_reason = format!(
+                    "Automatic {} after {} warnings: {}",
+                    threshold.action, warnings, reason
+                );
+                match threshold.action.as_str() {
+                    "timeout" => {
+                        context
+                            .discord
+                            .timeout_member(
+                                interaction.guild_id,
+                                member_id,
+                                u64::from(threshold.timeout_minutes) * 60,
+                                &escalation_reason,
+                            )
+                            .await?
+                    }
+                    "kick" => {
+                        context
+                            .discord
+                            .kick_member(interaction.guild_id, member_id, &escalation_reason)
+                            .await?
+                    }
+                    "ban" => {
+                        context
+                            .discord
+                            .ban_member(interaction.guild_id, member_id, 0, &escalation_reason)
+                            .await?
+                    }
+                    _ => {}
+                }
+                context
+                    .services
+                    .create_moderation_case(ModerationCaseInput {
+                        guild_id: interaction.guild_id,
+                        moderator_id: interaction.actor_id,
+                        member_id,
+                        action: format!("auto_{}", threshold.action),
+                        reason: escalation_reason,
+                    })
+                    .await?;
+                Some(threshold.action.as_str())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let notified =
             if config.modules.moderation.dm_on_action && interaction.command_name != "note" {
                 context
@@ -223,21 +343,113 @@ impl BotModule for ModerationModule {
                 false
             };
         let notification = if notified { " Member notified." } else { "" };
+        let escalation = escalation
+            .map(|action| format!(" Warning threshold applied: {action}."))
+            .unwrap_or_default();
         context
             .discord
             .respond_to_command(
                 interaction,
                 CommandResponse::ephemeral(format!(
-                    "{} recorded for <@{}> as case #{}.{}",
+                    "{} recorded for <@{}> as case #{}.{}{}",
                     title(&interaction.command_name),
                     member_id,
                     case_id,
-                    notification
+                    notification,
+                    escalation
                 )),
             )
             .await?;
         Ok(())
     }
+}
+
+fn authorize(config: &GuildConfig, interaction: &CommandInteraction) -> Result<()> {
+    if interaction.actor_permissions & ADMINISTRATOR != 0 {
+        return Ok(());
+    }
+    let roles = &config.modules.moderation.moderator_role_ids;
+    if !roles.is_empty()
+        && interaction.actor_role_ids.iter().any(|role| {
+            roles
+                .iter()
+                .any(|configured| configured == &role.to_string())
+        })
+    {
+        return Ok(());
+    }
+    if roles.is_empty()
+        && interaction.actor_permissions & required_permission(&interaction.command_name) != 0
+    {
+        return Ok(());
+    }
+    bail!("you are not allowed to use this moderation command")
+}
+
+fn required_permission(command: &str) -> u64 {
+    match command {
+        "kick" => KICK_MEMBERS,
+        "ban" | "unban" => BAN_MEMBERS,
+        "purge" => MANAGE_MESSAGES,
+        "lock" | "unlock" | "slowmode" => MANAGE_CHANNELS,
+        _ => MODERATE_MEMBERS,
+    }
+}
+
+async fn run_channel_command(
+    context: &ModuleContext,
+    interaction: &CommandInteraction,
+    reason: &str,
+) -> Result<()> {
+    let channel_id = interaction
+        .channel_id
+        .context("this command requires a channel")?;
+    let response = match interaction.command_name.as_str() {
+        "purge" => {
+            let count = u16::try_from(interaction.integer("count").context("count is required")?)
+                .context("purge count is invalid")?;
+            let deleted = context
+                .discord
+                .purge_messages(channel_id, count, reason)
+                .await?;
+            format!("Deleted {deleted} recent messages.")
+        }
+        "lock" | "unlock" => {
+            let locked = interaction.command_name == "lock";
+            context
+                .discord
+                .set_channel_locked(interaction.guild_id, channel_id, locked, reason)
+                .await?;
+            if locked {
+                "Channel locked.".into()
+            } else {
+                "Channel unlocked.".into()
+            }
+        }
+        "slowmode" => {
+            let seconds = u16::try_from(
+                interaction
+                    .integer("seconds")
+                    .context("seconds is required")?,
+            )
+            .context("slowmode delay is invalid")?;
+            context
+                .discord
+                .set_channel_slowmode(channel_id, seconds, reason)
+                .await?;
+            if seconds == 0 {
+                "Slowmode disabled.".into()
+            } else {
+                format!("Slowmode set to {seconds} seconds.")
+            }
+        }
+        _ => return Ok(()),
+    };
+    context
+        .discord
+        .respond_to_command(interaction, CommandResponse::ephemeral(response))
+        .await?;
+    Ok(())
 }
 
 fn title(action: &str) -> &str {
@@ -355,5 +567,154 @@ mod tests {
         );
         assert!(discord.calls().is_empty());
         assert!(services.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn configured_moderator_role_can_warn_and_trigger_escalation() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("20");
+        config.modules.moderation.moderator_role_ids = vec!["70".into()];
+        config.modules.moderation.warning_thresholds = vec![bot_core::WarningThresholdConfig {
+            warnings: 1,
+            action: "timeout".into(),
+            timeout_minutes: 30,
+        }];
+        let mut command = interaction(
+            "warn",
+            BTreeMap::from([("member".to_owned(), CommandValue::User(50))]),
+        );
+        command.actor_permissions = 0;
+        command.actor_role_ids = vec![70];
+
+        ModerationModule
+            .on_command(&context, &config, &command)
+            .await
+            .unwrap();
+
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::TimeoutMember {
+                user_id: 50,
+                duration_seconds: 1800,
+                ..
+            }
+        )));
+        assert_eq!(services.calls().len(), 3);
+        assert!(matches!(
+            services.calls()[1],
+            ServiceCall::ModerationWarningCount {
+                guild_id: 20,
+                member_id: 50
+            }
+        ));
+        assert!(
+            matches!(&services.calls()[2], ServiceCall::CreateModerationCase(input) if input.action == "auto_timeout")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_actor_without_permission_or_configured_role() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("20");
+        config.modules.moderation.moderator_role_ids = vec!["70".into()];
+        let mut command = interaction(
+            "warn",
+            BTreeMap::from([("member".to_owned(), CommandValue::User(50))]),
+        );
+        command.actor_permissions = 0;
+
+        let error = ModerationModule
+            .on_command(&context, &config, &command)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("not allowed"));
+        assert!(discord.calls().is_empty());
+        assert!(services.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn channel_commands_use_the_current_channel() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services),
+        };
+        let config = GuildConfig::for_guild("20");
+
+        ModerationModule
+            .on_command(
+                &context,
+                &config,
+                &interaction(
+                    "purge",
+                    BTreeMap::from([("count".into(), CommandValue::Integer(25))]),
+                ),
+            )
+            .await
+            .unwrap();
+        ModerationModule
+            .on_command(&context, &config, &interaction("lock", BTreeMap::new()))
+            .await
+            .unwrap();
+        ModerationModule
+            .on_command(&context, &config, &interaction("unlock", BTreeMap::new()))
+            .await
+            .unwrap();
+        ModerationModule
+            .on_command(
+                &context,
+                &config,
+                &interaction(
+                    "slowmode",
+                    BTreeMap::from([("seconds".into(), CommandValue::Integer(30))]),
+                ),
+            )
+            .await
+            .unwrap();
+
+        let calls = discord.calls();
+        assert!(calls.iter().any(|call| matches!(
+            call,
+            DiscordCall::PurgeMessages {
+                channel_id: 30,
+                count: 25,
+                ..
+            }
+        )));
+        assert!(calls.iter().any(|call| matches!(
+            call,
+            DiscordCall::SetChannelLocked {
+                channel_id: 30,
+                locked: true,
+                ..
+            }
+        )));
+        assert!(calls.iter().any(|call| matches!(
+            call,
+            DiscordCall::SetChannelLocked {
+                channel_id: 30,
+                locked: false,
+                ..
+            }
+        )));
+        assert!(calls.iter().any(|call| matches!(
+            call,
+            DiscordCall::SetChannelSlowmode {
+                channel_id: 30,
+                seconds: 30,
+                ..
+            }
+        )));
     }
 }

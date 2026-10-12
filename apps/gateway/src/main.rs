@@ -508,6 +508,13 @@ impl ModuleServices for GatewayModuleServices {
         Ok(case.id)
     }
 
+    async fn moderation_warning_count(&self, guild_id: u64, member_id: u64) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .moderation_warning_count(&guild_id.to_string(), &member_id.to_string())
+            .await?)
+    }
+
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult> {
         let result = self
             .infrastructure

@@ -39,7 +39,7 @@ export type GuildConfig = {
     }
     logging: LoggingConfig
     utility: { enabled: boolean; ephemeral_responses: boolean }
-    moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string }
+    moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string; moderator_role_ids:string[]; warning_thresholds:WarningThreshold[] }
     autorole: { enabled: boolean; role_ids: string[]; delay_seconds: number; remove_role_ids: string[]; remove_delay_seconds: number; joinable_role_ids: string[]; single_joinable_role: boolean }
     starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[] }
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
@@ -78,6 +78,7 @@ export type LoggingConfig = {
 }
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }
+export type WarningThreshold = { warnings:number;action:'timeout'|'kick'|'ban';timeout_minutes:number }
 export type ReactionRoleOption = { id:string;label:string;description:string;emoji:string;role_id:string }
 export type ReactionRolePanel = { id:string;enabled:boolean;name:string;title:string;description:string;channel_id:string;message_id:string|null;component_type:'buttons'|'select';mode:'toggle'|'add_only'|'remove_only';exclusive:boolean;required_role_ids:string[];blocked_role_ids:string[];options:ReactionRoleOption[] }
 export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[] }

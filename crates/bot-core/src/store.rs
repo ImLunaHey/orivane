@@ -994,6 +994,21 @@ impl Infrastructure {
         .map_err(StoreError::from)
     }
 
+    pub async fn moderation_warning_count(
+        &self,
+        guild_id: &str,
+        member_id: &str,
+    ) -> Result<u64, StoreError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*)::bigint FROM moderation_cases WHERE guild_id=$1 AND member_id=$2 AND action='warn'",
+        )
+        .bind(guild_id)
+        .bind(member_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u64::try_from(count).unwrap_or_default())
+    }
+
     pub async fn create_moderation_case_audited(
         &self,
         guild_id: &str,
