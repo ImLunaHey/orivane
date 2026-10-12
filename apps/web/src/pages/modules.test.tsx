@@ -44,7 +44,7 @@ describe('module configuration pages', () => {
       ['moderation', 'Moderation settings', 'Default reason', 'text', 'Be kind'],
       ['automod', 'Automod settings', 'Enable Automod', 'switch', true],
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
-      ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
+      ['starboard', 'Starboard settings', 'Default reaction threshold', 'number', '5'],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
@@ -263,6 +263,20 @@ describe('module configuration pages', () => {
     expect(saved.modules.custom_commands.commands[0]).toMatchObject({ name: 'greeting', description: 'Greets a member', response: 'Hello {user}', additional_responses: ['Hi {user}', 'Welcome {user}'], cooldown_seconds: 15, ephemeral: true })
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No custom commands yet')).toBeVisible()
+  })
+
+  it('configures per-channel starboard thresholds', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/starboard`)
+    await screen.findByRole('heading', { name: 'Starboard settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add override' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Source channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
+    fireEvent.change(screen.getAllByLabelText(/^Reaction threshold/)[0], { target: { value: '7' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+    const saved = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}')
+    expect(saved.modules.starboard.channel_thresholds[0]).toMatchObject({ threshold: 7 })
   })
 
   it('reveals optional welcome and goodbye editors', async () => {

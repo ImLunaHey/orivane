@@ -30,9 +30,9 @@ use bot_module_api::{
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedDeliveryInput,
     ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate, MessageDeletionJobResult,
     ModerationCaseInput, ModerationJobResult, ModuleContext, ModuleServices, ReactionAdd,
-    ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
-    TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult, VoiceStateChange,
-    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
+    ReminderInput, ReminderResult, ScheduledTick, StarboardPostResult, SuggestionInput,
+    SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult,
+    VoiceStateChange, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -1348,6 +1348,53 @@ impl ModuleServices for GatewayModuleServices {
                 &starboard_channel_id.to_string(),
             )
             .await?)
+    }
+
+    async fn starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> Result<Option<StarboardPostResult>> {
+        self.infrastructure
+            .starboard_post(&guild_id.to_string(), &source_message_id.to_string())
+            .await?
+            .map(
+                |(source_channel_id, starboard_message_id, reaction_count)| {
+                    Ok(StarboardPostResult {
+                        source_channel_id: source_channel_id.parse()?,
+                        starboard_message_id: starboard_message_id.parse()?,
+                        reaction_count,
+                    })
+                },
+            )
+            .transpose()
+    }
+
+    async fn complete_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    ) -> Result<()> {
+        self.infrastructure
+            .complete_starboard_post(
+                &guild_id.to_string(),
+                &source_message_id.to_string(),
+                &source_channel_id.to_string(),
+                &starboard_message_id.to_string(),
+                reaction_count,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn remove_starboard_post(&self, guild_id: u64, source_message_id: u64) -> Result<()> {
+        self.infrastructure
+            .remove_starboard_post(&guild_id.to_string(), &source_message_id.to_string())
+            .await?;
+        Ok(())
     }
 
     async fn record_raid_join(

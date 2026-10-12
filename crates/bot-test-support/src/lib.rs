@@ -12,9 +12,9 @@ use bot_discord::{
 use bot_module_api::{
     AutoroleJobResult, EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput,
     GiveawayResult, ManagedEmbedResult, MessageDeletionJobResult, ModerationCaseInput,
-    ModerationJobResult, ModuleServices, ReminderInput, ReminderResult, SuggestionInput,
-    SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult,
-    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
+    ModerationJobResult, ModuleServices, ReminderInput, ReminderResult, StarboardPostResult,
+    SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput,
+    TicketResult, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -277,6 +277,17 @@ pub enum ServiceCall {
         source_message_id: u64,
         starboard_channel_id: u64,
     },
+    CompleteStarboardPost {
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    },
+    RemoveStarboardPost {
+        guild_id: u64,
+        source_message_id: u64,
+    },
     RecordRaidJoin {
         guild_id: u64,
         user_id: u64,
@@ -455,6 +466,7 @@ pub struct FakeModuleServices {
     economy_claims: Arc<Mutex<HashSet<(u64, u64, String)>>>,
     due_autorole_jobs: Arc<Mutex<Vec<AutoroleJobResult>>>,
     due_moderation_jobs: Arc<Mutex<Vec<ModerationJobResult>>>,
+    starboard_posts: Arc<Mutex<HashMap<(u64, u64), StarboardPostResult>>>,
 }
 
 type AutomodCounts = HashMap<(u64, u64, String, Option<String>), u64>;
@@ -474,6 +486,18 @@ impl FakeModuleServices {
 
     pub fn set_due_moderation_jobs(&self, jobs: Vec<ModerationJobResult>) {
         *self.due_moderation_jobs.lock().expect("fake lock poisoned") = jobs;
+    }
+
+    pub fn set_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        post: StarboardPostResult,
+    ) {
+        self.starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .insert((guild_id, source_message_id), post);
     }
 }
 
@@ -1616,6 +1640,70 @@ impl ModuleServices for FakeModuleServices {
                 starboard_channel_id,
             });
         Ok(true)
+    }
+
+    async fn starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> anyhow::Result<Option<StarboardPostResult>> {
+        Ok(self
+            .starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .get(&(guild_id, source_message_id))
+            .cloned())
+    }
+
+    async fn complete_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CompleteStarboardPost {
+                guild_id,
+                source_message_id,
+                source_channel_id,
+                starboard_message_id,
+                reaction_count,
+            });
+        self.starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .insert(
+                (guild_id, source_message_id),
+                StarboardPostResult {
+                    source_channel_id,
+                    starboard_message_id,
+                    reaction_count,
+                },
+            );
+        Ok(())
+    }
+
+    async fn remove_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RemoveStarboardPost {
+                guild_id,
+                source_message_id,
+            });
+        self.starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .remove(&(guild_id, source_message_id));
+        Ok(())
     }
 
     async fn record_raid_join(

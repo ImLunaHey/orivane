@@ -283,6 +283,9 @@ pub struct GuildMetrics {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MessageReactionSummary {
     pub author_id: u64,
+    pub author_name: String,
+    pub content: String,
+    pub attachment_url: Option<String>,
     pub count: u64,
 }
 
@@ -1649,6 +1652,12 @@ impl DiscordApi for TwilightDiscord {
             .unwrap_or_default();
         Ok(MessageReactionSummary {
             author_id: message.author.id.get(),
+            author_name: message.author.name,
+            content: message.content,
+            attachment_url: message
+                .attachments
+                .first()
+                .map(|attachment| attachment.url.clone()),
             count,
         })
     }

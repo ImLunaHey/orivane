@@ -2219,6 +2219,65 @@ impl Infrastructure {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn starboard_post(
+        &self,
+        guild_id: &str,
+        source_message_id: &str,
+    ) -> Result<Option<(String, String, u64)>, StoreError> {
+        let row: Option<(Option<String>, Option<String>, i64)> = sqlx::query_as(
+            "SELECT source_channel_id, starboard_message_id, reaction_count \
+             FROM starboard_posts WHERE guild_id = $1 AND source_message_id = $2",
+        )
+        .bind(guild_id)
+        .bind(source_message_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(
+            |(source_channel_id, starboard_message_id, reaction_count)| {
+                Some((
+                    source_channel_id?,
+                    starboard_message_id?,
+                    u64::try_from(reaction_count).unwrap_or_default(),
+                ))
+            },
+        ))
+    }
+
+    pub async fn complete_starboard_post(
+        &self,
+        guild_id: &str,
+        source_message_id: &str,
+        source_channel_id: &str,
+        starboard_message_id: &str,
+        reaction_count: u64,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE starboard_posts SET source_channel_id=$3, starboard_message_id=$4, \
+             reaction_count=$5 WHERE guild_id=$1 AND source_message_id=$2",
+        )
+        .bind(guild_id)
+        .bind(source_message_id)
+        .bind(source_channel_id)
+        .bind(starboard_message_id)
+        .bind(i64::try_from(reaction_count).unwrap_or(i64::MAX))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_starboard_post(
+        &self,
+        guild_id: &str,
+        source_message_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM starboard_posts WHERE guild_id=$1 AND source_message_id=$2")
+            .bind(guild_id)
+            .bind(source_message_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn health(&self) -> Result<(), StoreError> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         let mut cache = self.redis.clone();

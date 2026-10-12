@@ -52,7 +52,7 @@ export type GuildConfig = {
     utility: { enabled: boolean; ephemeral_responses: boolean }
     moderation: { enabled: boolean; dm_on_action: boolean; default_reason: string; moderator_role_ids:string[]; warning_thresholds:WarningThreshold[] }
     autorole: { enabled: boolean; role_ids: string[]; delay_seconds: number; remove_role_ids: string[]; remove_delay_seconds: number; joinable_role_ids: string[]; single_joinable_role: boolean }
-    starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[] }
+    starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[]; channel_thresholds:{channel_id:string;threshold:number}[] }
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
     reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[]; panels: ReactionRolePanel[] }

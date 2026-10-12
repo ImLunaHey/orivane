@@ -254,6 +254,13 @@ pub struct ModerationJobResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StarboardPostResult {
+    pub source_channel_id: u64,
+    pub starboard_message_id: u64,
+    pub reaction_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManagedEmbedResult {
     pub id: i64,
     pub name: String,
@@ -530,6 +537,20 @@ pub trait ModuleServices: Send + Sync {
         source_message_id: u64,
         starboard_channel_id: u64,
     ) -> Result<bool>;
+    async fn starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> Result<Option<StarboardPostResult>>;
+    async fn complete_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    ) -> Result<()>;
+    async fn remove_starboard_post(&self, guild_id: u64, source_message_id: u64) -> Result<()>;
     async fn record_raid_join(
         &self,
         guild_id: u64,

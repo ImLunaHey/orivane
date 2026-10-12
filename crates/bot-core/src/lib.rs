@@ -29,8 +29,9 @@ pub use config::{
     FormsConfig, GiveawaysConfig, GuildConfig, LevelRewardConfig, LevelingConfig, LoggingConfig,
     ManagedEmbedsConfig, ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRoleOption,
     ReactionRolePanel, ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig,
-    ScheduledMessagesConfig, StarboardConfig, SuggestionsConfig, TemporaryVoiceConfig,
-    TicketsConfig, UtilityConfig, VerificationConfig, WarningThresholdConfig, WelcomeConfig,
+    ScheduledMessagesConfig, StarboardChannelThreshold, StarboardConfig, SuggestionsConfig,
+    TemporaryVoiceConfig, TicketsConfig, UtilityConfig, VerificationConfig, WarningThresholdConfig,
+    WelcomeConfig,
 };
 pub use economy::{EconomyAccount, EconomyTransaction};
 pub use fleet::{

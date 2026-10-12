@@ -570,6 +570,14 @@ pub struct StarboardConfig {
     pub allow_self_stars: bool,
     #[serde(default)]
     pub ignored_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub channel_thresholds: Vec<StarboardChannelThreshold>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct StarboardChannelThreshold {
+    pub channel_id: String,
+    pub threshold: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1266,7 +1274,22 @@ impl GuildConfig {
         if !(1..=100).contains(&self.modules.starboard.threshold) {
             return Err(ConfigValidationError::InvalidStarboardThreshold);
         }
-        if invalid_snowflake_list(&self.modules.starboard.ignored_channel_ids, 100) {
+        if invalid_snowflake_list(&self.modules.starboard.ignored_channel_ids, 100)
+            || self.modules.starboard.channel_thresholds.len() > 100
+            || self
+                .modules
+                .starboard
+                .channel_thresholds
+                .iter()
+                .enumerate()
+                .any(|(index, override_)| {
+                    !valid_snowflake(&override_.channel_id)
+                        || !(1..=100).contains(&override_.threshold)
+                        || self.modules.starboard.channel_thresholds[..index]
+                            .iter()
+                            .any(|other| other.channel_id == override_.channel_id)
+                })
+        {
             return Err(ConfigValidationError::InvalidStarboardThreshold);
         }
         if self.modules.tickets.enabled
@@ -1745,6 +1768,7 @@ impl Default for StarboardConfig {
             threshold: default_starboard_threshold(),
             allow_self_stars: false,
             ignored_channel_ids: Vec::new(),
+            channel_thresholds: Vec::new(),
         }
     }
 }
