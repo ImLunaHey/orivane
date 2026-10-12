@@ -47,6 +47,18 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn claim_scheduler_tick(&self, tick: u64) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        let acquired: Option<String> = redis::cmd("SET")
+            .arg(format!("scheduler-tick:{tick}"))
+            .arg("1")
+            .arg("EX")
+            .arg(30_u64)
+            .arg("NX")
+            .query_async(&mut cache)
+            .await?;
+        Ok(acquired.is_some())
+    }
     pub async fn set_afk_status(
         &self,
         guild_id: &str,

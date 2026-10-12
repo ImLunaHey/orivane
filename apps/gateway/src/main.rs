@@ -1586,7 +1586,26 @@ async fn main() -> Result<()> {
         | Intents::MESSAGE_CONTENT
         | Intents::GUILD_MESSAGE_REACTIONS
         | Intents::GUILD_VOICE_STATES;
-    let mut shard = Shard::new(ShardId::ONE, token, intents);
+    let shard_total = env::var("DISCORD_SHARD_TOTAL").map_or(Ok(1_u32), |value| {
+        value
+            .parse()
+            .context("DISCORD_SHARD_TOTAL must be a positive integer")
+    })?;
+    let shard_number = env::var("DISCORD_SHARD_ID").map_or(Ok(0_u32), |value| {
+        value
+            .parse()
+            .context("DISCORD_SHARD_ID must be a non-negative integer")
+    })?;
+    if shard_total == 0 || shard_number >= shard_total {
+        anyhow::bail!("DISCORD_SHARD_ID must be lower than DISCORD_SHARD_TOTAL");
+    }
+    let shard_id = ShardId::new(shard_number, shard_total);
+    tracing::info!(
+        shard = shard_number,
+        shard_total,
+        "configured Discord gateway shard"
+    );
+    let mut shard = Shard::new(shard_id, token, intents);
     let mut voice_channels: HashMap<(u64, u64), (u64, Instant, bool)> = HashMap::new();
 
     tokio::spawn(run_scheduler(
@@ -2834,6 +2853,15 @@ async fn run_scheduler(
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        match infrastructure.claim_scheduler_tick(now_unix / 15).await {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(error) => {
+                metrics.record_scheduled_failure();
+                tracing::error!(%error, "failed to acquire fleet scheduler lease");
+                continue;
+            }
+        }
         let configs = match infrastructure.scheduled_guild_configs().await {
             Ok(configs) => configs,
             Err(error) => {
