@@ -1646,9 +1646,13 @@ async fn main() -> Result<()> {
         Arc::new(InviteTrackingModule),
         Arc::new(CountersModule),
     ];
+    let infrastructure = Infrastructure::connect(&database_url, &redis_url).await?;
+    if env::var("GATEWAY_STARTUP_CHECK_ONLY").is_ok_and(|value| value == "true") {
+        tracing::info!("gateway startup check passed");
+        return Ok(());
+    }
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
-    let infrastructure = Infrastructure::connect(&database_url, &redis_url).await?;
     let context = ModuleContext {
         discord,
         services: Arc::new(GatewayModuleServices {

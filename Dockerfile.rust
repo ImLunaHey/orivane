@@ -1,15 +1,30 @@
-FROM rust:1.94-bookworm AS builder
+FROM rust:1.94-bookworm AS chef
+
+ARG CARGO_CHEF_VERSION=0.1.78
+RUN cargo install cargo-chef --locked --version ${CARGO_CHEF_VERSION}
 
 WORKDIR /workspace
+
+FROM chef AS planner
 
 COPY Cargo.toml Cargo.lock ./
 COPY apps ./apps
 COPY crates ./crates
 COPY modules ./modules
 
-RUN --mount=type=cache,id=orivane-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=orivane-rust-target,target=/workspace/target \
-    cargo build --locked --release \
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+
+COPY --from=planner /workspace/recipe.json recipe.json
+RUN cargo chef cook --locked --release --recipe-path recipe.json
+
+COPY Cargo.toml Cargo.lock ./
+COPY apps ./apps
+COPY crates ./crates
+COPY modules ./modules
+
+RUN cargo build --locked --release \
       --package discord-bot-api \
       --package discord-bot-gateway \
     && mkdir /orivane-binaries \

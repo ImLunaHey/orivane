@@ -1,22 +1,55 @@
-name: Release containers
+name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
 
-permissions:
-  contents: read
-  packages: write
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  release:
+    name: Prepare GitHub release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Publish ${{ matrix.service }} image
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         service: [api, gateway, web]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.sha }}
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -28,18 +61,23 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/orivane-${{ matrix.service }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
+            type=semver,pattern={{version}},value=${{ needs.release.outputs.tag_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.tag_name }}
+            type=semver,pattern={{major}},value=${{ needs.release.outputs.tag_name }}
+            type=raw,value=latest
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Orivane ${{ matrix.service }}
+            org.opencontainers.image.description=Orivane Discord bot ${{ matrix.service }} service
+            org.opencontainers.image.version=${{ needs.release.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.release.outputs.sha }}
       - id: rust
         if: matrix.service != 'web'
         shell: bash
         run: |
           if [ "${{ matrix.service }}" = api ]; then
-            echo 'package=discord-bot-api' >> "$GITHUB_OUTPUT"
             echo 'binary=discord-bot-api' >> "$GITHUB_OUTPUT"
           else
-            echo 'package=discord-bot-gateway' >> "$GITHUB_OUTPUT"
             echo 'binary=discord-bot-gateway' >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/build-push-action@v7
@@ -47,11 +85,11 @@ jobs:
           context: ${{ matrix.service == 'web' && 'apps/web' || '.' }}
           file: ${{ matrix.service == 'web' && 'apps/web/Dockerfile' || 'Dockerfile.rust' }}
           build-args: |
-            PACKAGE=${{ steps.rust.outputs.package }}
             BINARY=${{ steps.rust.outputs.binary }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
-
+          cache-from: type=gha,scope=orivane-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=orivane-${{ matrix.service }}
+          provenance: mode=max
+          sbom: true

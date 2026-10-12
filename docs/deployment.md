@@ -1,6 +1,19 @@
 # Deployment and rollback
 
-Orivane publishes immutable API, gateway, and web images for every `v*` Git tag. Each image is tagged with the semantic version and source commit. Production deployments must pin an exact semantic-version or SHA tag; never deploy a floating local build.
+Release Please maintains a release pull request from Conventional Commits after
+the main-branch CI workflow passes. Merging that pull request creates the
+versioned GitHub release and publishes API, gateway, and web images to GitHub
+Container Registry:
+
+- `ghcr.io/imlunahey/orivane-api`
+- `ghcr.io/imlunahey/orivane-gateway`
+- `ghcr.io/imlunahey/orivane-web`
+
+Each image receives the full semantic version, major/minor, major, `latest`, and
+source-commit tags. Production deployments must pin an exact semantic version
+or SHA tag; never deploy the floating `latest` tag. Features create minor
+versions, fixes create patch versions, and breaking changes create major
+versions once the project reaches `1.0.0`.
 
 ## Pre-deployment checklist
 

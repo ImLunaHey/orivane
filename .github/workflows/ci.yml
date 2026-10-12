@@ -66,7 +66,7 @@ jobs:
           cargo run --locked -p discord-bot-api > /tmp/orivane-api.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true; cat /tmp/orivane-api.log' EXIT
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3010/health; then
               exit 0
             fi
@@ -108,7 +108,7 @@ jobs:
           retention-days: 14
 
   compose:
-    name: Container smoke test
+    name: Production container build and smoke test
     runs-on: ubuntu-24.04
     needs: [rust, web]
     steps:
@@ -117,14 +117,35 @@ jobs:
         run: cp .env.example .env
       - name: Validate Compose model
         run: docker compose config --quiet
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build production images
         uses: docker/bake-action@v6
         with:
+          source: .
           files: docker-compose.yml
           targets: api,gateway,web
-          load: false
+          load: true
           set: |
-            *.cache-from=type=gha,scope=orivane-containers
-            *.cache-to=type=gha,scope=orivane-containers,mode=max
+            api.cache-from=type=gha,scope=orivane-api
+            api.cache-to=type=gha,scope=orivane-api,mode=max
+            gateway.cache-from=type=gha,scope=orivane-gateway
+            gateway.cache-to=type=gha,scope=orivane-gateway,mode=max
+            web.cache-from=type=gha,scope=orivane-web
+            web.cache-to=type=gha,scope=orivane-web,mode=max
+      - name: Start production containers and verify health
+        run: |
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              docker compose ps
+              docker compose logs --no-color
+            fi
+            docker compose down --volumes --remove-orphans
+            exit "$status"
+          }
+          trap cleanup EXIT
+          docker compose up --detach --no-build --wait postgres redis api web
+          curl --fail --silent http://127.0.0.1:3010/health
+          curl --fail --silent http://127.0.0.1:5173/healthz
+          docker compose run --rm -e GATEWAY_STARTUP_CHECK_ONLY=true gateway
 
