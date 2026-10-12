@@ -10,6 +10,7 @@ pub struct ModerationCase {
     pub moderator_id: String,
     pub action: String,
     pub reason: String,
+    pub evidence_urls: serde_json::Value,
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -20,6 +21,8 @@ pub struct NewModerationCase {
     pub member_id: String,
     pub action: String,
     pub reason: String,
+    #[serde(default)]
+    pub evidence_urls: Vec<String>,
 }
 
 impl NewModerationCase {
@@ -35,6 +38,13 @@ impl NewModerationCase {
         }
         if self.reason.trim().is_empty() || self.reason.chars().count() > 1_000 {
             return Err("reason must contain between 1 and 1,000 characters");
+        }
+        if self.evidence_urls.len() > 5
+            || self.evidence_urls.iter().any(|url| {
+                url.len() > 2_000 || !(url.starts_with("https://") || url.starts_with("http://"))
+            })
+        {
+            return Err("evidence_urls must contain at most five HTTP(S) links");
         }
         Ok(())
     }

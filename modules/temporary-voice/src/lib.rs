@@ -106,45 +106,43 @@ impl BotModule for TemporaryVoiceModule {
         if event.user_is_bot {
             return Ok(None);
         }
-        if let Some(channel_id) = event.previous_channel_id {
-            if context
+        if let Some(channel_id) = event.previous_channel_id
+            && context
                 .services
                 .temporary_voice_channel(event.guild_id, channel_id)
                 .await?
                 .is_some()
-            {
-                let remaining = context
+        {
+            let remaining = context
+                .services
+                .temporary_voice_member_leave(channel_id, event.user_id)
+                .await?;
+            if remaining == 0 {
+                context
                     .services
-                    .temporary_voice_member_leave(channel_id, event.user_id)
+                    .schedule_temporary_voice_delete(
+                        event.guild_id,
+                        channel_id,
+                        config.modules.temporary_voice.delete_delay_seconds,
+                    )
                     .await?;
-                if remaining == 0 {
-                    context
-                        .services
-                        .schedule_temporary_voice_delete(
-                            event.guild_id,
-                            channel_id,
-                            config.modules.temporary_voice.delete_delay_seconds,
-                        )
-                        .await?;
-                }
             }
         }
-        if let Some(channel_id) = event.channel_id {
-            if context
+        if let Some(channel_id) = event.channel_id
+            && context
                 .services
                 .temporary_voice_channel(event.guild_id, channel_id)
                 .await?
                 .is_some()
-            {
-                context
-                    .services
-                    .temporary_voice_member_join(channel_id, event.user_id)
-                    .await?;
-                context
-                    .services
-                    .cancel_temporary_voice_delete(event.guild_id, channel_id)
-                    .await?;
-            }
+        {
+            context
+                .services
+                .temporary_voice_member_join(channel_id, event.user_id)
+                .await?;
+            context
+                .services
+                .cancel_temporary_voice_delete(event.guild_id, channel_id)
+                .await?;
         }
         let lobby_id = config
             .modules

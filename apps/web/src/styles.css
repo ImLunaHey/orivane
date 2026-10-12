@@ -167,7 +167,22 @@ nav { margin-top: 22px; }
 .text-link { color: #b9a4fc; font-size: 12px; font-weight: 600; }
 
 .save-row { display: flex; align-items: center; gap: 10px; }.saved-label { display: flex; align-items: center; gap: 4px; color: #63dda9; font-size: 12px; }
-.error-banner { padding: 10px 12px; border: 1px solid #663434; border-radius: 8px; color: #f2aaaa; background: #301919; font-size: 12px; }
+.error-banner { padding: 10px 12px; border: 1px solid #663434; border-radius: 0; color: #f2aaaa; background: #301919; font-size: 12px; }
+.resource-health-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px 16px; border: 1px solid #765b25; background: #241d10; color: #f4d58b; }
+.resource-health-banner > div { min-width: 0; }
+.resource-health-banner strong { display: block; color: #ffe1a0; font-size: 15px; }
+.resource-health-banner p, .resource-health-banner ul { margin: 5px 0 0; color: #d8c49a; font-size: 14px; line-height: 1.5; }
+.resource-health-banner ul { padding-left: 18px; }
+.resource-health-banner code { color: #fff0c8; overflow-wrap: anywhere; }
+.resource-health-banner button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 11px; border: 1px solid #765b25; background: #18140c; color: #ffe1a0; font: inherit; cursor: pointer; }
+.resource-health-banner button:disabled { opacity: .6; cursor: wait; }
+.operational-link-panel { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; }
+.operational-link-panel h3 { margin: 3px 0 0; font-size: 17px; }
+.operational-link-panel p:last-child { margin: 5px 0 0; color: #aaaab3; font-size: 14px; }
+.poll-results { display: grid; gap: 15px; }
+.poll-results article > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: 14px; }
+.poll-results article > div:last-child { height: 8px; background: #25252b; overflow: hidden; }
+.poll-results article > div:last-child span { display: block; height: 100%; background: #8c6dff; }
 .success-banner { padding: 12px 14px; border: 1px solid #245c46; border-radius: 2px; color: #8ce4bd; background: #143326; font-size: 14px; }
 .module-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .module-card { min-height: 191px; padding: 17px; display: flex; flex-direction: column; transition: .15s ease; }
@@ -655,6 +670,12 @@ small { font-size: 14px !important; line-height: 1.45; }
 .logging-category-card > header small { color: var(--muted); line-height: 1.5; }
 .logging-category-channel { display: grid; gap: 10px; padding: 16px; border-top: 1px solid var(--border); }
 .logging-category-channel .text-link { width: max-content; padding: 0; border: 0; background: transparent; cursor: pointer; font: inherit; }
+.weekday-picker { border: 1px solid var(--border); padding: 16px; }
+.weekday-picker legend { padding: 0 6px; font-weight: 700; }
+.weekday-picker small { display: block; color: var(--muted); margin-bottom: 10px; }
+.weekday-picker > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.weekday-picker button { min-width: 52px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 0; background: var(--surface); color: var(--text); font: inherit; }
+.weekday-picker button[aria-pressed="true"] { border-color: var(--violet); background: color-mix(in srgb, var(--violet) 18%, var(--surface)); }
 
 @media (max-width: 1050px) {
   .embed-editor-layout { grid-template-columns: 1fr; }

@@ -68,6 +68,9 @@ services:
     environment:
       DATABASE_URL: postgres://discord:discord@postgres:5432/discord
       REDIS_URL: redis://redis:6379
+      GATEWAY_METRICS_BIND: 0.0.0.0:3011
+    ports:
+      - "127.0.0.1:${GATEWAY_METRICS_PORT:-3011}:3011"
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,6 +78,11 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3011/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   web:

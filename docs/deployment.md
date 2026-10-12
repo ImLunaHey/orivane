@@ -18,6 +18,17 @@ Orivane publishes immutable API, gateway, and web images for every `v*` Git tag.
 4. Deploy the web image last.
 5. Verify health, shard sessions, interaction error rate, Discord REST rate limits, and job backlog.
 
+## Gateway sharding and scheduler ownership
+
+Run one gateway process per Discord shard and set both variables explicitly:
+
+- `DISCORD_SHARD_TOTAL` is the total shard count shared by the deployment.
+- `DISCORD_SHARD_ID` is the zero-based shard handled by that process and must be lower than the total.
+
+The defaults are `0` of `1`, which is appropriate only for a single gateway worker. Never run two processes with the same shard ID. Every gateway may start the scheduler loop, but a short Redis `SET NX` lease elects exactly one worker for each 15-second tick. Durable jobs still use PostgreSQL claims and leases as a second idempotency boundary. A Redis outage therefore pauses scheduler work instead of risking duplicate delivery; Discord event handling continues and readiness exposes the dependency failure.
+
+Change shard totals only during a coordinated gateway restart. Confirm Discord's recommended shard count, stop the old gateway set, deploy every new shard ID exactly once, then check connected guild totals and gateway event rates.
+
 ## Rollback
 
 1. Stop rollout immediately and record the release SHA in the global audit timeline.
