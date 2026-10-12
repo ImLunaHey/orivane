@@ -7,6 +7,13 @@ use std::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use axum::{
+    Router,
+    extract::State,
+    http::{StatusCode, header::CONTENT_TYPE},
+    response::IntoResponse,
+    routing::get,
+};
 use bot_core::{
     EconomyAccount, Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery,
     NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket,
@@ -19,13 +26,13 @@ use bot_discord::{
 use bot_module_afk::AfkModule;
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, DiscordLogEvent, EconomyClaimResult, EconomyProfile,
+    AuditNotice, AutoroleJobResult, BotModule, DiscordLogEvent, EconomyClaimResult, EconomyProfile,
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedDeliveryInput,
     ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate, MessageDeletionJobResult,
-    ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd, ReminderInput, ReminderResult,
-    ScheduledTick, SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult,
-    TicketRecordInput, TicketResult, VoiceStateChange, XpAdjustmentInput, XpAwardInput,
-    XpAwardResult, XpProfile,
+    ModerationCaseInput, ModerationJobResult, ModuleContext, ModuleServices, ReactionAdd,
+    ReminderInput, ReminderResult, ScheduledTick, StarboardPostResult, SuggestionInput,
+    SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult,
+    VoiceStateChange, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -54,6 +61,7 @@ use bot_module_utility::UtilityModule;
 use bot_module_verification::VerificationModule;
 use bot_module_voice_text_linking::VoiceTextLinkingModule;
 use bot_module_welcome::WelcomeModule;
+use bot_observability::ServiceMetrics;
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_model::application::interaction::{
     InteractionData,
@@ -69,8 +77,15 @@ struct GatewayModuleServices {
     infrastructure: Infrastructure,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn purge_guild_audit_events(&self, guild_id: u64, retention_days: u16) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .purge_guild_audit_events(&guild_id.to_string(), retention_days)
+            .await?)
+    }
     async fn set_afk_status(&self, g: u64, u: u64, r: &str, n: u64, t: u64) -> Result<()> {
         Ok(self
             .infrastructure
@@ -97,6 +112,8 @@ impl ModuleServices for GatewayModuleServices {
     async fn create_poll(
         &self,
         g: u64,
+        c: u64,
+        creator: u64,
         q: &str,
         o: &[String],
         a: bool,
@@ -104,7 +121,15 @@ impl ModuleServices for GatewayModuleServices {
     ) -> Result<bot_module_api::PollResult> {
         let id = self
             .infrastructure
-            .create_poll(&g.to_string(), q, o, a, t)
+            .create_poll(
+                &g.to_string(),
+                &c.to_string(),
+                &creator.to_string(),
+                q,
+                o,
+                a,
+                t,
+            )
             .await?;
         Ok(bot_module_api::PollResult {
             id,
@@ -144,6 +169,7 @@ impl ModuleServices for GatewayModuleServices {
     async fn attribute_invite(
         &self,
         g: u64,
+        joined: u64,
         i: &[bot_module_api::InviteUsageInput],
     ) -> Result<Option<bot_module_api::InviteAttributionResult>> {
         let values = i
@@ -152,7 +178,7 @@ impl ModuleServices for GatewayModuleServices {
             .collect::<Vec<_>>();
         Ok(self
             .infrastructure
-            .attribute_invite(&g.to_string(), &values)
+            .attribute_invite(&g.to_string(), &joined.to_string(), &values)
             .await?
             .map(
                 |(code, inviter_id, inviter_total)| bot_module_api::InviteAttributionResult {
@@ -161,6 +187,69 @@ impl ModuleServices for GatewayModuleServices {
                     inviter_total,
                 },
             ))
+    }
+    async fn record_verification_attempt(
+        &self,
+        g: u64,
+        u: u64,
+        outcome: &str,
+        reason: Option<&str>,
+        age: u64,
+        avatar: bool,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .record_verification_attempt(
+                &g.to_string(),
+                &u.to_string(),
+                outcome,
+                reason,
+                age,
+                avatar,
+            )
+            .await?)
+    }
+    async fn record_counter_run(
+        &self,
+        g: u64,
+        id: &str,
+        c: u64,
+        value: u64,
+        name: &str,
+        outcome: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .record_counter_run(
+                &g.to_string(),
+                id,
+                &c.to_string(),
+                value,
+                name,
+                outcome,
+                error,
+            )
+            .await?)
+    }
+    async fn record_voice_link_event(
+        &self,
+        g: u64,
+        u: u64,
+        voice: u64,
+        text: u64,
+        action: &str,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .record_voice_link_event(
+                &g.to_string(),
+                &u.to_string(),
+                &voice.to_string(),
+                &text.to_string(),
+                action,
+            )
+            .await?)
     }
     async fn claim_appeal_cooldown(&self, g: u64, u: u64, s: u64) -> Result<bool> {
         Ok(self
@@ -257,6 +346,115 @@ impl ModuleServices for GatewayModuleServices {
         Ok(self
             .infrastructure
             .finish_message_deletion(&g.to_string(), &c.to_string(), &m.to_string(), d, r)
+            .await?)
+    }
+    async fn schedule_autorole_job(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        action: &str,
+        due_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .schedule_autorole_job(
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                &role_id.to_string(),
+                action,
+                due_unix,
+            )
+            .await?)
+    }
+    async fn claim_due_autorole_jobs(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<AutoroleJobResult>> {
+        self.infrastructure
+            .claim_due_autorole_jobs(&guild_id.to_string(), now_unix, i64::from(limit))
+            .await?
+            .into_iter()
+            .map(|job| {
+                Ok(AutoroleJobResult {
+                    id: job.id,
+                    user_id: job.user_id.parse().context("invalid autorole job user")?,
+                    role_id: job.role_id.parse().context("invalid autorole job role")?,
+                    action: job.action,
+                    attempts: u8::try_from(job.attempts).unwrap_or(u8::MAX),
+                })
+            })
+            .collect()
+    }
+    async fn finish_autorole_job(
+        &self,
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        error: Option<&str>,
+        retry_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .finish_autorole_job(&guild_id.to_string(), job_id, completed, error, retry_unix)
+            .await?)
+    }
+    async fn schedule_moderation_job(
+        &self,
+        guild_id: u64,
+        member_id: u64,
+        action: &str,
+        reason: &str,
+        due_unix: u64,
+    ) -> Result<i64> {
+        Ok(self
+            .infrastructure
+            .schedule_moderation_job(
+                &guild_id.to_string(),
+                &member_id.to_string(),
+                action,
+                reason,
+                due_unix,
+            )
+            .await?)
+    }
+    async fn claim_due_moderation_jobs(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<ModerationJobResult>> {
+        self.infrastructure
+            .claim_due_moderation_jobs(&guild_id.to_string(), now_unix, i64::from(limit))
+            .await?
+            .into_iter()
+            .map(|job| {
+                Ok(ModerationJobResult {
+                    id: job.id,
+                    member_id: job
+                        .member_id
+                        .parse()
+                        .context("invalid moderation job member")?,
+                    action: job.action,
+                    reason: job.reason,
+                    attempts: u8::try_from(job.attempts).unwrap_or(u8::MAX),
+                })
+            })
+            .collect()
+    }
+    async fn finish_moderation_job(
+        &self,
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        error: Option<&str>,
+        retry_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .finish_moderation_job(&guild_id.to_string(), job_id, completed, error, retry_unix)
             .await?)
     }
     async fn create_giveaway(&self, input: GiveawayInput) -> Result<GiveawayResult> {
@@ -484,6 +682,26 @@ impl ModuleServices for GatewayModuleServices {
             .await?)
     }
 
+    async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .claim_module_cooldown(
+                module,
+                rule,
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                cooldown_seconds,
+            )
+            .await?)
+    }
+
     async fn create_suggestion(&self, input: SuggestionInput) -> Result<SuggestionResult> {
         let suggestion = self
             .infrastructure
@@ -598,6 +816,7 @@ impl ModuleServices for GatewayModuleServices {
             member_id: member_id.clone(),
             action: input.action.clone(),
             reason: input.reason.clone(),
+            evidence_urls: input.evidence_urls.clone(),
         };
         let mut audit = NewAuditEvent::guild(
             &guild_id,
@@ -608,12 +827,18 @@ impl ModuleServices for GatewayModuleServices {
         audit.target_type = "member".to_owned();
         audit.target_id = Some(member_id);
         audit.reason = Some(input.reason);
-        audit.metadata = serde_json::json!({ "action": input.action });
+        audit.metadata = serde_json::json!({ "action": input.action, "evidence_count": input.evidence_urls.len() });
         let case = self
             .infrastructure
             .create_moderation_case_audited(&guild_id, &moderator_id, &case_input, &audit)
             .await?;
         Ok(case.id)
+    }
+    async fn purge_form_submissions(&self, guild_id: u64, retention_days: u16) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .purge_form_submissions(&guild_id.to_string(), retention_days)
+            .await?)
     }
 
     async fn moderation_warning_count(&self, guild_id: u64, member_id: u64) -> Result<u64> {
@@ -1131,6 +1356,53 @@ impl ModuleServices for GatewayModuleServices {
             .await?)
     }
 
+    async fn starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> Result<Option<StarboardPostResult>> {
+        self.infrastructure
+            .starboard_post(&guild_id.to_string(), &source_message_id.to_string())
+            .await?
+            .map(
+                |(source_channel_id, starboard_message_id, reaction_count)| {
+                    Ok(StarboardPostResult {
+                        source_channel_id: source_channel_id.parse()?,
+                        starboard_message_id: starboard_message_id.parse()?,
+                        reaction_count,
+                    })
+                },
+            )
+            .transpose()
+    }
+
+    async fn complete_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    ) -> Result<()> {
+        self.infrastructure
+            .complete_starboard_post(
+                &guild_id.to_string(),
+                &source_message_id.to_string(),
+                &source_channel_id.to_string(),
+                &starboard_message_id.to_string(),
+                reaction_count,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn remove_starboard_post(&self, guild_id: u64, source_message_id: u64) -> Result<()> {
+        self.infrastructure
+            .remove_starboard_post(&guild_id.to_string(), &source_message_id.to_string())
+            .await?;
+        Ok(())
+    }
+
     async fn record_raid_join(
         &self,
         guild_id: u64,
@@ -1192,7 +1464,18 @@ impl ModuleServices for GatewayModuleServices {
 fn suggestion_result(suggestion: &Suggestion) -> SuggestionResult {
     SuggestionResult {
         id: suggestion.id,
+        channel_id: suggestion.channel_id.parse().unwrap_or_default(),
+        message_id: suggestion
+            .message_id
+            .as_deref()
+            .and_then(|id| id.parse().ok()),
+        author_id: suggestion
+            .author_id
+            .as_deref()
+            .and_then(|id| id.parse().ok()),
+        content: suggestion.content.clone(),
         status: suggestion.status.clone(),
+        staff_note: suggestion.staff_note.clone(),
         upvotes: u64::try_from(suggestion.upvotes).unwrap_or_default(),
         downvotes: u64::try_from(suggestion.downvotes).unwrap_or_default(),
     }
@@ -1254,6 +1537,7 @@ async fn main() -> Result<()> {
     let token = required_env("DISCORD_TOKEN")?;
     let database_url = required_env("DATABASE_URL")?;
     let redis_url = required_env("REDIS_URL")?;
+    let metrics = ServiceMetrics::new("gateway");
 
     let modules: Vec<Arc<dyn BotModule>> = vec![
         Arc::new(UtilityModule),
@@ -1302,29 +1586,67 @@ async fn main() -> Result<()> {
         | Intents::MESSAGE_CONTENT
         | Intents::GUILD_MESSAGE_REACTIONS
         | Intents::GUILD_VOICE_STATES;
-    let mut shard = Shard::new(ShardId::ONE, token, intents);
+    let shard_total = env::var("DISCORD_SHARD_TOTAL").map_or(Ok(1_u32), |value| {
+        value
+            .parse()
+            .context("DISCORD_SHARD_TOTAL must be a positive integer")
+    })?;
+    let shard_number = env::var("DISCORD_SHARD_ID").map_or(Ok(0_u32), |value| {
+        value
+            .parse()
+            .context("DISCORD_SHARD_ID must be a non-negative integer")
+    })?;
+    if shard_total == 0 || shard_number >= shard_total {
+        anyhow::bail!("DISCORD_SHARD_ID must be lower than DISCORD_SHARD_TOTAL");
+    }
+    let shard_id = ShardId::new(shard_number, shard_total);
+    tracing::info!(
+        shard = shard_number,
+        shard_total,
+        "configured Discord gateway shard"
+    );
+    let mut shard = Shard::new(shard_id, token, intents);
     let mut voice_channels: HashMap<(u64, u64), (u64, Instant, bool)> = HashMap::new();
 
     tokio::spawn(run_scheduler(
         context.clone(),
         modules.clone(),
         infrastructure.clone(),
+        metrics.clone(),
     ));
+    tokio::spawn(run_metrics_server(metrics.clone()));
 
     tracing::info!("gateway worker starting");
-    while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
+    let mut shutdown = Box::pin(shutdown_signal());
+    loop {
+        let item = tokio::select! {
+            _ = &mut shutdown => {
+                tracing::info!("shutdown requested; stopping gateway intake");
+                break;
+            }
+            item = shard.next_event(EventTypeFlags::all()) => item,
+        };
+        let Some(item) = item else {
+            metrics.set_ready(false);
+            anyhow::bail!("Discord gateway event stream closed");
+        };
         let event = match item {
             Ok(event) => event,
             Err(error) => {
+                metrics.record_gateway_error();
                 tracing::warn!(%error, "failed to receive gateway event");
                 continue;
             }
         };
+        metrics.record_gateway_event();
 
         match event {
             Event::GatewayClose(frame) => {
+                metrics.set_ready(false);
+                metrics.record_gateway_error();
                 tracing::error!(?frame, "Discord closed the gateway connection");
             }
+            Event::Ready(_) | Event::Resumed => metrics.set_ready(true),
             Event::GuildAuditLogEntryCreate(entry) => {
                 let Some(guild_id) = entry.guild_id else {
                     continue;
@@ -2013,7 +2335,7 @@ async fn main() -> Result<()> {
                     {
                         Ok(Some(outcome)) => {
                             let mut audit = NewAuditEvent::guild(
-                                &guild_id.to_string(),
+                                guild_id.to_string(),
                                 "system",
                                 outcome.action,
                             );
@@ -2086,6 +2408,7 @@ async fn main() -> Result<()> {
                 .await;
             }
             Event::InteractionCreate(interaction) => {
+                metrics.record_interaction(false);
                 if let Some(author) = interaction.author() {
                     let display_name = interaction
                         .member
@@ -2167,6 +2490,7 @@ async fn main() -> Result<()> {
                                 .map(|()| None)
                         };
                         if let Err(error) = &result {
+                            metrics.record_interaction_failure();
                             tracing::error!(module = module.name(), %error, "component interaction failed");
                             if let Err(response_error) = context
                                 .discord
@@ -2199,6 +2523,7 @@ async fn main() -> Result<()> {
                             audit.outcome = "denied".into();
                         }
                         if let Err(error) = &result {
+                            metrics.record_interaction_failure();
                             audit.outcome = "failure".into();
                             audit.reason = Some(error.to_string());
                         }
@@ -2383,6 +2708,7 @@ async fn main() -> Result<()> {
                     };
                     let latency_ms =
                         started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    metrics.record_interaction_latency(started_at.elapsed());
                     let mut audit = NewAuditEvent::guild(
                         guild_id.to_string(),
                         actor_id.to_string(),
@@ -2397,6 +2723,7 @@ async fn main() -> Result<()> {
                         audit.reason = Some("module is disabled for this server".to_owned());
                     }
                     if let Err(error) = &result {
+                        metrics.record_interaction_failure();
                         audit.outcome = "failure".to_owned();
                         audit.reason = Some(error.to_string());
                         tracing::error!(module = module.name(), %error, "module failed");
@@ -2425,8 +2752,8 @@ async fn main() -> Result<()> {
             _ => {}
         }
     }
-
-    anyhow::bail!("Discord gateway event stream closed")
+    metrics.set_ready(false);
+    Ok(())
 }
 
 async fn dispatch_discord_log_event(
@@ -2516,17 +2843,29 @@ async fn run_scheduler(
     context: ModuleContext,
     modules: Vec<Arc<dyn BotModule>>,
     infrastructure: Infrastructure,
+    metrics: ServiceMetrics,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
     loop {
         interval.tick().await;
+        metrics.record_scheduled_tick(false);
         let now_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        match infrastructure.claim_scheduler_tick(now_unix / 15).await {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(error) => {
+                metrics.record_scheduled_failure();
+                tracing::error!(%error, "failed to acquire fleet scheduler lease");
+                continue;
+            }
+        }
         let configs = match infrastructure.scheduled_guild_configs().await {
             Ok(configs) => configs,
             Err(error) => {
+                metrics.record_scheduled_failure();
                 tracing::error!(%error, "failed to load scheduled-message guilds");
                 continue;
             }
@@ -2555,6 +2894,7 @@ async fn run_scheduler(
                         }
                     }
                     Err(error) => {
+                        metrics.record_scheduled_failure();
                         tracing::error!(module = module.name(), guild_id = %config.guild_id, %error, "scheduled module failed");
                         let mut audit = NewAuditEvent::guild(
                             &config.guild_id,
@@ -2573,6 +2913,59 @@ async fn run_scheduler(
             }
         }
     }
+}
+
+async fn run_metrics_server(metrics: ServiceMetrics) {
+    let bind = env::var("GATEWAY_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:3011".to_owned());
+    let listener = match tokio::net::TcpListener::bind(&bind).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::error!(%bind, %error, "could not bind gateway health server");
+            return;
+        }
+    };
+    let app = Router::new()
+        .route("/health/live", get(gateway_liveness))
+        .route("/health/ready", get(gateway_readiness))
+        .route("/metrics", get(gateway_metrics))
+        .with_state(metrics);
+    tracing::info!(%bind, "gateway health server listening");
+    if let Err(error) = axum::serve(listener, app).await {
+        tracing::error!(%error, "gateway health server stopped");
+    }
+}
+
+async fn gateway_liveness() -> impl IntoResponse {
+    (StatusCode::OK, "ok")
+}
+
+async fn gateway_readiness(State(metrics): State<ServiceMetrics>) -> impl IntoResponse {
+    if metrics.is_ready() {
+        (StatusCode::OK, "ready")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "not ready")
+    }
+}
+
+async fn gateway_metrics(State(metrics): State<ServiceMetrics>) -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        metrics.render_prometheus(),
+    )
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 async fn register_commands(discord: &dyn DiscordApi, modules: &[Arc<dyn BotModule>]) -> Result<()> {

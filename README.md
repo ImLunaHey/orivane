@@ -72,4 +72,6 @@ The full design—including the Vite/React/Tailwind/TanStack dashboard, logging,
 
 Production releases and rollback expectations are documented in [docs/deployment.md](docs/deployment.md). Tagged releases publish immutable API, gateway, and web images to GitHub Container Registry; deployments should always pin an exact version or SHA.
 
+Prometheus metrics, readiness, alerts, dashboards, and backup verification are documented in [docs/observability.md](docs/observability.md).
+
 Discord-facing code is testable without Discord: production uses the Twilight adapter while tests use a deterministic in-memory fake that records calls and injects failures. See [docs/testing.md](docs/testing.md).
