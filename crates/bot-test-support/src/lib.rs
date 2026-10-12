@@ -7,14 +7,14 @@ use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
     DiscordError, GuildChannel, GuildRole, MessageButton, MessageReactionSummary, ModalDefinition,
-    ModalSubmitInteraction, RichEmbed, RolePanelComponents,
+    ModalSubmitInteraction, RichEmbed, RolePanelComponents, UserProfile,
 };
 use bot_module_api::{
-    EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput, GiveawayResult,
-    ManagedEmbedResult, MessageDeletionJobResult, ModerationCaseInput, ModuleServices,
-    ReminderInput, ReminderResult, SuggestionInput, SuggestionResult, TemporaryVoiceResult,
-    TicketPanelResult, TicketRecordInput, TicketResult, XpAdjustmentInput, XpAwardInput,
-    XpAwardResult, XpProfile,
+    AutoroleJobResult, EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput,
+    GiveawayResult, ManagedEmbedResult, MessageDeletionJobResult, ModerationCaseInput,
+    ModerationJobResult, ModuleServices, ReminderInput, ReminderResult, StarboardPostResult,
+    SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput,
+    TicketResult, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +45,11 @@ pub enum DiscordCall {
     SendMessage {
         channel_id: u64,
         content: String,
+    },
+    AddReaction {
+        channel_id: u64,
+        message_id: u64,
+        emoji: String,
     },
     SendMessageWithButtons {
         channel_id: u64,
@@ -169,6 +174,9 @@ pub enum DiscordCall {
     GuildRoles {
         guild_id: u64,
     },
+    UserProfile {
+        user_id: u64,
+    },
     CreateTicketChannel {
         guild_id: u64,
         category_id: u64,
@@ -199,6 +207,10 @@ pub enum DiscordCall {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceCall {
+    PurgeGuildAuditEvents {
+        guild_id: u64,
+        retention_days: u16,
+    },
     CreateModerationCase(ModerationCaseInput),
     ModerationWarningCount {
         guild_id: u64,
@@ -272,6 +284,17 @@ pub enum ServiceCall {
         source_message_id: u64,
         starboard_channel_id: u64,
     },
+    CompleteStarboardPost {
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    },
+    RemoveStarboardPost {
+        guild_id: u64,
+        source_message_id: u64,
+    },
     RecordRaidJoin {
         guild_id: u64,
         user_id: u64,
@@ -300,6 +323,13 @@ pub enum ServiceCall {
     CreateFormSubmission(FormSubmissionInput),
     CreateSuggestion(SuggestionInput),
     ClaimSuggestionCooldown {
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    },
+    ClaimModuleCooldown {
+        module: String,
+        rule: String,
         guild_id: u64,
         user_id: u64,
         cooldown_seconds: u32,
@@ -387,6 +417,45 @@ pub enum ServiceCall {
         reminder_id: i64,
         next_attempt_unix: u64,
     },
+    ScheduleAutoroleJob {
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        action: String,
+        due_unix: u64,
+    },
+    ClaimDueAutoroleJobs {
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    },
+    FinishAutoroleJob {
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        retry_unix: u64,
+    },
+    ScheduleModerationJob {
+        guild_id: u64,
+        member_id: u64,
+        action: String,
+        due_unix: u64,
+    },
+    ClaimDueModerationJobs {
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    },
+    FinishModerationJob {
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        retry_unix: u64,
+    },
+    PurgeFormSubmissions {
+        guild_id: u64,
+        retention_days: u16,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -396,13 +465,18 @@ pub struct FakeModuleServices {
     lockdowns: Arc<Mutex<HashSet<u64>>>,
     scheduled_claims: Arc<Mutex<HashSet<(u64, String, u64)>>>,
     due_tickets: Arc<Mutex<Vec<TicketResult>>>,
-    automod_counts: Arc<Mutex<HashMap<(u64, u64, String, Option<String>), u64>>>,
+    automod_counts: Arc<Mutex<AutomodCounts>>,
     temporary_voice: Arc<Mutex<HashMap<(u64, u64), TemporaryVoiceResult>>>,
     temporary_voice_members: Arc<Mutex<HashMap<u64, HashSet<u64>>>>,
     temporary_voice_due: Arc<Mutex<HashSet<(u64, u64)>>>,
     economy_balances: Arc<Mutex<HashMap<(u64, u64), u64>>>,
     economy_claims: Arc<Mutex<HashSet<(u64, u64, String)>>>,
+    due_autorole_jobs: Arc<Mutex<Vec<AutoroleJobResult>>>,
+    due_moderation_jobs: Arc<Mutex<Vec<ModerationJobResult>>>,
+    starboard_posts: Arc<Mutex<HashMap<(u64, u64), StarboardPostResult>>>,
 }
+
+type AutomodCounts = HashMap<(u64, u64, String, Option<String>), u64>;
 
 impl FakeModuleServices {
     pub fn calls(&self) -> Vec<ServiceCall> {
@@ -412,10 +486,171 @@ impl FakeModuleServices {
     pub fn set_due_tickets(&self, tickets: Vec<TicketResult>) {
         *self.due_tickets.lock().expect("fake lock poisoned") = tickets;
     }
+
+    pub fn set_due_autorole_jobs(&self, jobs: Vec<AutoroleJobResult>) {
+        *self.due_autorole_jobs.lock().expect("fake lock poisoned") = jobs;
+    }
+
+    pub fn set_due_moderation_jobs(&self, jobs: Vec<ModerationJobResult>) {
+        *self.due_moderation_jobs.lock().expect("fake lock poisoned") = jobs;
+    }
+
+    pub fn set_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        post: StarboardPostResult,
+    ) {
+        self.starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .insert((guild_id, source_message_id), post);
+    }
 }
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn purge_guild_audit_events(
+        &self,
+        guild_id: u64,
+        retention_days: u16,
+    ) -> anyhow::Result<u64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::PurgeGuildAuditEvents {
+                guild_id,
+                retention_days,
+            });
+        Ok(2)
+    }
+    async fn purge_form_submissions(
+        &self,
+        guild_id: u64,
+        retention_days: u16,
+    ) -> anyhow::Result<u64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::PurgeFormSubmissions {
+                guild_id,
+                retention_days,
+            });
+        Ok(2)
+    }
+    async fn schedule_autorole_job(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        action: &str,
+        due_unix: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ScheduleAutoroleJob {
+                guild_id,
+                user_id,
+                role_id,
+                action: action.to_owned(),
+                due_unix,
+            });
+        Ok(true)
+    }
+    async fn claim_due_autorole_jobs(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> anyhow::Result<Vec<AutoroleJobResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimDueAutoroleJobs {
+                guild_id,
+                now_unix,
+                limit,
+            });
+        Ok(std::mem::take(
+            &mut *self.due_autorole_jobs.lock().expect("fake lock poisoned"),
+        ))
+    }
+    async fn finish_autorole_job(
+        &self,
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        _error: Option<&str>,
+        retry_unix: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::FinishAutoroleJob {
+                guild_id,
+                job_id,
+                completed,
+                retry_unix,
+            });
+        Ok(!completed)
+    }
+    async fn schedule_moderation_job(
+        &self,
+        guild_id: u64,
+        member_id: u64,
+        action: &str,
+        _reason: &str,
+        due_unix: u64,
+    ) -> anyhow::Result<i64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ScheduleModerationJob {
+                guild_id,
+                member_id,
+                action: action.to_owned(),
+                due_unix,
+            });
+        Ok(1)
+    }
+    async fn claim_due_moderation_jobs(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> anyhow::Result<Vec<ModerationJobResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimDueModerationJobs {
+                guild_id,
+                now_unix,
+                limit,
+            });
+        Ok(std::mem::take(
+            &mut *self.due_moderation_jobs.lock().expect("fake lock poisoned"),
+        ))
+    }
+    async fn finish_moderation_job(
+        &self,
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        _error: Option<&str>,
+        retry_unix: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::FinishModerationJob {
+                guild_id,
+                job_id,
+                completed,
+                retry_unix,
+            });
+        Ok(!completed)
+    }
     async fn automod_rate_count(
         &self,
         guild_id: u64,
@@ -597,12 +832,38 @@ impl ModuleServices for FakeModuleServices {
         Ok(true)
     }
 
+    async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimModuleCooldown {
+                module: module.into(),
+                rule: rule.into(),
+                guild_id,
+                user_id,
+                cooldown_seconds,
+            });
+        Ok(true)
+    }
+
     async fn create_suggestion(&self, input: SuggestionInput) -> anyhow::Result<SuggestionResult> {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
-        calls.push(ServiceCall::CreateSuggestion(input));
+        calls.push(ServiceCall::CreateSuggestion(input.clone()));
         Ok(SuggestionResult {
             id: i64::try_from(calls.len()).unwrap_or(i64::MAX),
+            channel_id: input.channel_id,
+            message_id: None,
+            author_id: input.author_id,
+            content: input.content,
             status: "pending".into(),
+            staff_note: None,
             upvotes: 0,
             downvotes: 0,
         })
@@ -643,7 +904,12 @@ impl ModuleServices for FakeModuleServices {
             });
         Ok(Some(SuggestionResult {
             id: suggestion_id,
+            channel_id: 20,
+            message_id: Some(50),
+            author_id: Some(40),
+            content: "Add game night".into(),
             status: "pending".into(),
+            staff_note: None,
             upvotes: u64::from(direction == 1),
             downvotes: u64::from(direction == -1),
         }))
@@ -669,7 +935,12 @@ impl ModuleServices for FakeModuleServices {
             });
         Ok(Some(SuggestionResult {
             id: suggestion_id,
+            channel_id: 20,
+            message_id: Some(50),
+            author_id: Some(40),
+            content: "Add game night".into(),
             status: status.into(),
+            staff_note: staff_note.map(str::to_owned),
             upvotes: 0,
             downvotes: 0,
         }))
@@ -1392,6 +1663,70 @@ impl ModuleServices for FakeModuleServices {
         Ok(true)
     }
 
+    async fn starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> anyhow::Result<Option<StarboardPostResult>> {
+        Ok(self
+            .starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .get(&(guild_id, source_message_id))
+            .cloned())
+    }
+
+    async fn complete_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CompleteStarboardPost {
+                guild_id,
+                source_message_id,
+                source_channel_id,
+                starboard_message_id,
+                reaction_count,
+            });
+        self.starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .insert(
+                (guild_id, source_message_id),
+                StarboardPostResult {
+                    source_channel_id,
+                    starboard_message_id,
+                    reaction_count,
+                },
+            );
+        Ok(())
+    }
+
+    async fn remove_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RemoveStarboardPost {
+                guild_id,
+                source_message_id,
+            });
+        self.starboard_posts
+            .lock()
+            .expect("fake lock poisoned")
+            .remove(&(guild_id, source_message_id));
+        Ok(())
+    }
+
     async fn record_raid_join(
         &self,
         guild_id: u64,
@@ -1546,6 +1881,7 @@ struct FakeState {
     next_channel_id: u64,
     next_message_id: u64,
     message_reaction_summary: MessageReactionSummary,
+    user_profile: UserProfile,
 }
 
 impl FakeDiscord {
@@ -1599,6 +1935,10 @@ impl FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .message_reaction_summary = summary;
+    }
+
+    pub fn set_user_profile(&self, profile: UserProfile) {
+        self.state.lock().expect("fake lock poisoned").user_profile = profile;
     }
 
     fn record(&self, call: DiscordCall) -> Result<(), DiscordError> {
@@ -1746,6 +2086,19 @@ impl DiscordApi for FakeDiscord {
         self.record(DiscordCall::SendMessage {
             channel_id,
             content: content.to_owned(),
+        })
+    }
+
+    async fn add_reaction(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::AddReaction {
+            channel_id,
+            message_id,
+            emoji: emoji.into(),
         })
     }
 
@@ -2008,6 +2361,22 @@ impl DiscordApi for FakeDiscord {
             .expect("fake lock poisoned")
             .guild_roles
             .clone())
+    }
+
+    async fn user_profile(&self, user_id: u64) -> Result<UserProfile, DiscordError> {
+        self.record(DiscordCall::UserProfile { user_id })?;
+        let mut profile = self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .user_profile
+            .clone();
+        if profile.id == 0 {
+            profile.id = user_id;
+            profile.username = format!("user-{user_id}");
+            profile.display_name = profile.username.clone();
+        }
+        Ok(profile)
     }
 
     async fn create_ticket_channel(

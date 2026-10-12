@@ -4,6 +4,10 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2023-0071", reason = "Transitive through lucid-auth's optional RSA-capable authentication stack; Orivane only enables Discord OAuth and never performs RSA private-key decryption." },
+  { id = "RUSTSEC-2023-0089", reason = "Transitive build-time dependency through lucid-auth -> phonenumber -> postcard -> heapless; no maintained upgrade is currently available and it is not present in the runtime path." },
+]
 
 [licenses]
 version = 2
@@ -12,6 +16,8 @@ allow = [
   "Apache-2.0",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  "BSL-1.0",
+  "CDLA-Permissive-2.0",
   "ISC",
   "MIT",
   "MPL-2.0",
@@ -22,6 +28,7 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

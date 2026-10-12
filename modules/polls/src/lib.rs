@@ -147,17 +147,19 @@ impl BotModule for PollsModule {
         if anonymous && !c.modules.polls.allow_anonymous {
             bail!("anonymous polls are disabled")
         }
+        let channel = i.channel_id.context("poll channel missing")?;
         let poll = ctx
             .services
             .create_poll(
                 i.guild_id,
+                channel,
+                i.actor_id,
                 q,
                 &options,
                 anonymous,
                 minutes.saturating_mul(60),
             )
             .await?;
-        let channel = i.channel_id.context("poll channel missing")?;
         let buttons = options
             .iter()
             .enumerate()
