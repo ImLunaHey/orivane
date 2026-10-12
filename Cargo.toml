@@ -94,7 +94,7 @@ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio",
 sqlx08 = { package = "sqlx", version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
 thiserror = "2.0"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "signal"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 twilight-gateway = "0.17.1"
