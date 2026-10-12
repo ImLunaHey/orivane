@@ -413,10 +413,7 @@ small { font-size: 14px !important; line-height: 1.45; }
 .form-name-cell a { color: #eeeef1; font-weight: 700; }
 .form-name-cell small { margin-top: 3px; color: #96969f; }
 .table-action { min-height: 36px; padding: 7px 11px; }
-.detail-tabs { display: flex; align-items: center; gap: 0; border-bottom: 1px solid #38363f; }
-.detail-tab { min-width: 130px; padding: 12px 18px; border: 1px solid transparent; border-bottom: 0; color: #a4a4ad; font-size: 15px; font-weight: 700; text-align: center; }
-.detail-tab:hover { color: #ececf0; background: #17171a; }
-.detail-tab.active { margin-bottom: -1px; border-color: #45414f; color: #fff; background: #18171c; }
+.table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 210px; }
 .bottom-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 76px; padding: 14px 16px; border: 1px solid #3a3841; background: #131316; }
 .module-save-toggle { display: flex; align-items: center; gap: 12px; }
 .module-save-toggle > span, .module-save-toggle strong, .module-save-toggle small { display: block; }
