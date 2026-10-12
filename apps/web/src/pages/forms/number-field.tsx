@@ -1,0 +1,1 @@
+export function NumberField({ title, detail, value, min, max, onChange }: { title: string; detail: string; value: number; min: number; max: number; onChange: (value: number) => void }) { return <label><span>{title}</span><small>{detail}</small><input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label> }

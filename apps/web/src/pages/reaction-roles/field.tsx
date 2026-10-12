@@ -1,0 +1,1 @@
+export function Field({title,value,disabled=false,onChange}:{title:string;value:string;disabled?:boolean;onChange:(value:string)=>void}){return <label><span>{title}</span><input value={value} disabled={disabled} onChange={(event)=>onChange(event.target.value)}/></label>}

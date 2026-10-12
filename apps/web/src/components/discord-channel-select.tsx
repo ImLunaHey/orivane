@@ -1,6 +1,8 @@
-import { Check, ChevronDown, Folder, Hash, Minus, Volume2 } from 'lucide-react'
+import { ChevronDown, Minus } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { GuildChannel } from '../types'
+import { ChannelIcon } from './discord-channel-select/channel-icon'
+import { ChannelOption } from './discord-channel-select/channel-option'
 
 type DiscordChannelSelectProps = {
   title: string
@@ -140,26 +142,6 @@ export function DiscordChannelSelect({ title, detail, value, kind, channels, pen
       </div>)}
     </div>}
   </div>
-}
-
-function ChannelOption({ id, label, selected, active, icon, onHover, onChoose }: { id: string; label: string; selected: boolean; active: boolean; icon: React.ReactNode; onHover: () => void; onChoose: () => void }) {
-  return <button
-    id={id}
-    type="button"
-    role="option"
-    aria-selected={selected}
-    tabIndex={-1}
-    className={`discord-channel-option ${active ? 'is-active' : ''}`}
-    onMouseEnter={onHover}
-    onClick={onChoose}
-  >
-    <span className="discord-channel-option-name">{icon}{label}</span>
-    {selected && <Check className="discord-channel-check" size={17} />}
-  </button>
-}
-
-function ChannelIcon({ kind }: { kind: string }) {
-  return kind === 'GuildCategory' ? <Folder size={17} /> : kind === 'GuildVoice' || kind === 'GuildStageVoice' ? <Volume2 size={17} /> : <Hash size={17} />
 }
 
 function channelGroups(kind: DiscordChannelSelectProps['kind'], allChannels: GuildChannel[], allowed: GuildChannel[]): ChannelGroup[] {

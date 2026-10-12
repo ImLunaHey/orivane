@@ -1,0 +1,1 @@
+export function Area({title,value,onChange}:{title:string;value:string;onChange:(value:string)=>void}){return <label className="wide"><span>{title}</span><textarea value={value} onChange={event=>onChange(event.target.value)}/></label>}

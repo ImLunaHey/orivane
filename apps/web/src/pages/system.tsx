@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Panel } from '../components/ui'
 import { downloadCsv } from '../lib/export'
 import { getAuditEvents, getGuildMembers, getGuildStats, getHealthReport, isDemoMode, syncCommands } from '../lib/api'
+import { Metric } from './system/metric'
+import { PageIntro } from './system/page-intro'
 
 const commands = [
   { name: '/ping', module: 'Utility', description: 'Check whether the bot is responding.', uses: '1,284', success: '99.99%', p95: '42 ms' },
@@ -30,7 +32,6 @@ export function HealthPage() {
     <Panel className="system-panel"><div className="panel-heading"><div><p className="eyebrow">Dependencies</p><h3>Services</h3></div><Badge tone={operational ? 'green' : 'amber'}>{report ? (operational ? 'All operational' : 'Degraded') : 'Checking'}</Badge></div><div className="service-table">{services.map(({ name, status, latency_ms: latency }) => { const Icon = name === 'Redis' ? Gauge : Database; return <div key={name}><span className="system-icon"><Icon size={17} /></span><span><strong>{name}</strong><small>Direct API dependency probe</small></span><Badge tone={status === 'operational' ? 'green' : 'red'}>{status}</Badge><em>{latency} ms</em></div> })}</div></Panel>
   </div>
 }
-
 export function CommandsPage() {
   const [query, setQuery] = useState('')
   const client = useQueryClient()
@@ -97,12 +98,4 @@ function observedMember(member: Awaited<ReturnType<typeof getGuildMembers>>[numb
     accountAge: 'Not tracked',
     risk: member.cases ? 'Medium' : 'Low',
   }
-}
-
-function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action: React.ReactNode }) {
-  return <section className="page-intro"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{description}</p></div>{action}</section>
-}
-
-function Metric({ icon: Icon, label, value, note }: { icon: typeof Activity; label: string; value: string; note: string }) {
-  return <Panel><span className="system-icon"><Icon size={17} /></span><div><small>{label}</small><strong>{value}</strong><em>{note}</em></div></Panel>
 }

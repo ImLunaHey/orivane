@@ -1,0 +1,1 @@
+export function Field({title,detail,value,maxLength=100,onChange}:{title:string;detail:string;value:string;maxLength?:number;onChange:(value:string)=>void}){return <label><span>{title}</span><small>{detail}</small><input value={value} maxLength={maxLength} onChange={event=>onChange(event.target.value)}/></label>}

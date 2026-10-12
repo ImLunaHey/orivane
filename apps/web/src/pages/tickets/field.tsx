@@ -1,0 +1,1 @@
+export function Field({title,value,onChange}:{title:string;value:string;onChange:(value:string)=>void}){return <label><span>{title}</span><input value={value} onChange={event=>onChange(event.target.value)}/></label>}

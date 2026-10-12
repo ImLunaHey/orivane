@@ -8,6 +8,8 @@ import { DiscordRoleSelect } from '../components/discord-role-select'
 import { Badge, Button, Panel, SectionHeader, Toggle } from '../components/ui'
 import { getEconomyAccounts, getEconomyTransactions, getGuildConfig, getGuildRoles, saveGuildConfig } from '../lib/api'
 import type { EconomyAccount, EconomyTransaction, GuildConfig } from '../types'
+import { Field } from './economy/field'
+import { NumberField } from './economy/number-field'
 
 const accountColumn=createColumnHelper<EconomyAccount>(),transactionColumn=createColumnHelper<EconomyTransaction>()
 const formatAmount=(amount:number,symbol:string)=>`${amount<0?'−':''}${symbol}${Math.abs(amount).toLocaleString()}`
@@ -30,6 +32,3 @@ export function EconomyPage(){
     <Panel className="table-panel"><SectionHeader eyebrow="Ledger" title="Recent transactions" detail="Immutable changes for rewards, transfers, purchases, games, and administration."/><DataTable data={transactions.data??[]} columns={transactionColumns} getRowId={row=>String(row.id)} ariaLabel="Economy transaction ledger" emptyMessage={transactions.isLoading?'Loading transactions…':'No economy transactions yet.'}/></Panel>
     {(save.isError||accounts.isError||transactions.isError)&&<div className="error-banner" role="alert">{save.error?.message??accounts.error?.message??transactions.error?.message}</div>}<div className="bottom-save-bar"><span>Configuration changes are validated and audited before becoming active.</span><div className="save-row">{save.isSuccess&&!changed&&<span className="saved-label"><Check size={15}/>Saved</span>}<Button disabled={!changed||save.isPending} onClick={()=>save.mutate(draft)}>{save.isPending&&<LoaderCircle className="spin" size={16}/>}Save changes</Button></div></div></div>
 }
-
-function Field({title,detail,value,maxLength=100,onChange}:{title:string;detail:string;value:string;maxLength?:number;onChange:(value:string)=>void}){return <label><span>{title}</span><small>{detail}</small><input value={value} maxLength={maxLength} onChange={event=>onChange(event.target.value)}/></label>}
-function NumberField({title,detail,value,min,max,onChange}:{title:string;detail:string;value:number;min:number;max:number;onChange:(value:number)=>void}){return <label><span>{title}</span><small>{detail}</small><input type="number" value={value} min={min} max={max} onChange={event=>onChange(Number(event.target.value))}/></label>}

@@ -9,6 +9,9 @@ import { DiscordRoleSelect } from '../components/discord-role-select'
 import { Badge, Button, Panel, SectionHeader, Toggle } from '../components/ui'
 import { deployReactionRolePanel, getGuildChannels, getGuildConfig, getGuildRoles, saveGuildConfig } from '../lib/api'
 import type { GuildConfig, ReactionRoleOption, ReactionRolePanel } from '../types'
+import { Field } from './reaction-roles/field'
+import { Loading } from './reaction-roles/loading'
+import { Switch } from './reaction-roles/switch'
 
 export function ReactionRolesPage() {
   const { serverId } = useParams({ strict: false }) as { serverId: string }
@@ -84,6 +87,3 @@ function blankPanel():ReactionRolePanel{return{id:`roles-${Date.now()}`,enabled:
 function blankOption(index:number):ReactionRoleOption{return{id:`role-${index+1}`,label:`Role ${index+1}`,description:'',emoji:'✨',role_id:''}}
 function cleanId(value:string){return value.toLowerCase().replace(/[^a-z0-9_-]/g,'').slice(0,64)}
 function valid(panel:ReactionRolePanel){return Boolean(panel.id&&panel.name.trim()&&panel.title.trim()&&panel.channel_id&&panel.options.length&&panel.options.every((option)=>option.id&&option.label.trim()&&option.role_id))}
-function Field({title,value,disabled=false,onChange}:{title:string;value:string;disabled?:boolean;onChange:(value:string)=>void}){return <label><span>{title}</span><input value={value} disabled={disabled} onChange={(event)=>onChange(event.target.value)}/></label>}
-function Switch({title,detail,checked,onChange}:{title:string;detail:string;checked:boolean;onChange:(value:boolean)=>void}){return <div className="module-toggle-field"><span><strong>{title}</strong><small>{detail}</small></span><Toggle label={title} checked={checked} onChange={onChange}/></div>}
-function Loading(){return <div className="loading-state"><LoaderCircle className="spin"/><span>Loading reaction roles…</span></div>}

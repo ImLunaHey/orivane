@@ -1,14 +1,16 @@
 import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Activity, Bot, Command, Radio, Server, ShieldCheck, Users, Zap } from 'lucide-react'
+import { Activity, Bot, Command, Radio, Server, ShieldCheck, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DataTable } from '../components/data-table'
 import { MetricChart } from '../components/metric-chart'
 import { Badge, Panel } from '../components/ui'
 import type { ChartDatum } from '../lib/analytics-data'
-import { demoServers, type ConnectedServer } from '../lib/server-data'
+import type { ConnectedServer } from '../lib/server-data'
 import { getCommandVolume, getServers, isDemoMode } from '../lib/api'
+import { BotMetric } from './bot-overview/bot-metric'
+import { ServerDirectory } from './bot-overview/server-directory'
 
 const fleetTraffic: ChartDatum[] = [
   { label: '00:00', value: 184, detail: 'Across 248 active servers · 99.8% success' },
@@ -73,21 +75,12 @@ export function BotOverviewPage() {
       <Panel className="chart-panel"><div className="panel-heading"><div><p className="eyebrow">Install footprint</p><h3>Servers by member count</h3></div><Badge tone="violet">{fleet.length} total</Badge></div><MetricChart data={sizeBuckets} xLabel="Server size (members)" yLabel="Connected servers" type="bar" color="#4aa8e8" ariaLabel="Distribution of connected Discord servers by member count" /></Panel>
       <Panel className="system-panel"><div className="panel-heading"><div><p className="eyebrow">Install correlation</p><h3>Users with multiple servers</h3></div><Badge tone="neutral">{installers.length.toLocaleString()} users</Badge></div><DataTable data={installers} columns={installerColumns} getRowId={(row) => row.id} ariaLabel="Users who installed Orivane in multiple servers" /></Panel>
     </section>
-    <Panel className="system-panel"><div className="panel-heading"><div><p className="eyebrow">Server fleet</p><h3>Largest servers</h3></div><Link to="/servers" className="text-link">All servers →</Link></div><ServerDirectory servers={fleet.slice(0, 4)} /></Panel>
+    <Panel className="system-panel"><div className="panel-heading"><div><p className="eyebrow">Server fleet</p><h3>Largest servers</h3></div><Link to="/servers" className="text-link">All servers →</Link></div><ServerDirectory servers={fleet.slice(0, 4)} columns={serverColumns} /></Panel>
   </div>
 }
-
 export function ServersPage() {
   const [query, setQuery] = useState('')
   const servers = useQuery({ queryKey: ['servers'], queryFn: getServers })
   const filtered = (servers.data ?? []).filter((server) => `${server.name} ${server.id} ${server.status} ${server.installer}`.toLowerCase().includes(query.toLowerCase()))
   return <div className="page-stack"><section className="page-intro"><div><p className="eyebrow">Global operations</p><h2>Servers</h2><p>Select a Discord server to open its configuration, moderation, analytics, and members.</p></div><Badge tone="violet">{(servers.data?.length ?? 0).toLocaleString()} connected</Badge></section><Panel className="system-panel"><div className="table-toolbar"><div><p className="eyebrow">Directory</p><h3>Connected servers</h3></div><label className="search-box"><Server size={15} /><input aria-label="Search connected servers" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a server" /></label></div><DataTable data={filtered} columns={serverColumns} getRowId={(row) => row.id} ariaLabel="Connected Discord servers" emptyMessage={servers.isLoading ? 'Loading connected servers…' : 'No connected servers found'} /></Panel></div>
-}
-
-function ServerDirectory({ servers }: { servers: typeof demoServers }) {
-  return <DataTable data={servers} columns={serverColumns} getRowId={(row) => row.id} ariaLabel="Highest activity Discord servers" />
-}
-
-function BotMetric({ icon: Icon, label, value, note }: { icon: typeof Zap; label: string; value: string; note: string }) {
-  return <Panel className="stat-card"><div className="stat-icon"><Icon size={18} /></div><p>{label}</p><strong>{value}</strong><span className="stat-change positive">{note}</span></Panel>
 }

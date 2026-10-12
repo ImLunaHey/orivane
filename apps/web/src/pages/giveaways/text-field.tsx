@@ -1,0 +1,1 @@
+export function TextField({ title, detail, value, onChange }: { title: string; detail: string; value: string; onChange: (value: string) => void }) { return <label><span>{title}</span><small>{detail}</small><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }

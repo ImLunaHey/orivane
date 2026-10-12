@@ -1,0 +1,1 @@
+export function TextField({ title, detail, value, onChange, wide = false }: { title: string; detail: string; value: string; onChange: (value: string) => void; wide?: boolean }) { return <label className={wide ? 'wide' : undefined}><span>{title}</span><small>{detail}</small><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }

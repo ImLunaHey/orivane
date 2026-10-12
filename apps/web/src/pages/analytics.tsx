@@ -1,7 +1,7 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
 import { Link, useParams } from '@tanstack/react-router'
 import { ArrowDownToLine, ArrowLeft, Database, Filter, Gauge, Radio, Search, ShieldCheck, TerminalSquare } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { MetricChart } from '../components/metric-chart'
 import { Badge, Button, Panel } from '../components/ui'
@@ -10,6 +10,8 @@ import { analyticsEvents } from '../lib/demo-data'
 import type { AnalyticsEvent } from '../types'
 import { downloadCsv } from '../lib/export'
 import { getAuditEvents, getCommandVolume, getGuildStats, isDemoMode } from '../lib/api'
+import { ReportPanel } from './analytics/report-panel'
+import { SummaryMetric } from './analytics/summary-metric'
 
 export function AnalyticsPage() {
   const { serverId } = useParams({ strict: false }) as { serverId: string }
@@ -54,15 +56,6 @@ export function AnalyticsPage() {
       <div className="table-foot">Showing {filtered.length} recent events <span>Raw events retained for 90 days</span></div>
     </Panel>
   </div>
-}
-
-function SummaryMetric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
-  return <Panel><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><em>{detail}</em></div></Panel>
-}
-
-function ReportPanel({ eyebrow, title, detailTo, serverId, children }: { eyebrow: string; title: string; detailTo: 'commands' | 'latency' | 'automod'; serverId: string; children: ReactNode }) {
-  const to = detailTo === 'commands' ? '/servers/$serverId/analytics/commands' : detailTo === 'latency' ? '/servers/$serverId/analytics/latency' : '/servers/$serverId/analytics/automod'
-  return <Panel className="analytics-chart-panel"><div className="panel-heading"><div><p className="eyebrow">{eyebrow}</p><h3>{title}</h3></div><Link to={to} params={{ serverId }} className="text-link">Details →</Link></div>{children}</Panel>
 }
 
 type Report = {

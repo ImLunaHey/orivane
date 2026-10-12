@@ -10,6 +10,11 @@ import { DiscordRoleSelect } from '../components/discord-role-select'
 import { Badge, Button, Panel, SectionHeader, Toggle } from '../components/ui'
 import { getFormSubmission, getFormSubmissions, getGuildChannels, getGuildConfig, getGuildRoles, recordDashboardActivity, reviewFormSubmission, saveGuildConfig } from '../lib/api'
 import type { FormQuestion, FormSubmission, GuildConfig, ServerForm } from '../types'
+import { LoadingState } from './forms/loading-state'
+import { NumberField } from './forms/number-field'
+import { SelectField } from './forms/select-field'
+import { TextField } from './forms/text-field'
+import { ToggleField } from './forms/toggle-field'
 
 export function FormsPage() {
   const { serverId } = useParams({ strict: false }) as { serverId: string }
@@ -126,12 +131,7 @@ export function FormSubmissionPage() {
 
 function newForm(index: number): ServerForm { return { enabled: false, id: `form-${index}`, name: `Form ${index}`, description: '', destination_channel_id: '', allowed_role_ids: [], anonymous: false, questions: [{ id: 'question-1', label: 'Your response', style: 'paragraph', required: true, min_length: 1, max_length: 1000, placeholder: 'Type your answer' }] } }
 function reservedWorkflow(id:string):ServerForm|undefined { return id==='moderation-appeals'?{enabled:true,id,name:'Moderation appeals',description:'Moderation action review requests',destination_channel_id:'',allowed_role_ids:[],anonymous:false,questions:[]}:undefined }
-function TextField({ title, detail, value, onChange, wide = false }: { title: string; detail: string; value: string; onChange: (value: string) => void; wide?: boolean }) { return <label className={wide ? 'wide' : undefined}><span>{title}</span><small>{detail}</small><input value={value} onChange={(event) => onChange(event.target.value)} /></label> }
-function NumberField({ title, detail, value, min, max, onChange }: { title: string; detail: string; value: number; min: number; max: number; onChange: (value: number) => void }) { return <label><span>{title}</span><small>{detail}</small><input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label> }
-function SelectField({ title, detail, value, options, onChange }: { title: string; detail: string; value: string; options: [string, string][]; onChange: (value: string) => void }) { return <label><span>{title}</span><small>{detail}</small><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([option, label]) => <option value={option} key={option}>{label}</option>)}</select></label> }
-function ToggleField({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (value: boolean) => void }) { return <div className="module-toggle-field"><span><strong>{title}</strong><small>{detail}</small></span><Toggle label={title} checked={checked} onChange={onChange} /></div> }
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 export function submissionsCsv(items: FormSubmission[]) { const rows = [['submission_id','status','submitter_id','username','display_name','received_at','answers'], ...items.map((item) => [String(item.id),item.status,item.submitter_id??'',item.username??'',item.display_name??'',item.created_at,JSON.stringify(item.answers)])]; return rows.map((row) => row.map(csvCell).join(',')).join('\n') }
 function csvCell(value:string){const safe=/^[=+\-@]/.test(value)?`'${value}`:value;return `"${safe.replaceAll('"','""')}"`}
 function downloadSubmissions(serverId:string,formId:string,items:FormSubmission[]){const url=URL.createObjectURL(new Blob([submissionsCsv(items)],{type:'text/csv;charset=utf-8'}));const anchor=document.createElement('a');anchor.href=url;anchor.download=`${formId}-submissions.csv`;anchor.click();URL.revokeObjectURL(url);void recordDashboardActivity({action:'dashboard.data.exported',guild_id:serverId,export:'form_submissions_csv'})}
-function LoadingState() { return <div className="loading-state"><LoaderCircle className="spin" /><span>Loading forms…</span></div> }

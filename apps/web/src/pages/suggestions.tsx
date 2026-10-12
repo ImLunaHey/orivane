@@ -11,6 +11,11 @@ import { MetricChart } from '../components/metric-chart'
 import { Badge, Button, Panel, SectionHeader, Toggle } from '../components/ui'
 import { getGuildChannels, getGuildConfig, getGuildRoles, getSuggestion, getSuggestions, saveGuildConfig, updateSuggestionStatus } from '../lib/api'
 import type { GuildConfig, Suggestion, SuggestionStatus } from '../types'
+import { LoadingState } from './suggestions/loading-state'
+import { NumberField } from './suggestions/number-field'
+import { SelectField } from './suggestions/select-field'
+import { labelStatus, StatusBadge } from './suggestions/status-badge'
+import { ToggleField } from './suggestions/toggle-field'
 
 const statuses: SuggestionStatus[] = ['pending', 'approved', 'implemented', 'rejected', 'duplicate']
 
@@ -82,13 +87,4 @@ export function SuggestionDetailPage() {
   </div>
 }
 
-function StatusBadge({ status }: { status: SuggestionStatus }) {
-  const tone = status === 'implemented' || status === 'approved' ? 'green' : status === 'rejected' ? 'red' : status === 'pending' ? 'amber' : 'neutral'
-  return <Badge tone={tone}>{labelStatus(status)}</Badge>
-}
-function labelStatus(status: SuggestionStatus) { return `${status.charAt(0).toUpperCase()}${status.slice(1)}` }
-function NumberField({ title, detail, value, min, max, onChange }: { title: string; detail: string; value: number; min: number; max: number; onChange: (value: number) => void }) { return <label><span>{title}</span><small>{detail}</small><input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label> }
-function SelectField({ title, detail, value, options, onChange }: { title: string; detail: string; value: string; options: string[][]; onChange: (value: string) => void }) { return <label><span>{title}</span><small>{detail}</small><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([option, label]) => <option value={option} key={option}>{label}</option>)}</select></label> }
-function ToggleField({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (value: boolean) => void }) { return <div className="module-toggle-field"><span><strong>{title}</strong><small>{detail}</small></span><Toggle label={title} checked={checked} onChange={onChange} /></div> }
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
-function LoadingState() { return <div className="loading-state"><LoaderCircle className="spin" /><span>Loading suggestions…</span></div> }

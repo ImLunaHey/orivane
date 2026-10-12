@@ -6,9 +6,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { DataTable } from '../components/data-table'
 import { DiscordMemberLink } from '../components/discord-member-link'
 import { MetricChart } from '../components/metric-chart'
-import { Badge, Button, Panel, SectionHeader, Toggle } from '../components/ui'
+import { Button, Panel, SectionHeader, Toggle } from '../components/ui'
 import { cancelReminder, getGuildConfig, getReminder, getReminders, saveGuildConfig } from '../lib/api'
 import type { GuildConfig, Reminder, ReminderStatus } from '../types'
+import { LoadingState } from './reminders/loading-state'
+import { NumberField } from './reminders/number-field'
+import { ReminderStatusBadge, titleCase } from './reminders/reminder-status-badge'
+import { ToggleField } from './reminders/toggle-field'
 
 export function RemindersPage() {
   const { serverId } = useParams({ strict: false }) as { serverId: string }; const client = useQueryClient(); const configKey = ['guild-config', serverId] as const
@@ -46,10 +50,5 @@ export function ReminderDetailPage() {
   return <div className="page-stack reminder-detail-page"><Link className="back-link" to="/servers/$serverId/modules/reminders" params={{ serverId }}><ArrowLeft size={16} />All reminders</Link><section className="page-intro"><div><p className="eyebrow">Reminder #{item.id}</p><h2>{truncate(item.message, 80)}</h2><p>Created {formatDate(item.created_at)}</p></div><ReminderStatusBadge status={item.status} /></section><section className="suggestion-detail-summary"><Panel><small>Member</small><strong><User size={20} /><DiscordMemberLink serverId={serverId} userId={item.user_id} username={item.username} displayName={item.display_name} /></strong></Panel><Panel><small>Delivery</small><strong>{item.delivery_mode === 'dm' ? <><Send size={20} />Direct message</> : <><MessageSquare size={20} />Channel</>}</strong></Panel><Panel><small>Attempts</small><strong>{item.attempts} / 5</strong></Panel></section><Panel className="form-detail-panel"><SectionHeader eyebrow="Contents" title="Reminder message" /><div className="section-body reminder-message"><p>{item.message}</p></div></Panel><Panel className="giveaway-rules"><SectionHeader eyebrow="Delivery lifecycle" title="Timing and destination" /><dl className="section-body"><div><dt>Scheduled for</dt><dd>{formatDate(item.remind_at)}</dd></div><div><dt>Next attempt</dt><dd>{formatDate(item.next_attempt_at)}</dd></div><div><dt>Delivered</dt><dd>{item.delivered_at ? formatDate(item.delivered_at) : 'Not delivered'}</dd></div><div><dt>Channel</dt><dd>{item.channel_id ?? 'Private message'}</dd></div></dl></Panel>{cancel.isError && <div className="error-banner" role="alert">{cancel.error.message}</div>}<div className="bottom-save-bar"><span>Cancellation is audited and immediately prevents scheduled delivery.</span>{item.status === 'scheduled' && <Button disabled={cancel.isPending} onClick={() => cancel.mutate({ guildId: serverId, reminderId })}>Cancel reminder</Button>}</div></div>
 }
 
-function ReminderStatusBadge({ status }: { status: ReminderStatus }) { const tone = status === 'scheduled' ? 'violet' : status === 'delivered' ? 'green' : status === 'failed' ? 'red' : 'neutral'; return <Badge tone={tone}>{titleCase(status)}</Badge> }
-function NumberField({ title, detail, value, min, max, onChange }: { title: string; detail: string; value: number; min: number; max: number; onChange: (value: number) => void }) { return <label><span>{title}</span><small>{detail}</small><input type="number" value={value} min={min} max={max} onChange={(event) => onChange(Number(event.target.value))} /></label> }
-function ToggleField({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (value: boolean) => void }) { return <div className="module-toggle-field"><span><strong>{title}</strong><small>{detail}</small></span><Toggle label={title} checked={checked} onChange={onChange} /></div> }
-function titleCase(value: string) { return `${value.charAt(0).toUpperCase()}${value.slice(1).replaceAll('_', ' ')}` }
 function truncate(value: string, max: number) { return value.length > max ? `${value.slice(0, max)}…` : value }
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
-function LoadingState() { return <div className="loading-state"><LoaderCircle className="spin" /><span>Loading reminders…</span></div> }
