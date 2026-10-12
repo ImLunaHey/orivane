@@ -2,6 +2,7 @@ mod audit;
 mod cases;
 mod config;
 mod fleet;
+mod forms;
 mod store;
 
 pub use audit::{AuditEvent, NewAuditEvent};
@@ -17,4 +18,5 @@ pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
     GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile, UserGuildContext,
 };
+pub use forms::{FormSubmission, NewFormSubmission};
 pub use store::{Infrastructure, StoreError, level_for_xp};

@@ -52,6 +52,21 @@ pub struct TicketRecordInput {
     pub channel_id: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormAnswerInput {
+    pub question_id: String,
+    pub label: String,
+    pub answer: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormSubmissionInput {
+    pub guild_id: u64,
+    pub form_id: String,
+    pub submitter_id: Option<u64>,
+    pub answers: Vec<FormAnswerInput>,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
@@ -93,6 +108,7 @@ pub trait ModuleServices: Send + Sync {
         schedule_id: &str,
         occurrence_unix: u64,
     ) -> Result<()>;
+    async fn create_form_submission(&self, input: FormSubmissionInput) -> Result<i64>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

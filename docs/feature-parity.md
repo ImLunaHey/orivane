@@ -27,6 +27,7 @@ Reference feature sets:
 | Autoresponder | Live | Exact, contains and starts-with triggers; case handling; channel and role controls; variables | Reactions as responses, cooldowns, regex and rich embeds |
 | Anti-raid | Live | Sliding join-burst detection, account-age and avatar risk signals, alert-only/quarantine/timeout/kick/ban actions, optional all-join containment, staff alerts | Discord CAPTCHA remains native-only; persistent cross-worker windows and invite-pattern analysis are future depth |
 | Scheduled messages | Live | Recurring channel posts, local-time editor, optional end date, fleet-wide PostgreSQL deduplication, retry after delivery failure and audit records | Calendar/weekday expressions, rich embeds and one-time schedules are future depth |
+| Forms | Live | Native Discord modals, five configurable fields, role access, anonymous mode, Discord delivery, durable submission inbox and answer detail pages | Branching questions, approval workflows, exports and configurable retention |
 
 ## Popular-bot areas not yet implemented
 
@@ -37,10 +38,7 @@ These are not represented as fake or configuration-only cards in the dashboard.
 | Suggestions and voting | Carl-bot and similar community bots | Not built |
 | Giveaways | Dyno and MEE6-class bots | Not built |
 | Reminders | Dyno and similar bots | Not built |
-| Scheduled messages | Dyno and similar bots | Live: durable recurring delivery, channel routing, start/end dates, audits |
-| Forms | Sapphire and specialized form bots | Live: native Discord modals, five configurable questions, role access, anonymous routing, audits |
 | Auto-delete and scheduled purge | Dyno | Not built |
-| Forms | Dyno | Not built |
 | Managed embeds | Dyno and Carl-bot-class bots | Not built |
 | Social feeds | Dyno and MEE6-class bots | Not built |
 | Economy, points, games and tags | Dyno and MEE6-class bots | Not built |

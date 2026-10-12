@@ -11,9 +11,9 @@ use axum::{
     routing::get,
 };
 use bot_core::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, GlobalUser, GuildConfig, GuildDashboardStats,
-    GuildMemberSummary, Infrastructure, InfrastructureHealth, ModerationCase, NewAuditEvent,
-    NewModerationCase, UserGuildContext,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, GlobalUser, GuildConfig,
+    GuildDashboardStats, GuildMemberSummary, Infrastructure, InfrastructureHealth, ModerationCase,
+    NewAuditEvent, NewModerationCase, UserGuildContext,
 };
 use bot_discord::{CommandDefinition, DiscordApi, GuildChannel, GuildRole, TwilightDiscord};
 use serde::{Deserialize, Serialize};
@@ -118,6 +118,14 @@ async fn main() -> Result<()> {
             get(get_cases).post(create_case),
         )
         .route("/v1/guilds/{guild_id}/cases/{case_id}", get(get_case))
+        .route(
+            "/v1/guilds/{guild_id}/forms/{form_id}/submissions",
+            get(get_form_submissions),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/forms/{form_id}/submissions/{submission_id}",
+            get(get_form_submission),
+        )
         .merge(auth_router)
         .layer(
             CorsLayer::new()
@@ -729,6 +737,60 @@ async fn get_case(
     Ok(Json(case))
 }
 
+async fn get_form_submissions(
+    State(state): State<AppState>,
+    Path((guild_id, form_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<FormSubmission>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_form_id(&form_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let submissions = state
+        .infrastructure
+        .form_submissions(&guild_id, &form_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "forms.submissions.viewed",
+    )
+    .await;
+    Ok(Json(submissions))
+}
+
+async fn get_form_submission(
+    State(state): State<AppState>,
+    Path((guild_id, form_id, submission_id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<FormSubmission>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_form_id(&form_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let submission = state
+        .infrastructure
+        .form_submission(&guild_id, &form_id, submission_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                "form submission not found".to_owned(),
+            )
+        })?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "forms.submission.viewed",
+    )
+    .await;
+    Ok(Json(submission))
+}
+
 async fn create_case(
     State(state): State<AppState>,
     Path(guild_id): Path<String>,
@@ -771,6 +833,8 @@ async fn record_read(
         "guild_config"
     } else if action.starts_with("moderation") {
         "moderation_case"
+    } else if action.starts_with("forms.") {
+        "form_submission"
     } else if action.starts_with("fleet") {
         "guild_fleet"
     } else if action.starts_with("analytics") {
@@ -819,6 +883,22 @@ fn validate_snowflake(value: &str) -> Result<(), ApiError> {
         Err(ApiError(
             StatusCode::BAD_REQUEST,
             "invalid guild ID".to_owned(),
+        ))
+    }
+}
+
+fn validate_form_id(value: &str) -> Result<(), ApiError> {
+    if !value.is_empty()
+        && value.len() <= 64
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
+    {
+        Ok(())
+    } else {
+        Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid form ID".to_owned(),
         ))
     }
 }

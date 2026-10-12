@@ -5,10 +5,10 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use thiserror::Error;
 
 use crate::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildConfig,
-    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile,
-    ModerationCase, NewAuditEvent, NewModerationCase, UserGuildContext,
-    config::ConfigValidationError,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, GlobalUser,
+    GuildConfig, GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward,
+    MemberXpProfile, ModerationCase, NewAuditEvent, NewFormSubmission, NewModerationCase,
+    UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -34,6 +34,61 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn create_form_submission(
+        &self,
+        input: &NewFormSubmission,
+    ) -> Result<FormSubmission, StoreError> {
+        sqlx::query_as::<_, FormSubmission>(
+            "INSERT INTO form_submissions (guild_id, form_id, submitter_id, answers) \
+             VALUES ($1, $2, $3, $4) \
+             RETURNING id, guild_id, form_id, submitter_id, answers, created_at",
+        )
+        .bind(&input.guild_id)
+        .bind(&input.form_id)
+        .bind(&input.submitter_id)
+        .bind(&input.answers)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn form_submissions(
+        &self,
+        guild_id: &str,
+        form_id: &str,
+        limit: i64,
+    ) -> Result<Vec<FormSubmission>, StoreError> {
+        sqlx::query_as::<_, FormSubmission>(
+            "SELECT id, guild_id, form_id, submitter_id, answers, created_at \
+             FROM form_submissions WHERE guild_id = $1 AND form_id = $2 \
+             ORDER BY id DESC LIMIT $3",
+        )
+        .bind(guild_id)
+        .bind(form_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn form_submission(
+        &self,
+        guild_id: &str,
+        form_id: &str,
+        submission_id: i64,
+    ) -> Result<Option<FormSubmission>, StoreError> {
+        sqlx::query_as::<_, FormSubmission>(
+            "SELECT id, guild_id, form_id, submitter_id, answers, created_at \
+             FROM form_submissions WHERE guild_id = $1 AND form_id = $2 AND id = $3",
+        )
+        .bind(guild_id)
+        .bind(form_id)
+        .bind(submission_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true'",

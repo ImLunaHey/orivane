@@ -6,7 +6,9 @@ use bot_discord::{
     CommandResponse, ModalDefinition, ModalFieldDefinition, ModalFieldStyle,
     ModalSubmitInteraction,
 };
-use bot_module_api::{BotModule, ModuleContext, ModuleEventOutcome};
+use bot_module_api::{
+    BotModule, FormAnswerInput, FormSubmissionInput, ModuleContext, ModuleEventOutcome,
+};
 
 pub struct FormsModule;
 
@@ -152,6 +154,27 @@ impl BotModule for FormsModule {
         for chunk in submission_chunks(form, interaction) {
             context.discord.send_message(channel_id, &chunk).await?;
         }
+        let submission_id = context
+            .services
+            .create_form_submission(FormSubmissionInput {
+                guild_id: interaction.guild_id,
+                form_id: form.id.clone(),
+                submitter_id: (!form.anonymous).then_some(interaction.actor_id),
+                answers: form
+                    .questions
+                    .iter()
+                    .map(|question| FormAnswerInput {
+                        question_id: question.id.clone(),
+                        label: question.label.clone(),
+                        answer: interaction
+                            .values
+                            .get(&question.id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    })
+                    .collect(),
+            })
+            .await?;
         context
             .discord
             .respond_to_modal(
@@ -161,8 +184,8 @@ impl BotModule for FormsModule {
             .await?;
         Ok(Some(ModuleEventOutcome {
             action: "form.submitted".into(),
-            target_type: "form".into(),
-            target_id: Some(form.id.clone()),
+            target_type: "form_submission".into(),
+            target_id: Some(submission_id.to_string()),
         }))
     }
 }
@@ -228,7 +251,7 @@ mod tests {
     use super::*;
     use bot_core::{FormQuestionConfig, FormsConfig};
     use bot_discord::CommandValue;
-    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices};
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices, ServiceCall};
     use std::{collections::BTreeMap, sync::Arc};
 
     fn config() -> GuildConfig {
@@ -260,9 +283,10 @@ mod tests {
     #[tokio::test]
     async fn opens_native_modal_and_routes_a_safe_submission() {
         let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
         let context = ModuleContext {
             discord: Arc::new(discord.clone()),
-            services: Arc::new(FakeModuleServices::default()),
+            services: Arc::new(services.clone()),
         };
         let command = CommandInteraction {
             id: 1,
@@ -295,7 +319,18 @@ mod tests {
             .on_modal_submit(&context, &config(), &submit)
             .await
             .unwrap();
-        assert_eq!(outcome.unwrap().action, "form.submitted");
+        let outcome = outcome.unwrap();
+        assert_eq!(outcome.action, "form.submitted");
+        assert_eq!(outcome.target_type, "form_submission");
+        assert!(outcome.target_id.is_some());
+        assert!(matches!(
+            &services.calls()[0],
+            ServiceCall::CreateFormSubmission(input)
+                if input.guild_id == 10
+                    && input.form_id == "apply"
+                    && input.submitter_id == Some(40)
+                    && input.answers[0].answer == "Hi @everyone"
+        ));
         assert!(
             matches!(&discord.calls()[0], DiscordCall::SendMessage { channel_id: 20, content } if content.contains("@\u{200b}everyone"))
         );

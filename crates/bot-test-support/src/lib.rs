@@ -9,7 +9,8 @@ use bot_discord::{
     GuildRole, MessageReactionSummary, ModalDefinition, ModalSubmitInteraction,
 };
 use bot_module_api::{
-    ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    FormSubmissionInput, ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput,
+    XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +153,7 @@ pub enum ServiceCall {
         schedule_id: String,
         occurrence_unix: u64,
     },
+    CreateFormSubmission(FormSubmissionInput),
 }
 
 #[derive(Clone, Default)]
@@ -373,6 +375,12 @@ impl ModuleServices for FakeModuleServices {
             .expect("fake lock poisoned")
             .remove(&(guild_id, schedule_id.into(), occurrence_unix));
         Ok(())
+    }
+
+    async fn create_form_submission(&self, input: FormSubmissionInput) -> anyhow::Result<i64> {
+        let mut calls = self.calls.lock().expect("fake lock poisoned");
+        calls.push(ServiceCall::CreateFormSubmission(input));
+        Ok(i64::try_from(calls.len()).unwrap_or(i64::MAX))
     }
 }
 

@@ -7,16 +7,16 @@ use std::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use bot_core::{Infrastructure, NewAuditEvent, NewModerationCase, level_for_xp};
+use bot_core::{Infrastructure, NewAuditEvent, NewFormSubmission, NewModerationCase, level_for_xp};
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, DiscordApi,
     ModalSubmitInteraction, TwilightDiscord,
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, MemberJoin, MemberLeave, MessageCreate, ModerationCaseInput,
-    ModuleContext, ModuleServices, ReactionAdd, ScheduledTick, TicketRecordInput, XpAwardInput,
-    XpAwardResult, XpProfile,
+    AuditNotice, BotModule, FormSubmissionInput, MemberJoin, MemberLeave, MessageCreate,
+    ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd, ScheduledTick,
+    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
@@ -48,6 +48,32 @@ struct GatewayModuleServices {
 
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn create_form_submission(&self, input: FormSubmissionInput) -> Result<i64> {
+        let answers = serde_json::to_value(
+            input
+                .answers
+                .iter()
+                .map(|answer| {
+                    serde_json::json!({
+                        "question_id": answer.question_id,
+                        "label": answer.label,
+                        "answer": answer.answer,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )?;
+        let submission = self
+            .infrastructure
+            .create_form_submission(&NewFormSubmission {
+                guild_id: input.guild_id.to_string(),
+                form_id: input.form_id,
+                submitter_id: input.submitter_id.map(|id| id.to_string()),
+                answers,
+            })
+            .await?;
+        Ok(submission.id)
+    }
+
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64> {
         let guild_id = input.guild_id.to_string();
         let moderator_id = input.moderator_id.to_string();
