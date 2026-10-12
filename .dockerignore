@@ -1,0 +1,12 @@
+.git
+.legacy-web-git
+.env
+**/.env.local
+**/.env.*.local
+**/.openai
+**/node_modules
+**/dist
+**/coverage
+target
+*.tsbuildinfo
+.DS_Store

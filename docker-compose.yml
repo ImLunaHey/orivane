@@ -28,6 +28,71 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      args:
+        PACKAGE: discord-bot-api
+        BINARY: discord-bot-api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://discord:discord@postgres:5432/discord
+      REDIS_URL: redis://redis:6379
+      API_BIND: 0.0.0.0:3010
+      API_CORS_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:5173}
+    ports:
+      - "127.0.0.1:${API_PORT:-3010}:3010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3010/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      args:
+        PACKAGE: discord-bot-gateway
+        BINARY: discord-bot-gateway
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://discord:discord@postgres:5432/discord
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:

@@ -21,19 +21,30 @@ Vite + React dashboard + Discord OAuth2
 
 1. Create a Discord application and bot in the Developer Portal. The bot uses application (slash) commands and does not require the Message Content intent. Enable the privileged Server Members intent for welcome and autorole join events.
 2. Copy `.env.example` to `.env`. Add the bot token, a random `BETTER_AUTH_SECRET` of at least 32 bytes, and the Discord OAuth client ID and secret. Add your Discord user ID to `BOT_OWNER_DISCORD_IDS` for bot-wide pages.
-3. Start infrastructure:
+3. Start the complete stack (PostgreSQL, Redis, API, gateway, and web UI):
 
    ```sh
-   docker compose up -d
+   docker compose up --build -d
    ```
 
-4. Export the values in `.env`, then run each process in its own terminal:
+   The dashboard is available at `http://127.0.0.1:5173` and the API at
+   `http://127.0.0.1:3010`. The web container proxies `/api` and `/v1` to the
+   API over the private Compose network, so no API URL is baked into the UI.
+
+4. For development with hot reload, start only the infrastructure and run each
+   process in its own terminal:
 
    ```sh
+   docker compose up -d postgres redis
+   set -a && source .env && set +a
    cargo run -p discord-bot-api
    cargo run -p discord-bot-gateway
    cd apps/web && VITE_API_BASE_URL=same-origin pnpm dev
    ```
+
+The `.env` file is passed to the Rust containers at runtime and is excluded
+from both Git and Docker build contexts. Never place Discord or OAuth secrets
+in `apps/web`, `VITE_*` variables, Dockerfiles, or Compose build arguments.
 
 The API automatically applies migrations. Test the worker with `/ping` in a server containing the bot. The gateway registers the global command when it starts; Discord may take a little time to propagate global command changes.
 

@@ -1,0 +1,25 @@
+FROM rust:1.94-bookworm AS builder
+
+ARG PACKAGE
+ARG BINARY
+WORKDIR /workspace
+
+COPY Cargo.toml Cargo.lock ./
+COPY apps ./apps
+COPY crates ./crates
+COPY modules ./modules
+
+RUN cargo build --locked --release --package "${PACKAGE}" \
+    && cp "target/release/${BINARY}" /orivane-service
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 orivane
+
+COPY --from=builder /orivane-service /usr/local/bin/orivane-service
+
+USER orivane
+ENTRYPOINT ["/usr/local/bin/orivane-service"]
