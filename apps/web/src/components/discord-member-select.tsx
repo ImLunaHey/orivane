@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Search, UserRound, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { GuildMemberSummary } from '../lib/api'
+import { DiscordAvatar } from './discord-avatar'
 
 type Props = {
   title: string
@@ -57,14 +58,14 @@ export function DiscordMemberSelect({ title, detail, value, members, pending, er
       disabled={pending || error}
       onClick={() => setOpen((current) => !current)}
     >
-      <span className={!selected ? 'placeholder' : undefined}><UserRound size={17}/>{selected ? memberLabel(selected) : value ? `Discord user ${value.slice(-4)}` : pending ? 'Loading members…' : error ? 'Could not load members' : 'Select a member'}</span>
+      <span className={!selected ? 'placeholder' : undefined}>{selected ? <DiscordAvatar className="discord-member-avatar" avatarUrl={selected.avatar_url} name={memberLabel(selected)} /> : <UserRound size={17}/>} {selected ? memberLabel(selected) : value ? `Discord user ${value.slice(-4)}` : pending ? 'Loading members…' : error ? 'Could not load members' : 'Select a member'}</span>
       <ChevronDown className="discord-channel-chevron" size={17}/>
     </button>
     {open && <div id={`${id}-options`} className="discord-channel-menu discord-member-menu" role="listbox" aria-labelledby={`${id}-label`}>
       <label className="discord-member-search"><Search size={16}/><input ref={search} aria-label="Search members" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or username"/></label>
       {value && <button type="button" role="option" aria-selected={false} className="discord-channel-option" onClick={() => choose(null)}><span className="discord-channel-option-name"><X size={17}/>Unassign</span></button>}
       {results.map((member) => <button key={member.id} type="button" role="option" aria-selected={member.id === value} className="discord-channel-option" onClick={() => choose(member.id)}>
-        <span className="discord-channel-option-name"><UserRound size={17}/><span>{memberLabel(member)}<small>@{member.username ?? member.id}</small></span></span>
+        <span className="discord-channel-option-name"><DiscordAvatar className="discord-member-avatar" avatarUrl={member.avatar_url} name={memberLabel(member)} /><span>{memberLabel(member)}<small>@{member.username ?? member.id}</small></span></span>
         {member.id === value && <Check size={17}/>} 
       </button>)}
       {!results.length && <p className="discord-member-empty">No known members match that search.</p>}

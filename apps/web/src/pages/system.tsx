@@ -3,6 +3,7 @@ import { Activity, ArrowLeft, CalendarDays, CheckCircle2, Clock3, Command, Datab
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Panel } from '../components/ui'
+import { DiscordAvatar } from '../components/discord-avatar'
 import { downloadCsv } from '../lib/export'
 import { getAuditEvents, getGuildMembers, getGuildStats, getHealthReport, isDemoMode, syncCommands } from '../lib/api'
 import { Metric } from './system/metric'
@@ -15,11 +16,11 @@ const commands = [
 ]
 
 const members = [
-  { id: '118742006320914432', name: 'silver.arc', displayName: 'Silver', role: 'Member', joined: 'Today', joinedAt: '11 Oct 2026, 18:42', activity: 'High', cases: 1, messages: '184', commands: '23', lastSeen: '4 minutes ago', roles: ['Member', 'Level 10'], accountAge: '4 years', risk: 'Low' },
-  { id: '227843117431025543', name: 'nocturne', displayName: 'Nocturne', role: 'Member', joined: '3 days ago', joinedAt: '8 Oct 2026, 09:14', activity: 'Medium', cases: 2, messages: '96', commands: '12', lastSeen: '2 hours ago', roles: ['Member', 'Art'], accountAge: '2 years', risk: 'Medium' },
-  { id: '336954228542136654', name: 'mossbyte', displayName: 'Moss', role: 'Moderator', joined: '2 months ago', joinedAt: '12 Aug 2026, 15:05', activity: 'High', cases: 0, messages: '2,814', commands: '318', lastSeen: 'Online now', roles: ['Moderator', 'Member', 'Level 40'], accountAge: '6 years', risk: 'Low' },
-  { id: '445065339653247765', name: 'orbitals', displayName: 'Orbitals', role: 'Member', joined: '4 months ago', joinedAt: '2 Jun 2026, 11:37', activity: 'Low', cases: 0, messages: '341', commands: '18', lastSeen: '12 days ago', roles: ['Member'], accountAge: '3 years', risk: 'Low' },
-  { id: '554176440764358876', name: 'papercrane', displayName: 'Paper Crane', role: 'Administrator', joined: '1 year ago', joinedAt: '19 Sep 2025, 20:01', activity: 'High', cases: 0, messages: '8,419', commands: '754', lastSeen: 'Online now', roles: ['Administrator', 'Moderator', 'Member'], accountAge: '8 years', risk: 'Low' },
+  { id: '118742006320914432', name: 'silver.arc', displayName: 'Silver', avatarUrl: null as string | null, role: 'Member', joined: 'Today', joinedAt: '11 Oct 2026, 18:42', activity: 'High', cases: 1, messages: '184', commands: '23', lastSeen: '4 minutes ago', roles: ['Member', 'Level 10'], accountAge: '4 years', risk: 'Low' },
+  { id: '227843117431025543', name: 'nocturne', displayName: 'Nocturne', avatarUrl: null as string | null, role: 'Member', joined: '3 days ago', joinedAt: '8 Oct 2026, 09:14', activity: 'Medium', cases: 2, messages: '96', commands: '12', lastSeen: '2 hours ago', roles: ['Member', 'Art'], accountAge: '2 years', risk: 'Medium' },
+  { id: '336954228542136654', name: 'mossbyte', displayName: 'Moss', avatarUrl: null as string | null, role: 'Moderator', joined: '2 months ago', joinedAt: '12 Aug 2026, 15:05', activity: 'High', cases: 0, messages: '2,814', commands: '318', lastSeen: 'Online now', roles: ['Moderator', 'Member', 'Level 40'], accountAge: '6 years', risk: 'Low' },
+  { id: '445065339653247765', name: 'orbitals', displayName: 'Orbitals', avatarUrl: null as string | null, role: 'Member', joined: '4 months ago', joinedAt: '2 Jun 2026, 11:37', activity: 'Low', cases: 0, messages: '341', commands: '18', lastSeen: '12 days ago', roles: ['Member'], accountAge: '3 years', risk: 'Low' },
+  { id: '554176440764358876', name: 'papercrane', displayName: 'Paper Crane', avatarUrl: null as string | null, role: 'Administrator', joined: '1 year ago', joinedAt: '19 Sep 2025, 20:01', activity: 'High', cases: 0, messages: '8,419', commands: '754', lastSeen: 'Online now', roles: ['Administrator', 'Moderator', 'Member'], accountAge: '8 years', risk: 'Low' },
 ]
 
 export function HealthPage() {
@@ -62,7 +63,7 @@ export function MembersPage() {
   const filtered = directory.filter((member) => `${member.name} ${member.id}`.toLowerCase().includes(query.toLowerCase()))
   return <div className="page-stack"><PageIntro eyebrow="Community" title="Members" description="Member activity, roles, and moderation context." action={<Button onClick={() => downloadCsv(`orivane-${serverId}-members.csv`, filtered, serverId)}><Users size={16} />Export members</Button>} />
     <section className="system-metrics three"><Metric icon={Users} label="Observed members" value={directory.length.toLocaleString()} note="Seen in commands or moderation" /><Metric icon={UserRoundCheck} label="Active (30d)" value={summary.data?.active_members_30d.toLocaleString() ?? '—'} note="Distinct slash-command users" /><Metric icon={ShieldCheck} label="Open cases" value={summary.data?.open_cases.toLocaleString() ?? '—'} note="Current moderation cases" /></section>
-    <Panel className="system-panel"><div className="table-toolbar"><div><h3>Member directory</h3><Badge tone="neutral">{isDemoMode ? 'Demo data' : 'Observed identities'}</Badge></div><label className="search-box"><Search size={15} /><input aria-label="Search server members" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a member" /></label></div><div className="member-list">{filtered.map((member) => <Link key={member.id} to="/servers/$serverId/members/$memberId" params={{ serverId, memberId: member.id }}><span className="case-avatar">{member.name.slice(-2).toUpperCase()}</span><span><strong>{member.name}</strong><small>{member.id} · {member.lastSeen}</small></span><Badge tone={member.role === 'Member' ? 'neutral' : 'violet'}>{member.role}</Badge><span><strong>{member.activity}</strong><small>activity</small></span><span><strong>{member.cases}</strong><small>cases</small></span><em>View →</em></Link>)}</div></Panel>
+    <Panel className="system-panel"><div className="table-toolbar"><div><h3>Member directory</h3><Badge tone="neutral">{isDemoMode ? 'Demo data' : 'Observed identities'}</Badge></div><label className="search-box"><Search size={15} /><input aria-label="Search server members" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a member" /></label></div><div className="member-list">{filtered.map((member) => <Link key={member.id} to="/servers/$serverId/members/$memberId" params={{ serverId, memberId: member.id }}><DiscordAvatar className="case-avatar" avatarUrl={member.avatarUrl} name={member.name} /><span><strong>{member.name}</strong><small>{member.id} · {member.lastSeen}</small></span><Badge tone={member.role === 'Member' ? 'neutral' : 'violet'}>{member.role}</Badge><span><strong>{member.activity}</strong><small>activity</small></span><span><strong>{member.cases}</strong><small>cases</small></span><em>View →</em></Link>)}</div></Panel>
   </div>
 }
 
@@ -75,7 +76,7 @@ export function MemberDetailPage() {
 
   return <div className="page-stack">
     <Link to="/servers/$serverId/members" params={{ serverId }} className="back-link"><ArrowLeft size={14} />Back to members</Link>
-    <section className="member-profile-header"><span className="member-profile-avatar">{member.name.slice(0, 2).toUpperCase()}</span><div><p className="eyebrow">Discord member · {member.id}</p><h2>{member.displayName}</h2><p>@{member.name} · Last seen {member.lastSeen}</p></div><Badge tone={member.risk === 'Low' ? 'green' : 'amber'}>{member.risk} risk</Badge></section>
+    <section className="member-profile-header"><DiscordAvatar className="member-profile-avatar" avatarUrl={member.avatarUrl} name={member.name} /><div><p className="eyebrow">Discord member · {member.id}</p><h2>{member.displayName}</h2><p>@{member.name} · Last seen {member.lastSeen}</p></div><Badge tone={member.risk === 'Low' ? 'green' : 'amber'}>{member.risk} risk</Badge></section>
     <section className="system-metrics"><Metric icon={MessageSquare} label="Messages (30d)" value={member.messages} note={`${member.activity} activity`} /><Metric icon={Command} label="Commands (30d)" value={member.commands} note="Slash commands only" /><Metric icon={ShieldCheck} label="Moderation cases" value={String(member.cases)} note={member.cases ? 'Review available below' : 'No recorded cases'} /><Metric icon={CalendarDays} label="Account age" value={member.accountAge} note={`Joined ${member.joined}`} /></section>
     <section className="member-detail-grid"><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Profile</p><h3>Server context</h3></div></div><dl className="detail-list"><div><dt>Discord ID</dt><dd>{member.id}</dd></div><div><dt>Joined server</dt><dd>{member.joinedAt}</dd></div><div><dt>Highest role</dt><dd>{member.role}</dd></div><div><dt>Last active</dt><dd>{member.lastSeen}</dd></div></dl><div className="role-list"><p className="eyebrow">Roles</p>{member.roles.map((role) => <Badge key={role} tone={role === 'Member' ? 'neutral' : 'violet'}>{role}</Badge>)}</div></Panel><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Moderation</p><h3>Case history</h3></div><Badge tone={member.cases ? 'amber' : 'green'}>{member.cases} cases</Badge></div>{member.cases ? <div className="member-case"><span>#1042</span><div><strong>Automod warning</strong><small>Repeated message pattern · resolved by mossbyte</small></div><time>Today, 19:04</time></div> : <div className="quiet-state"><ShieldCheck size={24} /><strong>No moderation history</strong><span>This member has no recorded cases.</span></div>}</Panel></section>
   </div>
@@ -86,6 +87,7 @@ function observedMember(member: Awaited<ReturnType<typeof getGuildMembers>>[numb
     id: member.id,
     name: member.username ?? `Discord user ${member.id.slice(-4)}`,
     displayName: member.display_name ?? member.username ?? `Discord user ${member.id.slice(-4)}`,
+    avatarUrl: member.avatar_url,
     role: 'Observed',
     joined: 'Not tracked',
     joinedAt: 'Not available from operational telemetry',

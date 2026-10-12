@@ -11,6 +11,7 @@ export type GlobalUser = {
   id: string
   username: string
   displayName: string
+  avatarUrl?: string | null
   kind: 'Installer' | 'Member'
   servers: number
   installedServers: number

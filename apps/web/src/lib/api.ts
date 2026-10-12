@@ -392,7 +392,7 @@ export async function getServers(): Promise<ConnectedServer[]> {
   }))
 }
 
-type UserResponse = { id: string; username: string | null; display_name: string | null; servers: number; installed_servers: number; install_commands_30d: number; commands: number; cases: number; last_seen: string | null }
+type UserResponse = { id: string; username: string | null; display_name: string | null; avatar_url: string | null; servers: number; installed_servers: number; install_commands_30d: number; commands: number; cases: number; last_seen: string | null }
 type UserContextResponse = { server_id: string; server_name: string; relationship: UserServerContext['relationship']; commands: number; cases: number; last_seen: string | null }
 
 function displayUser(user: UserResponse, contexts: UserServerContext[] = []): GlobalUser {
@@ -401,6 +401,7 @@ function displayUser(user: UserResponse, contexts: UserServerContext[] = []): Gl
     id: user.id,
     username,
     displayName: user.display_name ?? (user.username ? user.username : `Discord user ${user.id.slice(-4)}`),
+    avatarUrl: user.avatar_url,
     kind: user.installed_servers ? 'Installer' : 'Member',
     servers: user.servers,
     installedServers: user.installed_servers,
@@ -481,6 +482,7 @@ export type GuildMemberSummary = {
   id: string
   username: string | null
   display_name: string | null
+  avatar_url: string | null
   commands_30d: number
   cases: number
   last_seen: string | null

@@ -2689,6 +2689,10 @@ impl Infrastructure {
                              (SELECT u.name FROM account oauth_account JOIN \"user\" u ON u.id = oauth_account.\"userId\" \
                               WHERE oauth_account.\"providerId\" = 'discord' AND oauth_account.\"accountId\" = i.user_id LIMIT 1)) \
                     AS display_name, \
+                    COALESCE((SELECT d.avatar_url FROM discord_identities d WHERE d.user_id = i.user_id), \
+                             (SELECT u.image FROM account oauth_account JOIN \"user\" u ON u.id = oauth_account.\"userId\" \
+                              WHERE oauth_account.\"providerId\" = 'discord' AND oauth_account.\"accountId\" = i.user_id LIMIT 1)) \
+                    AS avatar_url, \
                     count(DISTINCT a.guild_id) AS servers, \
                     (SELECT count(*) FROM connected_guilds g WHERE g.installer_id = i.user_id AND g.connected) AS installed_servers, \
                     count(*) FILTER (WHERE a.action LIKE 'slash_command.%' AND a.occurred_at >= now() - interval '30 days' \
@@ -2737,13 +2741,13 @@ impl Infrastructure {
                SELECT actor_id AS user_id FROM audit_events WHERE guild_id = $1 AND actor_kind = 'user' AND actor_id ~ '^[1-9][0-9]{0,19}$' \
                UNION SELECT member_id FROM moderation_cases WHERE guild_id = $1 \
              ) \
-             SELECT i.user_id AS id, d.username, d.display_name, \
+             SELECT i.user_id AS id, d.username, d.display_name, d.avatar_url, \
                     count(a.id) FILTER (WHERE a.action LIKE 'slash_command.%' AND a.occurred_at >= now() - interval '30 days') AS commands_30d, \
                     (SELECT count(*) FROM moderation_cases c WHERE c.guild_id = $1 AND c.member_id = i.user_id) AS cases, \
                     max(a.occurred_at) AS last_seen \
              FROM identities i LEFT JOIN discord_identities d ON d.user_id = i.user_id \
              LEFT JOIN audit_events a ON a.guild_id = $1 AND a.actor_id = i.user_id \
-             GROUP BY i.user_id, d.username, d.display_name ORDER BY last_seen DESC NULLS LAST",
+             GROUP BY i.user_id, d.username, d.display_name, d.avatar_url ORDER BY last_seen DESC NULLS LAST",
         )
         .bind(guild_id)
         .fetch_all(&self.pool)

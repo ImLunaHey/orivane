@@ -212,6 +212,8 @@ nav { margin-top: 22px; }
 .report-bottom { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, .7fr); gap: 12px; }.insight-panel, .report-notes { padding: 18px; }.insight-row { min-height: 66px; padding: 12px 0; display: grid; grid-template-columns: 68px 1fr; align-items: center; gap: 10px; border-top: 1px solid #25252a; }.insight-row strong, .insight-row small { display: block; }.insight-row strong { font-size: 12px; }.insight-row small { margin-top: 3px; color: #9999a3; font-size: 12px; line-height: 1.5; }.report-notes h3 { margin: 4px 0 18px; font-size: 15px; }.report-notes dl { margin: 0; }.report-notes dl div { padding: 12px 0; display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #25252a; font-size: 12px; }.report-notes dt { color: #a0a0aa; }.report-notes dd { margin: 0; color: #d0d0d5; }
 .table-panel { overflow: hidden; }.table-toolbar { padding: 17px 18px; display: flex; align-items: center; justify-content: space-between; }.table-toolbar > div { display: flex; gap: 8px; align-items: center; }.table-toolbar h3 { margin: 0; font-size: 15px; }.search-box { width: 230px; display: flex; align-items: center; gap: 7px; }.search-box svg { color: #9999a3; }.search-box input { width: 100%; border: 0; outline: 0; color: white; background: transparent; font-size: 13px; }.table-scroll { overflow-x: auto; }table { width: 100%; border-collapse: collapse; }th { padding: 12px 18px; text-align: left; color: #a0a0aa; background: #171719; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }td { padding: 15px 18px; border-top: 1px solid #29292f; color: #b0b0b8; font-size: 12px; }td:first-child { color: #e0e0e3; font-weight: 600; }.event-name { display: flex; align-items: center; gap: 7px; }.event-name svg { color: #a78bfa; }.table-foot { padding: 12px 18px; display: flex; justify-content: space-between; border-top: 1px solid #242429; color: #9999a3; font-size: 12px; }
 .moderation-grid { grid-template-columns: repeat(4, 1fr); }.moderation-grid .panel { padding: 16px; }.moderation-grid strong { display: block; margin: 14px 0 2px; font-size: 22px; }.moderation-grid p { margin: 0; font-size: 12px; }.moderation-grid small { color: #9999a3; font-size: 12px; }.case-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: #c4b5fd; background: #28213b; font-size: 12px; font-weight: 700; }
+.discord-avatar-image { display: block; object-fit: cover; color: transparent; }
+.discord-member-avatar { width: 22px; height: 22px; display: grid; flex: 0 0 22px; place-items: center; border: 1px solid #3b3548; background: #28213b; color: #c4b5fd; font-size: 9px; font-weight: 700; }
 .backdrop { display: none; }
 
 /* Square, utilitarian geometry for all rectangular controls and surfaces. */
@@ -230,6 +232,7 @@ nav { margin-top: 22px; }
 .search-box,
 .error-banner,
 .case-avatar,
+.discord-member-avatar,
 .uptime,
 .system-icon,
 .command-palette,

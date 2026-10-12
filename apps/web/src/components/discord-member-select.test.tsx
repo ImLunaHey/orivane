@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { DiscordMemberSelect } from './discord-member-select'
 
 const members = [
-  { id: '100', username: 'imlunahey', display_name: 'luna', commands_30d: 4, cases: 0, last_seen: null },
-  { id: '200', username: 'helper', display_name: 'Support Helper', commands_30d: 1, cases: 0, last_seen: null },
+  { id: '100', username: 'imlunahey', display_name: 'luna', avatar_url: null, commands_30d: 4, cases: 0, last_seen: null },
+  { id: '200', username: 'helper', display_name: 'Support Helper', avatar_url: null, commands_30d: 1, cases: 0, last_seen: null },
 ]
 
 describe('DiscordMemberSelect', () => {
