@@ -51,6 +51,25 @@ impl BotModule for VerificationModule {
         let eligible = event.account_age_seconds
             >= u64::from(settings.minimum_account_age_days) * 86_400
             && (!settings.require_avatar || event.has_avatar);
+        let rejection_reason =
+            if event.account_age_seconds < u64::from(settings.minimum_account_age_days) * 86_400 {
+                Some("account_too_new")
+            } else if settings.require_avatar && !event.has_avatar {
+                Some("avatar_required")
+            } else {
+                None
+            };
+        context
+            .services
+            .record_verification_attempt(
+                event.guild_id,
+                event.user_id,
+                if eligible { "pending" } else { "rejected" },
+                rejection_reason,
+                event.account_age_seconds / 86_400,
+                event.has_avatar,
+            )
+            .await?;
         let channel = settings
             .channel_id
             .as_deref()
@@ -136,6 +155,17 @@ impl BotModule for VerificationModule {
                 CommandResponse::ephemeral(
                     "Verification complete. You now have access to the server.",
                 ),
+            )
+            .await?;
+        context
+            .services
+            .record_verification_attempt(
+                interaction.guild_id,
+                interaction.actor_id,
+                "verified",
+                None,
+                0,
+                false,
             )
             .await?;
         Ok(Some(ModuleEventOutcome {

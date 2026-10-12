@@ -438,6 +438,16 @@ pub struct WelcomeConfig {
     #[serde(default = "default_welcome_message")]
     pub message: String,
     #[serde(default)]
+    pub additional_messages: Vec<String>,
+    #[serde(default)]
+    pub embed_enabled: bool,
+    #[serde(default)]
+    pub embed_title: String,
+    #[serde(default)]
+    pub embed_color: u32,
+    #[serde(default)]
+    pub image_url: String,
+    #[serde(default)]
     pub dm_enabled: bool,
     #[serde(default = "default_welcome_dm_message")]
     pub dm_message: String,
@@ -446,6 +456,8 @@ pub struct WelcomeConfig {
     pub goodbye_channel_id: Option<String>,
     #[serde(default = "default_goodbye_message")]
     pub goodbye_message: String,
+    #[serde(default)]
+    pub goodbye_additional_messages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -483,6 +495,8 @@ pub struct LoggingConfig {
     pub voice_channel_id: Option<String>,
     #[serde(default)]
     pub ignored_channel_ids: Vec<String>,
+    #[serde(default = "default_audit_retention_days")]
+    pub retention_days: u16,
 }
 
 impl Default for LoggingConfig {
@@ -505,6 +519,7 @@ impl Default for LoggingConfig {
             channel_event_channel_id: None,
             voice_channel_id: None,
             ignored_channel_ids: Vec::new(),
+            retention_days: default_audit_retention_days(),
         }
     }
 }
@@ -570,6 +585,14 @@ pub struct StarboardConfig {
     pub allow_self_stars: bool,
     #[serde(default)]
     pub ignored_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub channel_thresholds: Vec<StarboardChannelThreshold>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct StarboardChannelThreshold {
+    pub channel_id: String,
+    pub threshold: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -605,9 +628,15 @@ pub struct CustomCommandConfig {
     pub description: String,
     pub response: String,
     #[serde(default)]
+    pub additional_responses: Vec<String>,
+    #[serde(default)]
     pub ephemeral: bool,
     #[serde(default)]
     pub allowed_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub allowed_role_ids: Vec<String>,
+    #[serde(default)]
+    pub cooldown_seconds: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -684,6 +713,14 @@ pub struct AutoresponseConfig {
     pub allowed_channel_ids: Vec<String>,
     #[serde(default)]
     pub ignored_role_ids: Vec<String>,
+    #[serde(default)]
+    pub cooldown_seconds: u32,
+    #[serde(default)]
+    pub reactions: Vec<String>,
+    #[serde(default)]
+    pub embed_title: String,
+    #[serde(default)]
+    pub embed_color: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -740,17 +777,45 @@ pub struct ScheduledMessageConfig {
     pub id: String,
     pub channel_id: String,
     pub message: String,
+    #[serde(default = "default_schedule_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub weekdays: Vec<u8>,
+    #[serde(default)]
+    pub timezone_offset_minutes: i16,
+    #[serde(default)]
+    pub embed_template_id: Option<i64>,
     pub starts_at_unix: u64,
     pub interval_minutes: u32,
     pub ends_at_unix: Option<u64>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+fn default_schedule_kind() -> String {
+    "interval".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct FormsConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub forms: Vec<FormConfig>,
+    #[serde(default = "default_form_retention_days")]
+    pub retention_days: u16,
+}
+
+impl Default for FormsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            forms: Vec::new(),
+            retention_days: default_form_retention_days(),
+        }
+    }
+}
+
+const fn default_form_retention_days() -> u16 {
+    365
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1162,7 +1227,27 @@ impl GuildConfig {
             return Err(ConfigValidationError::MissingWelcomeChannel);
         }
         if self.modules.welcome.dm_message.chars().count() > 2_000
+            || self.modules.welcome.message.chars().count() > 2_000
+            || self.modules.welcome.additional_messages.len() > 20
+            || self
+                .modules
+                .welcome
+                .additional_messages
+                .iter()
+                .any(|message| message.trim().is_empty() || message.chars().count() > 2_000)
+            || self.modules.welcome.embed_title.chars().count() > 256
+            || self.modules.welcome.embed_color > 0x00ff_ffff
+            || !(self.modules.welcome.image_url.is_empty()
+                || self.modules.welcome.image_url.starts_with("https://")
+                || self.modules.welcome.image_url.starts_with("http://"))
             || self.modules.welcome.goodbye_message.chars().count() > 2_000
+            || self.modules.welcome.goodbye_additional_messages.len() > 20
+            || self
+                .modules
+                .welcome
+                .goodbye_additional_messages
+                .iter()
+                .any(|message| message.trim().is_empty() || message.chars().count() > 2_000)
             || (self.modules.welcome.goodbye_enabled
                 && self
                     .modules
@@ -1185,6 +1270,7 @@ impl GuildConfig {
         }
         let logging = &self.modules.logging;
         if invalid_snowflake_list(&logging.ignored_channel_ids, 100)
+            || !(30..=3_650).contains(&logging.retention_days)
             || [
                 logging.command_channel_id.as_deref(),
                 logging.message_channel_id.as_deref(),
@@ -1224,7 +1310,22 @@ impl GuildConfig {
         if !(1..=100).contains(&self.modules.starboard.threshold) {
             return Err(ConfigValidationError::InvalidStarboardThreshold);
         }
-        if invalid_snowflake_list(&self.modules.starboard.ignored_channel_ids, 100) {
+        if invalid_snowflake_list(&self.modules.starboard.ignored_channel_ids, 100)
+            || self.modules.starboard.channel_thresholds.len() > 100
+            || self
+                .modules
+                .starboard
+                .channel_thresholds
+                .iter()
+                .enumerate()
+                .any(|(index, override_)| {
+                    !valid_snowflake(&override_.channel_id)
+                        || !(1..=100).contains(&override_.threshold)
+                        || self.modules.starboard.channel_thresholds[..index]
+                            .iter()
+                            .any(|other| other.channel_id == override_.channel_id)
+                })
+        {
             return Err(ConfigValidationError::InvalidStarboardThreshold);
         }
         if self.modules.tickets.enabled
@@ -1274,7 +1375,13 @@ impl GuildConfig {
                     || command.description.chars().count() > 100
                     || command.response.is_empty()
                     || command.response.chars().count() > 2_000
+                    || command.additional_responses.len() > 20
+                    || command.additional_responses.iter().any(|response| {
+                        response.trim().is_empty() || response.chars().count() > 2_000
+                    })
                     || invalid_snowflake_list(&command.allowed_channel_ids, 100)
+                    || invalid_snowflake_list(&command.allowed_role_ids, 100)
+                    || command.cooldown_seconds > 86_400
             })
         {
             return Err(ConfigValidationError::InvalidCustomCommands);
@@ -1347,10 +1454,24 @@ impl GuildConfig {
                     || response.response.chars().count() > 2_000
                     || !matches!(
                         response.match_mode.as_str(),
-                        "exact" | "contains" | "starts_with"
+                        "exact" | "contains" | "starts_with" | "regex"
                     )
+                    || response.match_mode == "regex"
+                        && regex::RegexBuilder::new(&response.trigger)
+                            .case_insensitive(!response.case_sensitive)
+                            .size_limit(256 * 1024)
+                            .build()
+                            .is_err()
                     || invalid_snowflake_list(&response.allowed_channel_ids, 100)
                     || invalid_snowflake_list(&response.ignored_role_ids, 100)
+                    || response.cooldown_seconds > 86_400
+                    || response.reactions.len() > 5
+                    || response
+                        .reactions
+                        .iter()
+                        .any(|reaction| reaction.trim().is_empty() || reaction.chars().count() > 32)
+                    || response.embed_title.chars().count() > 256
+                    || response.embed_color > 0x00ff_ffff
             })
         {
             return Err(ConfigValidationError::InvalidAutoresponder);
@@ -1392,7 +1513,21 @@ impl GuildConfig {
                     || !valid_snowflake(&schedule.channel_id)
                     || schedule.message.trim().is_empty()
                     || schedule.message.chars().count() > 2_000
-                    || !(1..=525_600).contains(&schedule.interval_minutes)
+                    || !matches!(schedule.kind.as_str(), "once" | "interval" | "weekdays")
+                    || (schedule.kind == "interval"
+                        && !(1..=525_600).contains(&schedule.interval_minutes))
+                    || (schedule.kind == "weekdays"
+                        && (schedule.weekdays.is_empty()
+                            || schedule.weekdays.len() > 7
+                            || schedule.weekdays.iter().any(|day| !(1..=7).contains(day))
+                            || schedule
+                                .weekdays
+                                .iter()
+                                .collect::<std::collections::HashSet<_>>()
+                                .len()
+                                != schedule.weekdays.len()))
+                    || !(-840..=840).contains(&schedule.timezone_offset_minutes)
+                    || schedule.embed_template_id.is_some_and(|id| id <= 0)
                     || schedule.starts_at_unix == 0
                     || schedule
                         .ends_at_unix
@@ -1405,6 +1540,7 @@ impl GuildConfig {
         let forms = &self.modules.forms;
         let mut form_ids = std::collections::HashSet::new();
         if (forms.enabled && forms.forms.is_empty())
+            || !(1..=3650).contains(&forms.retention_days)
             || forms.forms.len() > 25
             || forms.forms.iter().any(|form| {
                 let mut question_ids = std::collections::HashSet::new();
@@ -1668,6 +1804,7 @@ impl Default for StarboardConfig {
             threshold: default_starboard_threshold(),
             allow_self_stars: false,
             ignored_channel_ids: Vec::new(),
+            channel_thresholds: Vec::new(),
         }
     }
 }
@@ -1748,17 +1885,26 @@ impl Default for WelcomeConfig {
             enabled: false,
             channel_id: None,
             message: default_welcome_message(),
+            additional_messages: Vec::new(),
+            embed_enabled: false,
+            embed_title: String::new(),
+            embed_color: 0,
+            image_url: String::new(),
             dm_enabled: false,
             dm_message: default_welcome_dm_message(),
             goodbye_enabled: false,
             goodbye_channel_id: None,
             goodbye_message: default_goodbye_message(),
+            goodbye_additional_messages: Vec::new(),
         }
     }
 }
 
 const fn default_max_mentions() -> u8 {
     5
+}
+const fn default_audit_retention_days() -> u16 {
+    365
 }
 const fn default_max_caps_percentage() -> u8 {
     80
