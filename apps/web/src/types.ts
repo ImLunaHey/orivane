@@ -56,6 +56,7 @@ export type GuildConfig = {
     giveaways: { enabled: boolean; default_channel_id: string | null; manager_role_ids: string[]; default_duration_minutes: number; default_winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number }
     reminders: { enabled: boolean; allow_direct_messages: boolean; max_active_per_user: number; minimum_delay_minutes: number; maximum_delay_days: number }
     auto_delete: { enabled: boolean; rules: AutoDeleteRule[] }
+    managed_embeds: { enabled: boolean }
   }
 }
 
@@ -76,6 +77,10 @@ export type ReminderStatus = 'scheduled' | 'delivering' | 'delivered' | 'cancell
 export type Reminder = { id: number; guild_id: string; channel_id: string | null; user_id: string; username: string | null; display_name: string | null; message: string; delivery_mode: 'channel' | 'dm'; status: ReminderStatus; remind_at: string; next_attempt_at: string; delivered_at: string | null; attempts: number; created_at: string; updated_at: string }
 export type AutoDeleteRule = { enabled: boolean; id: string; channel_id: string; delay_seconds: number; ignore_bot_messages: boolean; excluded_role_ids: string[] }
 export type MessageDeletionJob = { guild_id: string; channel_id: string; message_id: string; rule_id: string; author_id: string; source: 'rule'|'purge'; status: 'scheduled'|'delivering'|'deleted'|'failed'|'cancelled'; due_at: string; attempts: number; deleted_at: string|null; created_at: string; updated_at: string }
+export type EmbedField = { name: string; value: string; inline: boolean }
+export type EmbedPayload = { content: string; title: string; description: string; url: string; color: number; author_name: string; author_url: string; author_icon_url: string; footer_text: string; footer_icon_url: string; thumbnail_url: string; image_url: string; timestamp: boolean; fields: EmbedField[] }
+export type EmbedTemplate = { id: number; guild_id: string; name: string; payload: EmbedPayload; created_by: string; created_at: string; updated_at: string }
+export type EmbedDelivery = { id: number; guild_id: string; template_id: number; channel_id: string; message_id: string|null; actor_id: string; action: 'send'|'edit'; status: 'delivered'|'failed'; error: string|null; created_at: string }
 
 export type CustomCommand = {
   enabled: boolean

@@ -8,8 +8,8 @@ use std::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{
-    Giveaway, Infrastructure, NewAuditEvent, NewFormSubmission, NewGiveaway, NewModerationCase,
-    NewReminder, NewSuggestion, Reminder, Suggestion, level_for_xp,
+    Giveaway, Infrastructure, NewAuditEvent, NewEmbedDelivery, NewFormSubmission, NewGiveaway,
+    NewModerationCase, NewReminder, NewSuggestion, Reminder, Suggestion, level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -17,10 +17,11 @@ use bot_discord::{
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, FormSubmissionInput, GiveawayInput, GiveawayResult, MemberJoin,
-    MemberLeave, MessageCreate, MessageDeletionJobResult, ModerationCaseInput, ModuleContext,
-    ModuleServices, ReactionAdd, ReminderInput, ReminderResult, ScheduledTick, SuggestionInput,
-    SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    AuditNotice, BotModule, FormSubmissionInput, GiveawayInput, GiveawayResult,
+    ManagedEmbedDeliveryInput, ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate,
+    MessageDeletionJobResult, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
+    ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
+    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -31,6 +32,7 @@ use bot_module_forms::FormsModule;
 use bot_module_giveaways::GiveawaysModule;
 use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
+use bot_module_managed_embeds::ManagedEmbedsModule;
 use bot_module_moderation::ModerationModule;
 use bot_module_reaction_roles::ReactionRolesModule;
 use bot_module_reminders::RemindersModule;
@@ -56,6 +58,45 @@ struct GatewayModuleServices {
 
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn guild_name(&self, guild_id: u64) -> Result<Option<String>> {
+        Ok(self
+            .infrastructure
+            .connected_guild_name(&guild_id.to_string())
+            .await?)
+    }
+    async fn managed_embed(
+        &self,
+        guild_id: u64,
+        template_id: i64,
+    ) -> Result<Option<ManagedEmbedResult>> {
+        self.infrastructure
+            .embed_template(&guild_id.to_string(), template_id)
+            .await?
+            .map(|template| {
+                Ok(ManagedEmbedResult {
+                    id: template.id,
+                    name: template.name,
+                    payload: serde_json::from_value(template.payload)?,
+                })
+            })
+            .transpose()
+    }
+
+    async fn record_managed_embed_delivery(&self, input: ManagedEmbedDeliveryInput) -> Result<()> {
+        self.infrastructure
+            .record_embed_delivery(&NewEmbedDelivery {
+                guild_id: input.guild_id.to_string(),
+                template_id: input.template_id,
+                channel_id: input.channel_id.to_string(),
+                message_id: input.message_id.map(|id| id.to_string()),
+                actor_id: input.actor_id.to_string(),
+                action: "send".into(),
+                status: input.status,
+                error: input.error,
+            })
+            .await?;
+        Ok(())
+    }
     async fn schedule_message_deletion(
         &self,
         g: u64,
@@ -718,6 +759,7 @@ async fn main() -> Result<()> {
         Arc::new(GiveawaysModule),
         Arc::new(RemindersModule),
         Arc::new(AutoDeleteModule),
+        Arc::new(ManagedEmbedsModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;

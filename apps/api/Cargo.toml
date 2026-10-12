@@ -22,6 +22,7 @@ bot-module-suggestions.workspace = true
 bot-module-giveaways.workspace = true
 bot-module-reminders.workspace = true
 bot-module-auto-delete.workspace = true
+bot-module-managed-embeds.workspace = true
 chrono.workspace = true
 lucid-auth.workspace = true
 openssl.workspace = true

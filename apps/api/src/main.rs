@@ -11,10 +11,11 @@ use axum::{
     routing::get,
 };
 use bot_core::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, Giveaway, GiveawayEntry,
-    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
-    InfrastructureHealth, MessageDeletionJob, ModerationCase, NewAuditEvent, NewGiveaway,
-    NewModerationCase, Reminder, Suggestion, UserGuildContext,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, EmbedDelivery, EmbedPayload, EmbedTemplate,
+    FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats,
+    GuildMemberSummary, Infrastructure, InfrastructureHealth, MessageDeletionJob, ModerationCase,
+    NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate, NewGiveaway, NewModerationCase, Reminder,
+    Suggestion, UserGuildContext,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -84,6 +85,17 @@ struct CreateGiveawayRequest {
     bonus_role_id: Option<String>,
     bonus_entries: u8,
     ends_at_unix: u64,
+}
+
+#[derive(Deserialize)]
+struct SaveEmbedTemplateRequest {
+    name: String,
+    payload: EmbedPayload,
+}
+
+#[derive(Deserialize)]
+struct DeliverEmbedRequest {
+    channel_id: String,
 }
 
 #[tokio::main]
@@ -184,6 +196,28 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/message-deletions/{channel_id}/{message_id}",
             get(get_message_deletion),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/embeds",
+            get(get_embed_templates).post(create_embed_template),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/embeds/{template_id}",
+            get(get_embed_template)
+                .put(update_embed_template)
+                .delete(delete_embed_template),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/embed-deliveries",
+            get(get_embed_deliveries),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/embeds/{template_id}/send",
+            axum::routing::post(send_embed_template),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/embeds/{template_id}/deliveries/{delivery_id}/sync",
+            axum::routing::post(sync_embed_delivery),
         )
         .route(
             "/v1/guilds/{guild_id}/forms/{form_id}/submissions",
@@ -442,6 +476,7 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_giveaways::COMMANDS,
         bot_module_reminders::COMMANDS,
         bot_module_auto_delete::COMMANDS,
+        bot_module_managed_embeds::COMMANDS,
     ];
     groups
         .iter()
@@ -1368,6 +1403,447 @@ async fn get_message_deletion(
     )
     .await;
     Ok(Json(job))
+}
+
+async fn get_embed_templates(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EmbedTemplate>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .embed_templates(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "managed_embeds.templates.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+
+async fn get_embed_template(
+    State(state): State<AppState>,
+    Path((guild_id, template_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<EmbedTemplate>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(template_id, "embed template")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .embed_template(&guild_id, template_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "embed template not found".into()))?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "managed_embeds.template.viewed",
+    )
+    .await;
+    Ok(Json(item))
+}
+
+async fn create_embed_template(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<SaveEmbedTemplateRequest>,
+) -> Result<(StatusCode, Json<EmbedTemplate>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_embed(&input)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .create_embed_template(&NewEmbedTemplate {
+            guild_id: guild_id.clone(),
+            name: input.name.trim().into(),
+            payload: input.payload,
+            created_by: actor.discord_user_id.clone(),
+        })
+        .await
+        .map_err(internal_error)?;
+    record_embed_audit(
+        &state,
+        &actor,
+        &headers,
+        &guild_id,
+        item.id,
+        "managed_embeds.template.created",
+        "success",
+        serde_json::json!({"name":item.name}),
+        None,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn update_embed_template(
+    State(state): State<AppState>,
+    Path((guild_id, template_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<SaveEmbedTemplateRequest>,
+) -> Result<Json<EmbedTemplate>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(template_id, "embed template")?;
+    validate_embed(&input)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .update_embed_template(&guild_id, template_id, &input.name, &input.payload)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "embed template not found".into()))?;
+    record_embed_audit(
+        &state,
+        &actor,
+        &headers,
+        &guild_id,
+        template_id,
+        "managed_embeds.template.updated",
+        "success",
+        serde_json::json!({"name":item.name}),
+        None,
+    )
+    .await?;
+    Ok(Json(item))
+}
+
+async fn delete_embed_template(
+    State(state): State<AppState>,
+    Path((guild_id, template_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(template_id, "embed template")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if !state
+        .infrastructure
+        .delete_embed_template(&guild_id, template_id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "embed template not found".into(),
+        ));
+    }
+    record_embed_audit(
+        &state,
+        &actor,
+        &headers,
+        &guild_id,
+        template_id,
+        "managed_embeds.template.deleted",
+        "success",
+        serde_json::json!({}),
+        None,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_embed_deliveries(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EmbedDelivery>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .embed_deliveries(&guild_id, None, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "managed_embeds.deliveries.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+
+async fn send_embed_template(
+    State(state): State<AppState>,
+    Path((guild_id, template_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<DeliverEmbedRequest>,
+) -> Result<(StatusCode, Json<EmbedDelivery>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(template_id, "embed template")?;
+    validate_snowflake(&input.channel_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let config = state
+        .infrastructure
+        .guild_config(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    if !config.modules.managed_embeds.enabled {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "managed embeds module is disabled".into(),
+        ));
+    }
+    let template = state
+        .infrastructure
+        .embed_template(&guild_id, template_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "embed template not found".into()))?;
+    let payload: EmbedPayload = serde_json::from_value(template.payload).map_err(internal_error)?;
+    let guild_name = state
+        .infrastructure
+        .connected_guild_name(&guild_id)
+        .await
+        .map_err(internal_error)?
+        .unwrap_or_else(|| "this server".into());
+    let rich = bot_module_managed_embeds::rich_embed(
+        &payload,
+        guild_id.parse().expect("validated guild"),
+        &guild_name,
+        actor.discord_user_id.parse().unwrap_or_default(),
+    );
+    let delivery = match api_discord(&state)
+        .await?
+        .send_rich_embed(input.channel_id.parse().expect("validated channel"), &rich)
+        .await
+    {
+        Ok(message_id) => NewEmbedDelivery {
+            guild_id: guild_id.clone(),
+            template_id,
+            channel_id: input.channel_id.clone(),
+            message_id: Some(message_id.to_string()),
+            actor_id: actor.discord_user_id.clone(),
+            action: "send".into(),
+            status: "delivered".into(),
+            error: None,
+        },
+        Err(error) => NewEmbedDelivery {
+            guild_id: guild_id.clone(),
+            template_id,
+            channel_id: input.channel_id.clone(),
+            message_id: None,
+            actor_id: actor.discord_user_id.clone(),
+            action: "send".into(),
+            status: "failed".into(),
+            error: Some(error.to_string()),
+        },
+    };
+    let failed = delivery.status == "failed";
+    let reason = delivery.error.clone();
+    let saved = state
+        .infrastructure
+        .record_embed_delivery(&delivery)
+        .await
+        .map_err(internal_error)?;
+    record_embed_audit(&state,&actor,&headers,&guild_id,template_id,"managed_embeds.sent",if failed{"failure"}else{"success"},serde_json::json!({"channel_id":input.channel_id,"delivery_id":saved.id,"message_id":saved.message_id}),reason.clone()).await?;
+    if failed {
+        return Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            "Discord embed delivery failed".into(),
+        ));
+    }
+    Ok((StatusCode::CREATED, Json(saved)))
+}
+
+async fn sync_embed_delivery(
+    State(state): State<AppState>,
+    Path((guild_id, template_id, delivery_id)): Path<(String, i64, i64)>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<EmbedDelivery>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(template_id, "embed template")?;
+    validate_record_id(delivery_id, "embed delivery")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let config = state
+        .infrastructure
+        .guild_config(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    if !config.modules.managed_embeds.enabled {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "managed embeds module is disabled".into(),
+        ));
+    }
+    let template = state
+        .infrastructure
+        .embed_template(&guild_id, template_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "embed template not found".into()))?;
+    let previous = state
+        .infrastructure
+        .embed_delivery(&guild_id, template_id, delivery_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "embed delivery not found".into()))?;
+    let message_id = previous.message_id.as_deref().ok_or_else(|| {
+        ApiError(
+            StatusCode::CONFLICT,
+            "failed deliveries cannot be synchronized".into(),
+        )
+    })?;
+    let payload: EmbedPayload = serde_json::from_value(template.payload).map_err(internal_error)?;
+    let guild_name = state
+        .infrastructure
+        .connected_guild_name(&guild_id)
+        .await
+        .map_err(internal_error)?
+        .unwrap_or_else(|| "this server".into());
+    let rich = bot_module_managed_embeds::rich_embed(
+        &payload,
+        guild_id.parse().expect("validated guild"),
+        &guild_name,
+        actor.discord_user_id.parse().unwrap_or_default(),
+    );
+    let result = api_discord(&state)
+        .await?
+        .edit_rich_embed(
+            previous.channel_id.parse().expect("stored channel"),
+            message_id.parse().map_err(|_| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "stored message ID is invalid".into(),
+                )
+            })?,
+            &rich,
+        )
+        .await;
+    let error = result.err().map(|e| e.to_string());
+    let saved = state
+        .infrastructure
+        .record_embed_delivery(&NewEmbedDelivery {
+            guild_id: guild_id.clone(),
+            template_id,
+            channel_id: previous.channel_id.clone(),
+            message_id: previous.message_id.clone(),
+            actor_id: actor.discord_user_id.clone(),
+            action: "edit".into(),
+            status: if error.is_some() {
+                "failed".into()
+            } else {
+                "delivered".into()
+            },
+            error: error.clone(),
+        })
+        .await
+        .map_err(internal_error)?;
+    record_embed_audit(
+        &state,
+        &actor,
+        &headers,
+        &guild_id,
+        template_id,
+        "managed_embeds.delivery.synchronized",
+        if error.is_some() {
+            "failure"
+        } else {
+            "success"
+        },
+        serde_json::json!({"delivery_id":saved.id,"source_delivery_id":delivery_id}),
+        error.clone(),
+    )
+    .await?;
+    if error.is_some() {
+        return Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            "Discord embed update failed".into(),
+        ));
+    }
+    Ok((StatusCode::CREATED, Json(saved)))
+}
+
+fn validate_embed(input: &SaveEmbedTemplateRequest) -> Result<(), ApiError> {
+    let p = &input.payload;
+    let total = p.title.chars().count()
+        + p.description.chars().count()
+        + p.author_name.chars().count()
+        + p.footer_text.chars().count()
+        + p.fields
+            .iter()
+            .map(|f| f.name.chars().count() + f.value.chars().count())
+            .sum::<usize>();
+    let invalid_url =
+        |v: &str| !v.is_empty() && !v.starts_with("https://") && !v.starts_with("http://");
+    if input.name.trim().is_empty()
+        || input.name.chars().count() > 100
+        || p.content.chars().count() > 2000
+        || p.title.chars().count() > 256
+        || p.description.chars().count() > 4096
+        || p.author_name.chars().count() > 256
+        || p.footer_text.chars().count() > 2048
+        || p.fields.len() > 25
+        || p.fields.iter().any(|f| {
+            f.name.trim().is_empty()
+                || f.name.chars().count() > 256
+                || f.value.trim().is_empty()
+                || f.value.chars().count() > 1024
+        })
+        || total > 6000
+        || p.color > 0xFF_FF_FF
+        || [
+            &p.url,
+            &p.author_url,
+            &p.author_icon_url,
+            &p.footer_icon_url,
+            &p.thumbnail_url,
+            &p.image_url,
+        ]
+        .into_iter()
+        .any(|v| invalid_url(v))
+        || (p.content.trim().is_empty()
+            && p.title.trim().is_empty()
+            && p.description.trim().is_empty()
+            && p.fields.is_empty()
+            && p.image_url.is_empty())
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid embed template".into(),
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_embed_audit(
+    state: &AppState,
+    actor: &Actor,
+    headers: &HeaderMap,
+    guild_id: &str,
+    template_id: i64,
+    action: &str,
+    outcome: &str,
+    metadata: serde_json::Value,
+    reason: Option<String>,
+) -> Result<(), ApiError> {
+    let mut event = NewAuditEvent::guild(guild_id, &actor.discord_user_id, action);
+    event.source = "dashboard_api".into();
+    event.target_type = "embed_template".into();
+    event.target_id = Some(template_id.to_string());
+    event.outcome = outcome.into();
+    event.metadata = metadata;
+    event.reason = reason;
+    event.request_id = header_value(headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(())
 }
 
 async fn api_discord(state: &AppState) -> Result<TwilightDiscord, ApiError> {

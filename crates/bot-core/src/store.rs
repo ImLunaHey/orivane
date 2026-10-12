@@ -5,11 +5,12 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use thiserror::Error;
 
 use crate::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, Giveaway,
-    GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
-    InfrastructureHealth, MemberXpAward, MemberXpProfile, MessageDeletionJob, ModerationCase,
-    NewAuditEvent, NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion,
-    Reminder, Suggestion, UserGuildContext, config::ConfigValidationError,
+    AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, EmbedDelivery,
+    EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig,
+    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile,
+    MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate,
+    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, Reminder,
+    Suggestion, UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -37,6 +38,91 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn create_embed_template(
+        &self,
+        input: &NewEmbedTemplate,
+    ) -> Result<EmbedTemplate, StoreError> {
+        let payload = serde_json::to_value(&input.payload)?;
+        let id: i64 = sqlx::query_scalar("INSERT INTO embed_templates (guild_id,name,payload,created_by) VALUES ($1,$2,$3,$4) RETURNING id")
+            .bind(&input.guild_id).bind(input.name.trim()).bind(payload).bind(&input.created_by).fetch_one(&self.pool).await?;
+        self.embed_template(&input.guild_id, id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn embed_templates(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<EmbedTemplate>, StoreError> {
+        sqlx::query_as::<_, EmbedTemplate>("SELECT id,guild_id,name,payload,created_by,created_at,updated_at FROM embed_templates WHERE guild_id=$1 AND deleted_at IS NULL ORDER BY updated_at DESC,id DESC LIMIT $2")
+            .bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn embed_template(
+        &self,
+        guild_id: &str,
+        id: i64,
+    ) -> Result<Option<EmbedTemplate>, StoreError> {
+        sqlx::query_as::<_, EmbedTemplate>("SELECT id,guild_id,name,payload,created_by,created_at,updated_at FROM embed_templates WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL")
+            .bind(guild_id).bind(id).fetch_optional(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn update_embed_template(
+        &self,
+        guild_id: &str,
+        id: i64,
+        name: &str,
+        payload: &crate::EmbedPayload,
+    ) -> Result<Option<EmbedTemplate>, StoreError> {
+        let payload = serde_json::to_value(payload)?;
+        let updated: Option<i64> = sqlx::query_scalar("UPDATE embed_templates SET name=$3,payload=$4,updated_at=now() WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL RETURNING id")
+            .bind(guild_id).bind(id).bind(name.trim()).bind(payload).fetch_optional(&self.pool).await?;
+        match updated {
+            Some(_) => self.embed_template(guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn delete_embed_template(&self, guild_id: &str, id: i64) -> Result<bool, StoreError> {
+        Ok(sqlx::query("UPDATE embed_templates SET deleted_at=now(),updated_at=now() WHERE guild_id=$1 AND id=$2 AND deleted_at IS NULL").bind(guild_id).bind(id).execute(&self.pool).await?.rows_affected()==1)
+    }
+
+    pub async fn record_embed_delivery(
+        &self,
+        input: &NewEmbedDelivery,
+    ) -> Result<EmbedDelivery, StoreError> {
+        sqlx::query_as::<_, EmbedDelivery>("INSERT INTO embed_deliveries (guild_id,template_id,channel_id,message_id,actor_id,action,status,error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *")
+            .bind(&input.guild_id).bind(input.template_id).bind(&input.channel_id).bind(&input.message_id).bind(&input.actor_id).bind(&input.action).bind(&input.status).bind(&input.error).fetch_one(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn embed_deliveries(
+        &self,
+        guild_id: &str,
+        template_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<EmbedDelivery>, StoreError> {
+        sqlx::query_as::<_, EmbedDelivery>("SELECT * FROM embed_deliveries WHERE guild_id=$1 AND ($2::bigint IS NULL OR template_id=$2) ORDER BY created_at DESC,id DESC LIMIT $3")
+            .bind(guild_id).bind(template_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn embed_delivery(
+        &self,
+        guild_id: &str,
+        template_id: i64,
+        delivery_id: i64,
+    ) -> Result<Option<EmbedDelivery>, StoreError> {
+        sqlx::query_as::<_, EmbedDelivery>(
+            "SELECT * FROM embed_deliveries WHERE guild_id=$1 AND template_id=$2 AND id=$3",
+        )
+        .bind(guild_id)
+        .bind(template_id)
+        .bind(delivery_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
     pub async fn schedule_message_deletion(
         &self,
         guild_id: &str,

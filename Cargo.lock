@@ -853,6 +853,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-managed-embeds"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-moderation"
 version = "0.1.0"
 dependencies = [
@@ -972,6 +985,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bot-core",
  "bot-discord",
  "bot-module-api",
  "tokio",
@@ -1622,6 +1636,7 @@ dependencies = [
  "bot-module-forms",
  "bot-module-giveaways",
  "bot-module-leveling",
+ "bot-module-managed-embeds",
  "bot-module-moderation",
  "bot-module-reminders",
  "bot-module-suggestions",
@@ -1660,6 +1675,7 @@ dependencies = [
  "bot-module-giveaways",
  "bot-module-leveling",
  "bot-module-logging",
+ "bot-module-managed-embeds",
  "bot-module-moderation",
  "bot-module-reaction-roles",
  "bot-module-reminders",

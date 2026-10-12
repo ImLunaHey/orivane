@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, Reminder, Suggestion, SuggestionStatus } from '../types'
+import type { AuditEvent, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, Reminder, Suggestion, SuggestionStatus } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -81,6 +81,20 @@ export async function saveGuildConfig(config: GuildConfig): Promise<GuildConfig>
     body: JSON.stringify(config),
   })
 }
+
+const embedKey = (guildId: string) => `orivane:embeds:${guildId}`
+const embedDeliveryKey = (guildId: string) => `orivane:embed-deliveries:${guildId}`
+const starterEmbed: EmbedTemplate = { id: 1, guild_id: demoGuildId, name: 'Community rules', payload: { content: '', title: 'Welcome to {server}', description: 'Please read the rules before joining the conversation, {user}.', url: '', color: 5797266, author_name: 'Orivane', author_url: '', author_icon_url: '', footer_text: 'Thanks for helping keep the community welcoming.', footer_icon_url: '', thumbnail_url: '/orivane-avatar.png', image_url: '', timestamp: false, fields: [{ name: 'Be kind', value: 'Treat everyone with respect.', inline: true }, { name: 'Stay on topic', value: 'Use the right channel for each conversation.', inline: true }] }, created_by: demoActorId, created_at: '2026-10-12T12:00:00Z', updated_at: '2026-10-12T12:00:00Z' }
+function demoEmbeds(guildId: string): EmbedTemplate[] { const saved=localStorage.getItem(embedKey(guildId)); return saved?JSON.parse(saved) as EmbedTemplate[]:[{...structuredClone(starterEmbed),guild_id:guildId}] }
+function demoEmbedDeliveries(guildId: string): EmbedDelivery[] { const saved=localStorage.getItem(embedDeliveryKey(guildId)); return saved ? JSON.parse(saved) as EmbedDelivery[] : [] }
+
+export async function getEmbedTemplates(guildId:string):Promise<EmbedTemplate[]>{if(isDemoMode)return demoEmbeds(guildId);return request(`/v1/guilds/${guildId}/embeds`)}
+export async function getEmbedTemplate(guildId:string,templateId:string):Promise<EmbedTemplate>{if(isDemoMode){const item=demoEmbeds(guildId).find(x=>String(x.id)===templateId);if(!item)throw new Error('Embed template not found');return item}return request(`/v1/guilds/${guildId}/embeds/${templateId}`)}
+export async function saveEmbedTemplate(input:{guildId:string;templateId?:string;name:string;payload:EmbedPayload}):Promise<EmbedTemplate>{if(isDemoMode){const items=demoEmbeds(input.guildId),now=new Date().toISOString(),existing=items.find(x=>String(x.id)===input.templateId);const saved:EmbedTemplate=existing?{...existing,name:input.name,payload:input.payload,updated_at:now}:{id:Math.max(0,...items.map(x=>x.id))+1,guild_id:input.guildId,name:input.name,payload:input.payload,created_by:demoActorId,created_at:now,updated_at:now};localStorage.setItem(embedKey(input.guildId),JSON.stringify(existing?items.map(x=>x.id===saved.id?saved:x):[saved,...items]));return saved}return request(`/v1/guilds/${input.guildId}/embeds${input.templateId?`/${input.templateId}`:''}`,{method:input.templateId?'PUT':'POST',body:JSON.stringify({name:input.name,payload:input.payload})})}
+export async function deleteEmbedTemplate(guildId:string,templateId:string):Promise<void>{if(isDemoMode){localStorage.setItem(embedKey(guildId),JSON.stringify(demoEmbeds(guildId).filter(x=>String(x.id)!==templateId)));return}return request(`/v1/guilds/${guildId}/embeds/${templateId}`,{method:'DELETE'})}
+export async function getEmbedDeliveries(guildId:string):Promise<EmbedDelivery[]>{if(isDemoMode)return demoEmbedDeliveries(guildId);return request(`/v1/guilds/${guildId}/embed-deliveries`)}
+export async function sendEmbedTemplate(input:{guildId:string;templateId:string;channelId:string}):Promise<EmbedDelivery>{if(isDemoMode){const item:EmbedDelivery={id:Date.now(),guild_id:input.guildId,template_id:Number(input.templateId),channel_id:input.channelId,message_id:String(Date.now()+1),actor_id:demoActorId,action:'send',status:'delivered',error:null,created_at:new Date().toISOString()};localStorage.setItem(embedDeliveryKey(input.guildId),JSON.stringify([item,...demoEmbedDeliveries(input.guildId)]));return item}return request(`/v1/guilds/${input.guildId}/embeds/${input.templateId}/send`,{method:'POST',body:JSON.stringify({channel_id:input.channelId})})}
+export async function syncEmbedDelivery(input:{guildId:string;templateId:string;deliveryId:string}):Promise<EmbedDelivery>{if(isDemoMode){const previous=demoEmbedDeliveries(input.guildId).find(x=>String(x.id)===input.deliveryId);if(!previous)throw new Error('Embed delivery not found');const item={...previous,id:Date.now(),action:'edit' as const,created_at:new Date().toISOString()};localStorage.setItem(embedDeliveryKey(input.guildId),JSON.stringify([item,...demoEmbedDeliveries(input.guildId)]));return item}return request(`/v1/guilds/${input.guildId}/embeds/${input.templateId}/deliveries/${input.deliveryId}/sync`,{method:'POST'})}
 
 const demoSubmissions: FormSubmission[] = [{
   id: 1,

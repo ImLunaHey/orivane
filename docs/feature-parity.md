@@ -32,6 +32,7 @@ Reference feature sets:
 | Giveaways | Live | Slash and dashboard creation, button entry, automatic durable draws, unique weighted entries, role/account-age eligibility, multiple winners, manual ending, rerolls, entrants and analytics | Rich embeds, external membership requirements and recurring giveaways |
 | Reminders | Live | `/remind`, `/reminders`, and `/reminder-cancel`; channel or DM delivery, per-member limits, durable claiming, exponential retries, terminal failure state, dashboard directory/details and analytics | Natural-language dates, repeating reminders and cross-server personal inbox |
 | Auto-delete | Live | Per-channel delayed deletion rules, bot/role exclusions, durable content-free queue, retries and crash recovery, `/purge`, queue analytics | Attachment/type filters and calendar-based purge windows |
+| Managed embeds | Live | Reusable rich embed templates, Discord-style preview, variable autocomplete, fields/media/author/footer/timestamp controls, `/embed-send`, dashboard sends, synchronized edits, durable delivery history and analytics | Attachments, webhook identity overrides and scheduled template delivery |
 
 ## Popular-bot areas not yet implemented
 
@@ -39,7 +40,6 @@ These are not represented as fake or configuration-only cards in the dashboard.
 
 | Capability family | Seen in | Orivane status |
 | --- | --- | --- |
-| Managed embeds | Dyno and Carl-bot-class bots | Not built |
 | Social feeds | Dyno and MEE6-class bots | Not built |
 | Economy, points, games and tags | Dyno and MEE6-class bots | Not built |
 | AFK and keyword highlights | Dyno | Not built |

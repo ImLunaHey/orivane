@@ -7,12 +7,12 @@ use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
     DiscordError, GuildChannel, GuildRole, MessageButton, MessageReactionSummary, ModalDefinition,
-    ModalSubmitInteraction,
+    ModalSubmitInteraction, RichEmbed,
 };
 use bot_module_api::{
-    FormSubmissionInput, GiveawayInput, GiveawayResult, MessageDeletionJobResult,
-    ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult, SuggestionInput,
-    SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedResult,
+    MessageDeletionJobResult, ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult,
+    SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +44,15 @@ pub enum DiscordCall {
         channel_id: u64,
         content: String,
         buttons: Vec<MessageButton>,
+    },
+    SendRichEmbed {
+        channel_id: u64,
+        embed: RichEmbed,
+    },
+    EditRichEmbed {
+        channel_id: u64,
+        message_id: u64,
+        embed: RichEmbed,
     },
     SendDirectMessage {
         user_id: u64,
@@ -272,6 +281,21 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn managed_embed(
+        &self,
+        _guild_id: u64,
+        template_id: i64,
+    ) -> anyhow::Result<Option<ManagedEmbedResult>> {
+        Ok(Some(ManagedEmbedResult {
+            id: template_id,
+            name: "Rules".into(),
+            payload: bot_core::EmbedPayload {
+                title: "Welcome {user} to {server}".into(),
+                description: "Read the rules".into(),
+                ..Default::default()
+            },
+        }))
+    }
     async fn schedule_message_deletion(
         &self,
         _: u64,
@@ -1085,6 +1109,35 @@ impl DiscordApi for FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .next_message_id)
+    }
+
+    async fn send_rich_embed(
+        &self,
+        channel_id: u64,
+        embed: &RichEmbed,
+    ) -> Result<u64, DiscordError> {
+        self.record(DiscordCall::SendRichEmbed {
+            channel_id,
+            embed: embed.clone(),
+        })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .next_message_id)
+    }
+
+    async fn edit_rich_embed(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        embed: &RichEmbed,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::EditRichEmbed {
+            channel_id,
+            message_id,
+            embed: embed.clone(),
+        })
     }
 
     async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError> {

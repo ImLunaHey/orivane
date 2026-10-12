@@ -17,6 +17,8 @@ const representativeRoutes = [
   '/servers/901234567890123456',
   '/servers/901234567890123456/modules',
   '/servers/901234567890123456/modules/welcome',
+  '/servers/901234567890123456/modules/managed_embeds',
+  '/servers/901234567890123456/modules/managed_embeds/1',
   '/servers/901234567890123456/moderation',
   '/servers/901234567890123456/moderation/187',
   '/servers/901234567890123456/analytics',

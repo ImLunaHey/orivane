@@ -48,6 +48,8 @@ pub struct ModulesConfig {
     pub reminders: RemindersConfig,
     #[serde(default)]
     pub auto_delete: AutoDeleteConfig,
+    #[serde(default)]
+    pub managed_embeds: ManagedEmbedsConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -406,6 +408,12 @@ pub struct AutoDeleteConfig {
     pub enabled: bool,
     #[serde(default)]
     pub rules: Vec<AutoDeleteRule>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ManagedEmbedsConfig {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

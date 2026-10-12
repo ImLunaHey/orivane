@@ -148,8 +148,39 @@ pub struct MessageDeletionJobResult {
     pub attempts: u8,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedEmbedResult {
+    pub id: i64,
+    pub name: String,
+    pub payload: bot_core::EmbedPayload,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedEmbedDeliveryInput {
+    pub guild_id: u64,
+    pub template_id: i64,
+    pub channel_id: u64,
+    pub message_id: Option<u64>,
+    pub actor_id: u64,
+    pub status: String,
+    pub error: Option<String>,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
+    async fn guild_name(&self, _guild_id: u64) -> Result<Option<String>> {
+        Ok(None)
+    }
+    async fn managed_embed(
+        &self,
+        _guild_id: u64,
+        _template_id: i64,
+    ) -> Result<Option<ManagedEmbedResult>> {
+        Ok(None)
+    }
+    async fn record_managed_embed_delivery(&self, _input: ManagedEmbedDeliveryInput) -> Result<()> {
+        Ok(())
+    }
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
     async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;

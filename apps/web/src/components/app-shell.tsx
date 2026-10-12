@@ -70,7 +70,7 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
+      <aside aria-label="Primary navigation" className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
           <div className="brand-mark"><Bot size={20} strokeWidth={2.3} /></div>
           <div><strong>Orivane</strong><span>Control centre</span></div>
@@ -173,6 +173,8 @@ function pageTitle(pathname: string) {
   if (pathname.endsWith('/modules/reminders')) return 'Reminders'
   if (/\/modules\/auto_delete\/[^/]+\/[^/]+$/.test(pathname)) return 'Deletion job details'
   if (pathname.endsWith('/modules/auto_delete')) return 'Auto-delete'
+  if (/\/modules\/managed_embeds\/[^/]+$/.test(pathname)) return 'Embed editor'
+  if (pathname.endsWith('/modules/managed_embeds')) return 'Managed embeds'
   if (/\/moderation\/[^/]+$/.test(pathname)) return 'Moderation case details'
   if (pathname.includes('/members/')) return 'Member details'
   if (pathname.includes('/analytics/')) return 'Analytics report'

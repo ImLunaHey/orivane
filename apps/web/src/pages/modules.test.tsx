@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(19)
+    expect(screen.getAllByText('Live')).toHaveLength(20)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -283,6 +283,32 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules/auto_delete/100000000000000005/300000000000000009`)
     expect(await screen.findByRole('heading',{name:'Message 300000000000000009'})).toBeVisible()
     expect(screen.getByRole('heading',{name:'Job details'})).toBeVisible()
+  })
+
+  it('creates, previews, delivers, and synchronizes a managed embed', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/managed_embeds`)
+    expect(await screen.findByRole('heading', { name: 'Embed templates' })).toBeVisible()
+    expect(screen.getByLabelText('Managed embed delivery attempts by outcome')).toBeVisible()
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Managed embeds' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+
+    fireEvent.click(screen.getByRole('link', { name: 'New template' }))
+    expect(await screen.findByRole('heading', { name: 'Create embed' })).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Launch update' } })
+    fireEvent.change(screen.getAllByLabelText(/^Title/)[0], { target: { value: 'Hello {user}' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add field' }))
+    expect(screen.getByLabelText('Discord embed preview')).toHaveTextContent('Hello @imlunahey')
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }))
+    expect(await screen.findByRole('heading', { name: 'Launch update' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Destination channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'general' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send embed' }))
+    expect(await screen.findByRole('button', { name: 'Sync message' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Sync message' }))
+    await waitFor(() => expect(screen.getAllByText('edit').length).toBeGreaterThan(0))
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

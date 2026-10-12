@@ -19,6 +19,10 @@ use twilight_model::{
         message::component::{
             ActionRow, Button, ButtonStyle, Component, Label, TextInput, TextInputStyle,
         },
+        message::embed::{
+            Embed, EmbedAuthor, EmbedField as TwilightEmbedField, EmbedFooter, EmbedImage,
+            EmbedThumbnail,
+        },
         permission_overwrite::{PermissionOverwrite, PermissionOverwriteType},
     },
     guild::Permissions,
@@ -117,6 +121,13 @@ impl CommandInteraction {
             _ => None,
         }
     }
+
+    pub fn channel(&self, name: &str) -> Option<u64> {
+        match self.options.get(name) {
+            Some(CommandValue::Channel(value)) => Some(*value),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -185,6 +196,31 @@ pub struct MessageButton {
     pub style: MessageButtonStyle,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RichEmbedField {
+    pub name: String,
+    pub value: String,
+    pub inline: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RichEmbed {
+    pub content: String,
+    pub title: String,
+    pub description: String,
+    pub url: String,
+    pub color: u32,
+    pub author_name: String,
+    pub author_url: String,
+    pub author_icon_url: String,
+    pub footer_text: String,
+    pub footer_icon_url: String,
+    pub thumbnail_url: String,
+    pub image_url: String,
+    pub timestamp: bool,
+    pub fields: Vec<RichEmbedField>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct GuildChannel {
     pub id: String,
@@ -230,6 +266,67 @@ pub enum DiscordError {
     Request(String),
 }
 
+fn optional_text(value: &str) -> Option<String> {
+    (!value.trim().is_empty()).then(|| value.trim().to_owned())
+}
+
+fn discord_embed(value: &RichEmbed) -> Result<Embed, DiscordError> {
+    let timestamp = if value.timestamp {
+        let seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(request_error)?
+            .as_secs();
+        Some(
+            Timestamp::from_secs(i64::try_from(seconds).unwrap_or(i64::MAX))
+                .map_err(request_error)?,
+        )
+    } else {
+        None
+    };
+    Ok(Embed {
+        author: optional_text(&value.author_name).map(|name| EmbedAuthor {
+            name,
+            url: optional_text(&value.author_url),
+            icon_url: optional_text(&value.author_icon_url),
+            proxy_icon_url: None,
+        }),
+        color: Some(value.color),
+        description: optional_text(&value.description),
+        fields: value
+            .fields
+            .iter()
+            .map(|field| TwilightEmbedField {
+                name: field.name.clone(),
+                value: field.value.clone(),
+                inline: field.inline,
+            })
+            .collect(),
+        footer: optional_text(&value.footer_text).map(|text| EmbedFooter {
+            text,
+            icon_url: optional_text(&value.footer_icon_url),
+            proxy_icon_url: None,
+        }),
+        image: optional_text(&value.image_url).map(|url| EmbedImage {
+            url,
+            height: None,
+            width: None,
+            proxy_url: None,
+        }),
+        kind: "rich".to_owned(),
+        provider: None,
+        thumbnail: optional_text(&value.thumbnail_url).map(|url| EmbedThumbnail {
+            url,
+            height: None,
+            width: None,
+            proxy_url: None,
+        }),
+        timestamp,
+        title: optional_text(&value.title),
+        url: optional_text(&value.url),
+        video: None,
+    })
+}
+
 #[async_trait]
 pub trait DiscordApi: Send + Sync {
     async fn register_commands(&self, commands: &[CommandDefinition]) -> Result<(), DiscordError>;
@@ -266,6 +363,19 @@ pub trait DiscordApi: Send + Sync {
         content: &str,
         buttons: &[MessageButton],
     ) -> Result<u64, DiscordError>;
+
+    async fn send_rich_embed(
+        &self,
+        channel_id: u64,
+        embed: &RichEmbed,
+    ) -> Result<u64, DiscordError>;
+
+    async fn edit_rich_embed(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        embed: &RichEmbed,
+    ) -> Result<(), DiscordError>;
 
     async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError>;
 
@@ -560,6 +670,49 @@ impl DiscordApi for TwilightDiscord {
             .await
             .map_err(request_error)?;
         Ok(message.id.get())
+    }
+
+    async fn send_rich_embed(
+        &self,
+        channel_id: u64,
+        embed: &RichEmbed,
+    ) -> Result<u64, DiscordError> {
+        let discord_embed = discord_embed(embed)?;
+        let embeds = [discord_embed];
+        let mut request = self
+            .http
+            .create_message(Id::<ChannelMarker>::new(channel_id))
+            .embeds(&embeds);
+        if !embed.content.trim().is_empty() {
+            request = request.content(&embed.content);
+        }
+        let message = request
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(message.id.get())
+    }
+
+    async fn edit_rich_embed(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        embed: &RichEmbed,
+    ) -> Result<(), DiscordError> {
+        let discord_embed = discord_embed(embed)?;
+        let embeds = [discord_embed];
+        self.http
+            .update_message(
+                Id::<ChannelMarker>::new(channel_id),
+                Id::<MessageMarker>::new(message_id),
+            )
+            .content(Some(&embed.content))
+            .embeds(Some(&embeds))
+            .await
+            .map_err(request_error)?;
+        Ok(())
     }
 
     async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError> {
