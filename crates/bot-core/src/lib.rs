@@ -13,6 +13,6 @@ pub use config::{
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
-    GuildMemberSummary, InfrastructureHealth, MemberXpAward, UserGuildContext,
+    GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile, UserGuildContext,
 };
-pub use store::{Infrastructure, StoreError};
+pub use store::{Infrastructure, StoreError, level_for_xp};

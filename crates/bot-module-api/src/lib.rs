@@ -37,6 +37,15 @@ pub struct XpAwardResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XpProfile {
+    pub user_id: u64,
+    pub total_xp: u64,
+    pub level: u32,
+    pub message_count: u64,
+    pub rank: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketRecordInput {
     pub guild_id: u64,
     pub opener_id: u64,
@@ -47,6 +56,8 @@ pub struct TicketRecordInput {
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
+    async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;
+    async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>>;
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>>;
     async fn record_open_ticket(&self, input: TicketRecordInput) -> Result<()>;
     async fn close_ticket_channel(

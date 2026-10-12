@@ -9,7 +9,7 @@ use bot_discord::{
     GuildRole, MessageReactionSummary,
 };
 use bot_module_api::{
-    ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult,
+    ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,6 +96,14 @@ pub enum DiscordCall {
 pub enum ServiceCall {
     CreateModerationCase(ModerationCaseInput),
     AwardXp(XpAwardInput),
+    XpProfile {
+        guild_id: u64,
+        user_id: u64,
+    },
+    XpLeaderboard {
+        guild_id: u64,
+        limit: u8,
+    },
     FindOpenTicket {
         guild_id: u64,
         opener_id: u64,
@@ -143,6 +151,34 @@ impl ModuleServices for FakeModuleServices {
             level: 0,
             leveled_up: false,
         })
+    }
+
+    async fn xp_profile(&self, guild_id: u64, user_id: u64) -> anyhow::Result<XpProfile> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::XpProfile { guild_id, user_id });
+        Ok(XpProfile {
+            user_id,
+            total_xp: 625,
+            level: 2,
+            message_count: 25,
+            rank: 3,
+        })
+    }
+
+    async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> anyhow::Result<Vec<XpProfile>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::XpLeaderboard { guild_id, limit });
+        Ok(vec![XpProfile {
+            user_id: 42,
+            total_xp: 900,
+            level: 3,
+            message_count: 50,
+            rank: 1,
+        }])
     }
 
     async fn open_ticket_channel(

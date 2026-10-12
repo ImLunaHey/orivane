@@ -82,3 +82,11 @@ pub struct MemberXpAward {
     pub level: u32,
     pub leveled_up: bool,
 }
+
+#[derive(Clone, Debug, Serialize, FromRow)]
+pub struct MemberXpProfile {
+    pub user_id: String,
+    pub total_xp: i64,
+    pub message_count: i64,
+    pub rank: i64,
+}

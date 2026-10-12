@@ -1,9 +1,39 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::GuildConfig;
+use bot_discord::{
+    CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
+    CommandResponse,
+};
 use bot_module_api::{BotModule, MessageCreate, ModuleContext, ModuleEventOutcome, XpAwardInput};
 
 pub struct LevelingModule;
+
+pub const COMMANDS: &[CommandDefinition] = &[
+    CommandDefinition {
+        name: "rank",
+        description: "Show a member's XP, level, and server rank",
+        guild_only: true,
+        default_permissions: None,
+        options: &[CommandOptionDefinition {
+            name: "member",
+            description: "Member to inspect; defaults to you",
+            kind: CommandOptionKind::User,
+            required: false,
+            min_value: None,
+            max_value: None,
+            min_length: None,
+            max_length: None,
+        }],
+    },
+    CommandDefinition {
+        name: "leaderboard",
+        description: "Show the server's highest-ranked members",
+        guild_only: true,
+        default_permissions: None,
+        options: &[],
+    },
+];
 
 #[async_trait]
 impl BotModule for LevelingModule {
@@ -15,6 +45,66 @@ impl BotModule for LevelingModule {
     }
     fn handles_message_create(&self) -> bool {
         true
+    }
+
+    fn commands(&self) -> &'static [CommandDefinition] {
+        COMMANDS
+    }
+
+    async fn on_command(
+        &self,
+        context: &ModuleContext,
+        _config: &GuildConfig,
+        interaction: &CommandInteraction,
+    ) -> Result<()> {
+        let content = match interaction.command_name.as_str() {
+            "rank" => {
+                let user_id = interaction.user("member").unwrap_or(interaction.actor_id);
+                let profile = context
+                    .services
+                    .xp_profile(interaction.guild_id, user_id)
+                    .await?;
+                format!(
+                    "<@{}> · level {} · {} XP · rank #{} · {} eligible messages",
+                    profile.user_id,
+                    profile.level,
+                    profile.total_xp,
+                    if profile.rank == 0 {
+                        "unranked".to_owned()
+                    } else {
+                        profile.rank.to_string()
+                    },
+                    profile.message_count
+                )
+            }
+            "leaderboard" => {
+                let profiles = context
+                    .services
+                    .xp_leaderboard(interaction.guild_id, 10)
+                    .await?;
+                if profiles.is_empty() {
+                    "No members have earned XP yet.".to_owned()
+                } else {
+                    let rows = profiles
+                        .iter()
+                        .map(|profile| {
+                            format!(
+                                "#{} <@{}> · level {} · {} XP",
+                                profile.rank, profile.user_id, profile.level, profile.total_xp
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!("**Server leaderboard**\n{rows}")
+                }
+            }
+            _ => return Ok(()),
+        };
+        context
+            .discord
+            .respond_to_command(interaction, CommandResponse::public(content))
+            .await?;
+        Ok(())
     }
 
     async fn on_message_create(
@@ -84,7 +174,7 @@ impl BotModule for LevelingModule {
 mod tests {
     use std::sync::Arc;
 
-    use bot_test_support::{FakeDiscord, FakeModuleServices, ServiceCall};
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices, ServiceCall};
 
     use super::*;
 
@@ -127,5 +217,44 @@ mod tests {
             })]
         );
         assert!(discord.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn rank_reads_the_persisted_profile() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let command = CommandInteraction {
+            id: 1,
+            token: "token".to_owned(),
+            guild_id: 10,
+            channel_id: Some(20),
+            actor_id: 40,
+            command_name: "rank".to_owned(),
+            options: Default::default(),
+        };
+        LevelingModule
+            .on_command(&context, &GuildConfig::for_guild("10"), &command)
+            .await
+            .unwrap();
+        assert_eq!(
+            services.calls(),
+            vec![ServiceCall::XpProfile {
+                guild_id: 10,
+                user_id: 40,
+            }]
+        );
+        assert_eq!(
+            discord.calls(),
+            vec![DiscordCall::RespondToCommand {
+                interaction_id: 1,
+                response: CommandResponse::public(
+                    "<@40> · level 2 · 625 XP · rank #3 · 25 eligible messages"
+                ),
+            }]
+        );
     }
 }

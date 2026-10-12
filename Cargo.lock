@@ -769,6 +769,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bot-core",
+ "bot-discord",
  "bot-module-api",
  "bot-test-support",
  "tokio",

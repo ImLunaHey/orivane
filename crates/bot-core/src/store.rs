@@ -6,8 +6,9 @@ use thiserror::Error;
 
 use crate::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildConfig,
-    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, ModerationCase,
-    NewAuditEvent, NewModerationCase, UserGuildContext, config::ConfigValidationError,
+    GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile,
+    ModerationCase, NewAuditEvent, NewModerationCase, UserGuildContext,
+    config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -277,6 +278,46 @@ impl Infrastructure {
             level,
             leveled_up: level > level_for_xp(previous_xp),
         })
+    }
+
+    pub async fn member_xp_profile(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<MemberXpProfile, StoreError> {
+        let profile = sqlx::query_as::<_, MemberXpProfile>(
+            "SELECT user_id, xp AS total_xp, message_count, \
+                (SELECT count(*) + 1 FROM member_xp ranked \
+                 WHERE ranked.guild_id = member_xp.guild_id AND ranked.xp > member_xp.xp)::bigint AS rank \
+             FROM member_xp WHERE guild_id = $1 AND user_id = $2",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(profile.unwrap_or_else(|| MemberXpProfile {
+            user_id: user_id.to_owned(),
+            total_xp: 0,
+            message_count: 0,
+            rank: 0,
+        }))
+    }
+
+    pub async fn xp_leaderboard(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<MemberXpProfile>, StoreError> {
+        sqlx::query_as::<_, MemberXpProfile>(
+            "SELECT user_id, xp AS total_xp, message_count, \
+                    row_number() OVER (ORDER BY xp DESC, updated_at ASC)::bigint AS rank \
+             FROM member_xp WHERE guild_id = $1 ORDER BY xp DESC, updated_at ASC LIMIT $2",
+        )
+        .bind(guild_id)
+        .bind(limit.clamp(1, 25))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
     }
 
     pub async fn open_ticket_channel(
@@ -590,7 +631,7 @@ impl Infrastructure {
     }
 }
 
-fn level_for_xp(xp: u64) -> u32 {
+pub fn level_for_xp(xp: u64) -> u32 {
     let mut level = 0_u32;
     while xp >= 100_u64.saturating_mul(u64::from(level + 1).pow(2)) {
         level = level.saturating_add(1);

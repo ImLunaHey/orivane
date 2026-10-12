@@ -2,13 +2,13 @@ use std::{collections::BTreeMap, env, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use bot_core::{Infrastructure, NewAuditEvent, NewModerationCase};
+use bot_core::{Infrastructure, NewAuditEvent, NewModerationCase, level_for_xp};
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
 };
 use bot_module_api::{
     AuditNotice, BotModule, MemberJoin, MessageCreate, ModerationCaseInput, ModuleContext,
-    ModuleServices, ReactionAdd, TicketRecordInput, XpAwardInput, XpAwardResult,
+    ModuleServices, ReactionAdd, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autorole::AutoroleModule;
@@ -77,6 +77,43 @@ impl ModuleServices for GatewayModuleServices {
             level: result.level,
             leveled_up: result.leveled_up,
         })
+    }
+
+    async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile> {
+        let profile = self
+            .infrastructure
+            .member_xp_profile(&guild_id.to_string(), &user_id.to_string())
+            .await?;
+        let total_xp = u64::try_from(profile.total_xp).unwrap_or_default();
+        Ok(XpProfile {
+            user_id,
+            total_xp,
+            level: level_for_xp(total_xp),
+            message_count: u64::try_from(profile.message_count).unwrap_or_default(),
+            rank: u64::try_from(profile.rank).unwrap_or_default(),
+        })
+    }
+
+    async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>> {
+        self.infrastructure
+            .xp_leaderboard(&guild_id.to_string(), i64::from(limit))
+            .await?
+            .into_iter()
+            .map(|profile| {
+                let user_id = profile
+                    .user_id
+                    .parse::<u64>()
+                    .context("stored XP user is invalid")?;
+                let total_xp = u64::try_from(profile.total_xp).unwrap_or_default();
+                Ok(XpProfile {
+                    user_id,
+                    total_xp,
+                    level: level_for_xp(total_xp),
+                    message_count: u64::try_from(profile.message_count).unwrap_or_default(),
+                    rank: u64::try_from(profile.rank).unwrap_or_default(),
+                })
+            })
+            .collect()
     }
 
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>> {
