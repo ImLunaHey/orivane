@@ -81,6 +81,18 @@ pub trait ModuleServices: Send + Sync {
     async fn set_raid_lockdown(&self, guild_id: u64, duration_seconds: u64) -> Result<()>;
     async fn clear_raid_lockdown(&self, guild_id: u64) -> Result<()>;
     async fn raid_lockdown_active(&self, guild_id: u64) -> Result<bool>;
+    async fn claim_scheduled_message(
+        &self,
+        guild_id: u64,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> Result<bool>;
+    async fn release_scheduled_message(
+        &self,
+        guild_id: u64,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> Result<()>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +153,11 @@ pub struct ModuleEventOutcome {
     pub target_id: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScheduledTick {
+    pub now_unix: u64,
+}
+
 impl ModuleEventOutcome {
     pub fn message(action: impl Into<String>, message_id: u64) -> Self {
         Self {
@@ -174,6 +191,9 @@ pub trait BotModule: Send + Sync {
         false
     }
     fn handles_reaction_remove(&self) -> bool {
+        false
+    }
+    fn handles_scheduled_tick(&self) -> bool {
         false
     }
 
@@ -238,5 +258,14 @@ pub trait BotModule: Send + Sync {
         _event: &ReactionAdd,
     ) -> Result<Option<ModuleEventOutcome>> {
         Ok(None)
+    }
+
+    async fn on_scheduled_tick(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        Ok(Vec::new())
     }
 }

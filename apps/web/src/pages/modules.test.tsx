@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(13)
+    expect(screen.getAllByText('Live')).toHaveLength(14)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -51,6 +51,7 @@ describe('module configuration pages', () => {
       ['reaction_roles', 'Reaction roles settings', 'Enable Reaction roles', 'switch', true],
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
+      ['scheduled_messages', 'Scheduled messages settings', 'Enable Scheduled messages', 'switch', true],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -146,6 +147,21 @@ describe('module configuration pages', () => {
     fireEvent.change(screen.getByLabelText(/^Raid action/), { target: { value: 'timeout' } })
     fireEvent.change(screen.getByLabelText(/^Timeout duration/), { target: { value: '7200' } })
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+  })
+
+  it('creates and edits a recurring scheduled message', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/scheduled_messages`)
+    await screen.findByRole('heading', { name: 'Scheduled messages settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add schedule' }))
+    fireEvent.change(screen.getByLabelText(/^Schedule ID/), { target: { value: 'daily update!' } })
+    fireEvent.change(screen.getByLabelText(/^Repeat interval/), { target: { value: '60' } })
+    fireEvent.change(screen.getByLabelText(/^Message/), { target: { value: 'Hourly update' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'End automatically' }))
+    expect(screen.getByLabelText(/^Schedule ID/)).toHaveValue('dailyupdate')
+    expect(screen.getByLabelText(/^Final delivery cutoff/)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('No schedules yet')).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

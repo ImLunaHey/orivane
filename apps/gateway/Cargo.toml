@@ -24,6 +24,7 @@ bot-module-custom-commands.workspace = true
 bot-module-reaction-roles.workspace = true
 bot-module-autoresponder.workspace = true
 bot-module-anti-raid.workspace = true
+bot-module-scheduled-messages.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

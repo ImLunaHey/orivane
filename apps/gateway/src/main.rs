@@ -14,8 +14,8 @@ use bot_discord::{
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
     AuditNotice, BotModule, MemberJoin, MemberLeave, MessageCreate, ModerationCaseInput,
-    ModuleContext, ModuleServices, ReactionAdd, TicketRecordInput, XpAwardInput, XpAwardResult,
-    XpProfile,
+    ModuleContext, ModuleServices, ReactionAdd, ScheduledTick, TicketRecordInput, XpAwardInput,
+    XpAwardResult, XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
@@ -25,6 +25,7 @@ use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_moderation::ModerationModule;
 use bot_module_reaction_roles::ReactionRolesModule;
+use bot_module_scheduled_messages::ScheduledMessagesModule;
 use bot_module_starboard::StarboardModule;
 use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
@@ -212,6 +213,30 @@ impl ModuleServices for GatewayModuleServices {
             .raid_lockdown_active(&guild_id.to_string())
             .await?)
     }
+
+    async fn claim_scheduled_message(
+        &self,
+        guild_id: u64,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .claim_scheduled_message(&guild_id.to_string(), schedule_id, occurrence_unix)
+            .await?)
+    }
+
+    async fn release_scheduled_message(
+        &self,
+        guild_id: u64,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .release_scheduled_message(&guild_id.to_string(), schedule_id, occurrence_unix)
+            .await?)
+    }
 }
 
 #[tokio::main]
@@ -235,6 +260,7 @@ async fn main() -> Result<()> {
         Arc::new(ReactionRolesModule),
         Arc::new(AutoresponderModule),
         Arc::new(AntiRaidModule::default()),
+        Arc::new(ScheduledMessagesModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -251,6 +277,12 @@ async fn main() -> Result<()> {
         | Intents::MESSAGE_CONTENT
         | Intents::GUILD_MESSAGE_REACTIONS;
     let mut shard = Shard::new(ShardId::ONE, token, intents);
+
+    tokio::spawn(run_scheduler(
+        context.clone(),
+        modules.clone(),
+        infrastructure.clone(),
+    ));
 
     tracing::info!("gateway worker starting");
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
@@ -705,6 +737,69 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_scheduler(
+    context: ModuleContext,
+    modules: Vec<Arc<dyn BotModule>>,
+    infrastructure: Infrastructure,
+) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+    loop {
+        interval.tick().await;
+        let now_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let configs = match infrastructure.scheduled_guild_configs().await {
+            Ok(configs) => configs,
+            Err(error) => {
+                tracing::error!(%error, "failed to load scheduled-message guilds");
+                continue;
+            }
+        };
+        for config in configs {
+            for module in modules
+                .iter()
+                .filter(|module| module.handles_scheduled_tick() && module.enabled(&config))
+            {
+                match module
+                    .on_scheduled_tick(&context, &config, &ScheduledTick { now_unix })
+                    .await
+                {
+                    Ok(outcomes) => {
+                        for outcome in outcomes {
+                            let mut audit =
+                                NewAuditEvent::guild(&config.guild_id, "system", outcome.action);
+                            audit.actor_kind = "system".into();
+                            audit.source = "scheduler".into();
+                            audit.target_type = outcome.target_type;
+                            audit.target_id = outcome.target_id;
+                            audit.metadata = serde_json::json!({ "module": module.name() });
+                            if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                                tracing::error!(%error, "failed to audit scheduled message");
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(module = module.name(), guild_id = %config.guild_id, %error, "scheduled module failed");
+                        let mut audit = NewAuditEvent::guild(
+                            &config.guild_id,
+                            "system",
+                            format!("module.{}.schedule.failed", module.name()),
+                        );
+                        audit.actor_kind = "system".into();
+                        audit.source = "scheduler".into();
+                        audit.outcome = "failure".into();
+                        audit.reason = Some(error.to_string());
+                        if let Err(store_error) = infrastructure.record_audit_event(&audit).await {
+                            tracing::error!(%store_error, "failed to audit scheduler failure");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 async fn register_commands(discord: &dyn DiscordApi, modules: &[Arc<dyn BotModule>]) -> Result<()> {

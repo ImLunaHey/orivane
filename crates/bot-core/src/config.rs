@@ -36,6 +36,8 @@ pub struct ModulesConfig {
     pub autoresponder: AutoresponderConfig,
     #[serde(default)]
     pub anti_raid: AntiRaidConfig,
+    #[serde(default)]
+    pub scheduled_messages: ScheduledMessagesConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -280,6 +282,26 @@ impl Default for AntiRaidConfig {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScheduledMessagesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub schedules: Vec<ScheduledMessageConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScheduledMessageConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub id: String,
+    pub channel_id: String,
+    pub message: String,
+    pub starts_at_unix: u64,
+    pub interval_minutes: u32,
+    pub ends_at_unix: Option<u64>,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -318,6 +340,8 @@ pub enum ConfigValidationError {
     InvalidAutoresponder,
     #[error("anti-raid thresholds, action, timeout, role, or alert channel are invalid")]
     InvalidAntiRaid,
+    #[error("scheduled messages contain invalid IDs, channels, messages, intervals, or dates")]
+    InvalidScheduledMessages,
 }
 
 impl GuildConfig {
@@ -544,6 +568,29 @@ impl GuildConfig {
                 .is_some_and(|id| !valid_snowflake(id))
         {
             return Err(ConfigValidationError::InvalidAntiRaid);
+        }
+        let scheduled = &self.modules.scheduled_messages;
+        let mut schedule_ids = std::collections::HashSet::new();
+        if (scheduled.enabled && scheduled.schedules.is_empty())
+            || scheduled.schedules.len() > 100
+            || scheduled.schedules.iter().any(|schedule| {
+                schedule.id.is_empty()
+                    || schedule.id.len() > 64
+                    || !schedule.id.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || character == '-' || character == '_'
+                    })
+                    || !schedule_ids.insert(schedule.id.clone())
+                    || !valid_snowflake(&schedule.channel_id)
+                    || schedule.message.trim().is_empty()
+                    || schedule.message.chars().count() > 2_000
+                    || !(1..=525_600).contains(&schedule.interval_minutes)
+                    || schedule.starts_at_unix == 0
+                    || schedule
+                        .ends_at_unix
+                        .is_some_and(|end| end < schedule.starts_at_unix)
+            })
+        {
+            return Err(ConfigValidationError::InvalidScheduledMessages);
         }
 
         Ok(())

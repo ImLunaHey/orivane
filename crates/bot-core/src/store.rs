@@ -34,6 +34,52 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
+        let values: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        values
+            .into_iter()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .map_err(StoreError::from)
+    }
+
+    pub async fn claim_scheduled_message(
+        &self,
+        guild_id: &str,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let occurrence = i64::try_from(occurrence_unix).unwrap_or(i64::MAX);
+        let result = sqlx::query(
+            "INSERT INTO scheduled_message_runs (guild_id, schedule_id, occurrence_unix) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        )
+        .bind(guild_id)
+        .bind(schedule_id)
+        .bind(occurrence)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn release_scheduled_message(
+        &self,
+        guild_id: &str,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM scheduled_message_runs WHERE guild_id = $1 AND schedule_id = $2 AND occurrence_unix = $3")
+            .bind(guild_id)
+            .bind(schedule_id)
+            .bind(i64::try_from(occurrence_unix).unwrap_or(i64::MAX))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn record_raid_join(
         &self,
         guild_id: &str,

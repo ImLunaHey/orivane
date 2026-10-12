@@ -134,6 +134,16 @@ pub enum ServiceCall {
     RaidLockdownActive {
         guild_id: u64,
     },
+    ClaimScheduledMessage {
+        guild_id: u64,
+        schedule_id: String,
+        occurrence_unix: u64,
+    },
+    ReleaseScheduledMessage {
+        guild_id: u64,
+        schedule_id: String,
+        occurrence_unix: u64,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -141,6 +151,7 @@ pub struct FakeModuleServices {
     calls: Arc<Mutex<Vec<ServiceCall>>>,
     raid_counts: Arc<Mutex<HashMap<u64, u64>>>,
     lockdowns: Arc<Mutex<HashSet<u64>>>,
+    scheduled_claims: Arc<Mutex<HashSet<(u64, String, u64)>>>,
 }
 
 impl FakeModuleServices {
@@ -312,6 +323,48 @@ impl ModuleServices for FakeModuleServices {
             .lock()
             .expect("fake lock poisoned")
             .contains(&guild_id))
+    }
+
+    async fn claim_scheduled_message(
+        &self,
+        guild_id: u64,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimScheduledMessage {
+                guild_id,
+                schedule_id: schedule_id.into(),
+                occurrence_unix,
+            });
+        Ok(self
+            .scheduled_claims
+            .lock()
+            .expect("fake lock poisoned")
+            .insert((guild_id, schedule_id.into(), occurrence_unix)))
+    }
+
+    async fn release_scheduled_message(
+        &self,
+        guild_id: u64,
+        schedule_id: &str,
+        occurrence_unix: u64,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ReleaseScheduledMessage {
+                guild_id,
+                schedule_id: schedule_id.into(),
+                occurrence_unix,
+            });
+        self.scheduled_claims
+            .lock()
+            .expect("fake lock poisoned")
+            .remove(&(guild_id, schedule_id.into(), occurrence_unix));
+        Ok(())
     }
 }
 
