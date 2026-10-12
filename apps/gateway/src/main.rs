@@ -26,13 +26,13 @@ use bot_discord::{
 use bot_module_afk::AfkModule;
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
-    AuditNotice, BotModule, DiscordLogEvent, EconomyClaimResult, EconomyProfile,
+    AuditNotice, AutoroleJobResult, BotModule, DiscordLogEvent, EconomyClaimResult, EconomyProfile,
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedDeliveryInput,
     ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate, MessageDeletionJobResult,
-    ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd, ReminderInput, ReminderResult,
-    ScheduledTick, SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult,
-    TicketRecordInput, TicketResult, VoiceStateChange, XpAdjustmentInput, XpAwardInput,
-    XpAwardResult, XpProfile,
+    ModerationCaseInput, ModerationJobResult, ModuleContext, ModuleServices, ReactionAdd,
+    ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
+    TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult, VoiceStateChange,
+    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -340,6 +340,115 @@ impl ModuleServices for GatewayModuleServices {
         Ok(self
             .infrastructure
             .finish_message_deletion(&g.to_string(), &c.to_string(), &m.to_string(), d, r)
+            .await?)
+    }
+    async fn schedule_autorole_job(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        action: &str,
+        due_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .schedule_autorole_job(
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                &role_id.to_string(),
+                action,
+                due_unix,
+            )
+            .await?)
+    }
+    async fn claim_due_autorole_jobs(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<AutoroleJobResult>> {
+        self.infrastructure
+            .claim_due_autorole_jobs(&guild_id.to_string(), now_unix, i64::from(limit))
+            .await?
+            .into_iter()
+            .map(|job| {
+                Ok(AutoroleJobResult {
+                    id: job.id,
+                    user_id: job.user_id.parse().context("invalid autorole job user")?,
+                    role_id: job.role_id.parse().context("invalid autorole job role")?,
+                    action: job.action,
+                    attempts: u8::try_from(job.attempts).unwrap_or(u8::MAX),
+                })
+            })
+            .collect()
+    }
+    async fn finish_autorole_job(
+        &self,
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        error: Option<&str>,
+        retry_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .finish_autorole_job(&guild_id.to_string(), job_id, completed, error, retry_unix)
+            .await?)
+    }
+    async fn schedule_moderation_job(
+        &self,
+        guild_id: u64,
+        member_id: u64,
+        action: &str,
+        reason: &str,
+        due_unix: u64,
+    ) -> Result<i64> {
+        Ok(self
+            .infrastructure
+            .schedule_moderation_job(
+                &guild_id.to_string(),
+                &member_id.to_string(),
+                action,
+                reason,
+                due_unix,
+            )
+            .await?)
+    }
+    async fn claim_due_moderation_jobs(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<ModerationJobResult>> {
+        self.infrastructure
+            .claim_due_moderation_jobs(&guild_id.to_string(), now_unix, i64::from(limit))
+            .await?
+            .into_iter()
+            .map(|job| {
+                Ok(ModerationJobResult {
+                    id: job.id,
+                    member_id: job
+                        .member_id
+                        .parse()
+                        .context("invalid moderation job member")?,
+                    action: job.action,
+                    reason: job.reason,
+                    attempts: u8::try_from(job.attempts).unwrap_or(u8::MAX),
+                })
+            })
+            .collect()
+    }
+    async fn finish_moderation_job(
+        &self,
+        guild_id: u64,
+        job_id: i64,
+        completed: bool,
+        error: Option<&str>,
+        retry_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .finish_moderation_job(&guild_id.to_string(), job_id, completed, error, retry_unix)
             .await?)
     }
     async fn create_giveaway(&self, input: GiveawayInput) -> Result<GiveawayResult> {
@@ -681,6 +790,7 @@ impl ModuleServices for GatewayModuleServices {
             member_id: member_id.clone(),
             action: input.action.clone(),
             reason: input.reason.clone(),
+            evidence_urls: input.evidence_urls.clone(),
         };
         let mut audit = NewAuditEvent::guild(
             &guild_id,
@@ -691,7 +801,7 @@ impl ModuleServices for GatewayModuleServices {
         audit.target_type = "member".to_owned();
         audit.target_id = Some(member_id);
         audit.reason = Some(input.reason);
-        audit.metadata = serde_json::json!({ "action": input.action });
+        audit.metadata = serde_json::json!({ "action": input.action, "evidence_count": input.evidence_urls.len() });
         let case = self
             .infrastructure
             .create_moderation_case_audited(&guild_id, &moderator_id, &case_input, &audit)

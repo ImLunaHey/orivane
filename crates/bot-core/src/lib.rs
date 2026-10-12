@@ -9,6 +9,7 @@ mod forms;
 mod giveaways;
 mod managed_embeds;
 mod reminders;
+mod role_jobs;
 mod store;
 mod suggestions;
 mod temporary_voice;
@@ -43,6 +44,7 @@ pub use managed_embeds::{
     EmbedDelivery, EmbedField, EmbedPayload, EmbedTemplate, NewEmbedDelivery, NewEmbedTemplate,
 };
 pub use reminders::{NewReminder, Reminder};
+pub use role_jobs::{AutoroleJob, ModerationJob};
 pub use store::{Infrastructure, StoreError, level_for_xp};
 pub use suggestions::{NewSuggestion, Suggestion};
 pub use temporary_voice::TemporaryVoiceChannel;

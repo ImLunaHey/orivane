@@ -83,3 +83,4 @@ CREATE TABLE voice_link_events (
     CHECK (action IN ('joined', 'left'))
 );
 CREATE INDEX voice_link_events_guild_idx ON voice_link_events (guild_id, occurred_at DESC);
+

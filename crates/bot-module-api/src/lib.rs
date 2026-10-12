@@ -20,6 +20,7 @@ pub struct ModerationCaseInput {
     pub member_id: u64,
     pub action: String,
     pub reason: String,
+    pub evidence_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,6 +227,24 @@ pub struct ReminderResult {
 pub struct MessageDeletionJobResult {
     pub channel_id: u64,
     pub message_id: u64,
+    pub attempts: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoroleJobResult {
+    pub id: i64,
+    pub user_id: u64,
+    pub role_id: u64,
+    pub action: String,
+    pub attempts: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationJobResult {
+    pub id: i64,
+    pub member_id: u64,
+    pub action: String,
+    pub reason: String,
     pub attempts: u8,
 }
 
@@ -632,6 +651,62 @@ pub trait ModuleServices: Send + Sync {
         _retry_unix: u64,
     ) -> Result<bool> {
         anyhow::bail!("message deletion service unavailable")
+    }
+    async fn schedule_autorole_job(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _role_id: u64,
+        _action: &str,
+        _due_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("autorole job service unavailable")
+    }
+    async fn claim_due_autorole_jobs(
+        &self,
+        _guild_id: u64,
+        _now_unix: u64,
+        _limit: u8,
+    ) -> Result<Vec<AutoroleJobResult>> {
+        anyhow::bail!("autorole job service unavailable")
+    }
+    async fn finish_autorole_job(
+        &self,
+        _guild_id: u64,
+        _job_id: i64,
+        _completed: bool,
+        _error: Option<&str>,
+        _retry_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("autorole job service unavailable")
+    }
+    async fn schedule_moderation_job(
+        &self,
+        _guild_id: u64,
+        _member_id: u64,
+        _action: &str,
+        _reason: &str,
+        _due_unix: u64,
+    ) -> Result<i64> {
+        anyhow::bail!("moderation job service unavailable")
+    }
+    async fn claim_due_moderation_jobs(
+        &self,
+        _guild_id: u64,
+        _now_unix: u64,
+        _limit: u8,
+    ) -> Result<Vec<ModerationJobResult>> {
+        anyhow::bail!("moderation job service unavailable")
+    }
+    async fn finish_moderation_job(
+        &self,
+        _guild_id: u64,
+        _job_id: i64,
+        _completed: bool,
+        _error: Option<&str>,
+        _retry_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("moderation job service unavailable")
     }
 }
 

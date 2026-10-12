@@ -5,7 +5,7 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
     CommandResponse,
 };
-use bot_module_api::{BotModule, MemberJoin, ModuleContext};
+use bot_module_api::{BotModule, MemberJoin, ModuleContext, ModuleEventOutcome, ScheduledTick};
 
 pub struct AutoroleModule;
 
@@ -39,6 +39,9 @@ impl BotModule for AutoroleModule {
     }
     fn commands(&self) -> &'static [CommandDefinition] {
         COMMANDS
+    }
+    fn handles_scheduled_tick(&self) -> bool {
+        true
     }
 
     async fn on_command(
@@ -128,42 +131,118 @@ impl BotModule for AutoroleModule {
         config: &GuildConfig,
         event: &MemberJoin,
     ) -> Result<()> {
-        if config.modules.autorole.delay_seconds > 0 {
-            tokio::time::sleep(std::time::Duration::from_secs(
-                config.modules.autorole.delay_seconds.into(),
-            ))
-            .await;
-        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         for role_id in &config.modules.autorole.role_ids {
-            context
-                .discord
-                .add_member_role(
-                    event.guild_id,
-                    event.user_id,
-                    role_id.parse::<u64>().context("autorole ID is invalid")?,
-                )
-                .await?;
-        }
-        if config.modules.autorole.remove_delay_seconds > 0 {
-            tokio::time::sleep(std::time::Duration::from_secs(
-                config.modules.autorole.remove_delay_seconds.into(),
-            ))
-            .await;
+            let role_id = role_id.parse::<u64>().context("autorole ID is invalid")?;
+            if config.modules.autorole.delay_seconds == 0 {
+                context
+                    .discord
+                    .add_member_role(event.guild_id, event.user_id, role_id)
+                    .await?;
+            } else {
+                context
+                    .services
+                    .schedule_autorole_job(
+                        event.guild_id,
+                        event.user_id,
+                        role_id,
+                        "add",
+                        now + u64::from(config.modules.autorole.delay_seconds),
+                    )
+                    .await?;
+            }
         }
         for role_id in &config.modules.autorole.remove_role_ids {
-            context
-                .discord
-                .remove_member_role(
-                    event.guild_id,
-                    event.user_id,
-                    role_id
-                        .parse::<u64>()
-                        .context("autorole removal ID is invalid")?,
-                    "Configured autorole removal",
-                )
-                .await?;
+            let role_id = role_id
+                .parse::<u64>()
+                .context("autorole removal ID is invalid")?;
+            if config.modules.autorole.remove_delay_seconds == 0 {
+                context
+                    .discord
+                    .remove_member_role(
+                        event.guild_id,
+                        event.user_id,
+                        role_id,
+                        "Configured autorole removal",
+                    )
+                    .await?;
+            } else {
+                context
+                    .services
+                    .schedule_autorole_job(
+                        event.guild_id,
+                        event.user_id,
+                        role_id,
+                        "remove",
+                        now + u64::from(config.modules.autorole.remove_delay_seconds),
+                    )
+                    .await?;
+            }
         }
         Ok(())
+    }
+
+    async fn on_scheduled_tick(
+        &self,
+        context: &ModuleContext,
+        config: &GuildConfig,
+        tick: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        let guild_id = config.guild_id.parse::<u64>().context("invalid guild ID")?;
+        let jobs = context
+            .services
+            .claim_due_autorole_jobs(guild_id, tick.now_unix, 50)
+            .await?;
+        let mut outcomes = Vec::new();
+        for job in jobs {
+            let delivery = match job.action.as_str() {
+                "add" => {
+                    context
+                        .discord
+                        .add_member_role(guild_id, job.user_id, job.role_id)
+                        .await
+                }
+                "remove" => {
+                    context
+                        .discord
+                        .remove_member_role(
+                            guild_id,
+                            job.user_id,
+                            job.role_id,
+                            "Configured delayed autorole removal",
+                        )
+                        .await
+                }
+                _ => continue,
+            };
+            let error = delivery.as_ref().err().map(ToString::to_string);
+            let retry_delay = 30_u64.saturating_mul(2_u64.pow(u32::from(job.attempts.min(5))));
+            let terminal = context
+                .services
+                .finish_autorole_job(
+                    guild_id,
+                    job.id,
+                    delivery.is_ok(),
+                    error.as_deref(),
+                    tick.now_unix.saturating_add(retry_delay),
+                )
+                .await?;
+            if delivery.is_ok() || terminal {
+                outcomes.push(ModuleEventOutcome {
+                    action: if delivery.is_ok() {
+                        format!("autorole.{}.completed", job.action)
+                    } else {
+                        format!("autorole.{}.failed", job.action)
+                    },
+                    target_type: "member".into(),
+                    target_id: Some(job.user_id.to_string()),
+                });
+            }
+        }
+        Ok(outcomes)
     }
 }
 
@@ -173,7 +252,8 @@ mod tests {
 
     use super::*;
     use bot_discord::CommandValue;
-    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices};
+    use bot_module_api::AutoroleJobResult;
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices, ServiceCall};
     use std::collections::BTreeMap;
 
     #[tokio::test]
@@ -266,5 +346,70 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn delayed_roles_are_durable_and_processed_by_the_scheduler() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.autorole.enabled = true;
+        config.modules.autorole.role_ids = vec!["40".into()];
+        config.modules.autorole.delay_seconds = 60;
+        AutoroleModule
+            .on_member_join(
+                &context,
+                &config,
+                &MemberJoin {
+                    guild_id: 10,
+                    guild_name: "Guild".into(),
+                    user_id: 30,
+                    username: "member".into(),
+                    display_name: "Member".into(),
+                    account_age_seconds: 86_400,
+                    has_avatar: true,
+                    is_bot: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            services.calls().first(),
+            Some(ServiceCall::ScheduleAutoroleJob { guild_id: 10, user_id: 30, role_id: 40, action, .. }) if action == "add"
+        ));
+        assert!(discord.calls().is_empty());
+
+        services.set_due_autorole_jobs(vec![AutoroleJobResult {
+            id: 7,
+            user_id: 30,
+            role_id: 40,
+            action: "add".into(),
+            attempts: 1,
+        }]);
+        let outcomes = AutoroleModule
+            .on_scheduled_tick(&context, &config, &ScheduledTick { now_unix: 1_000 })
+            .await
+            .unwrap();
+        assert_eq!(outcomes[0].action, "autorole.add.completed");
+        assert_eq!(
+            discord.calls(),
+            vec![DiscordCall::AddMemberRole {
+                guild_id: 10,
+                user_id: 30,
+                role_id: 40,
+            }]
+        );
+        assert!(services.calls().iter().any(|call| matches!(
+            call,
+            ServiceCall::FinishAutoroleJob {
+                job_id: 7,
+                completed: true,
+                ..
+            }
+        )));
     }
 }

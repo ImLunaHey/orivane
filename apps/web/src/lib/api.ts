@@ -324,8 +324,8 @@ export async function getAuditEvent(eventId: string, guildId?: string): Promise<
 }
 
 const starterCases: ModerationCase[] = [
-  { id: 187, guild_id: configuredGuildId, member_id: '118742006320914432', moderator_id: demoActorId, action: 'warn', reason: 'Repeated link spam', status: 'open', created_at: '2026-10-11T19:52:00Z', updated_at: '2026-10-11T19:52:00Z' },
-  { id: 186, guild_id: configuredGuildId, member_id: '227843117431025543', moderator_id: 'automod', action: 'timeout', reason: 'Mention flood', status: 'open', created_at: '2026-10-11T19:26:00Z', updated_at: '2026-10-11T19:26:00Z' },
+  { id: 187, guild_id: configuredGuildId, member_id: '118742006320914432', moderator_id: demoActorId, action: 'warn', reason: 'Repeated link spam', evidence_urls: ['https://discord.com/channels/901234567890123456/100000000000000005/200000000000000001'], status: 'open', created_at: '2026-10-11T19:52:00Z', updated_at: '2026-10-11T19:52:00Z' },
+  { id: 186, guild_id: configuredGuildId, member_id: '227843117431025543', moderator_id: 'automod', action: 'timeout', reason: 'Mention flood', evidence_urls: [], status: 'open', created_at: '2026-10-11T19:26:00Z', updated_at: '2026-10-11T19:26:00Z' },
 ]
 
 function demoCases(guildId: string): ModerationCase[] {
@@ -351,7 +351,7 @@ export async function createModerationCase(guildId: string, input: NewModeration
   if (isDemoMode) {
     const cases = demoCases(guildId)
     const now = new Date().toISOString()
-    const item: ModerationCase = { id: Math.max(0, ...cases.map(({ id }) => id)) + 1, guild_id: guildId, moderator_id: demoActorId, status: 'open', created_at: now, updated_at: now, ...input }
+    const item: ModerationCase = { id: Math.max(0, ...cases.map(({ id }) => id)) + 1, guild_id: guildId, moderator_id: demoActorId, status: 'open', created_at: now, updated_at: now, ...input, evidence_urls: input.evidence_urls ?? [] }
     localStorage.setItem(`orivane:cases:${guildId}`, JSON.stringify([item, ...cases]))
     appendDemoAuditEvent({ id: Date.now(), occurred_at: now, scope: 'guild', guild_id: guildId, actor_id: demoActorId, actor_kind: 'user', action: 'moderation.case.created', target_type: 'member', target_id: input.member_id, outcome: 'success', source: 'dashboard_api', request_id: `demo_${Date.now()}`, reason: null, metadata: { action: input.action, case_id: item.id }, before_state: null, after_state: item })
     return item

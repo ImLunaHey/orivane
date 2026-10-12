@@ -1672,7 +1672,7 @@ impl Infrastructure {
         limit: i64,
     ) -> Result<Vec<ModerationCase>, StoreError> {
         sqlx::query_as::<_, ModerationCase>(
-            "SELECT id, guild_id, member_id, moderator_id, action, reason, status, created_at, updated_at \
+            "SELECT id, guild_id, member_id, moderator_id, action, reason, evidence_urls, status, created_at, updated_at \
              FROM moderation_cases WHERE guild_id = $1 ORDER BY id DESC LIMIT $2",
         )
         .bind(guild_id)
@@ -1688,7 +1688,7 @@ impl Infrastructure {
         case_id: i64,
     ) -> Result<Option<ModerationCase>, StoreError> {
         sqlx::query_as::<_, ModerationCase>(
-            "SELECT id, guild_id, member_id, moderator_id, action, reason, status, created_at, updated_at \
+            "SELECT id, guild_id, member_id, moderator_id, action, reason, evidence_urls, status, created_at, updated_at \
              FROM moderation_cases WHERE guild_id = $1 AND id = $2",
         )
         .bind(guild_id)
@@ -1722,15 +1722,16 @@ impl Infrastructure {
     ) -> Result<ModerationCase, StoreError> {
         let mut transaction = self.pool.begin().await?;
         let case = sqlx::query_as::<_, ModerationCase>(
-            "INSERT INTO moderation_cases (guild_id, member_id, moderator_id, action, reason) \
-             VALUES ($1, $2, $3, $4, $5) \
-             RETURNING id, guild_id, member_id, moderator_id, action, reason, status, created_at, updated_at",
+            "INSERT INTO moderation_cases (guild_id, member_id, moderator_id, action, reason, evidence_urls) \
+             VALUES ($1, $2, $3, $4, $5, $6) \
+             RETURNING id, guild_id, member_id, moderator_id, action, reason, evidence_urls, status, created_at, updated_at",
         )
         .bind(guild_id)
         .bind(&input.member_id)
         .bind(moderator_id)
         .bind(&input.action)
         .bind(input.reason.trim())
+        .bind(serde_json::json!(input.evidence_urls))
         .fetch_one(&mut *transaction)
         .await?;
         insert_audit_event(&mut transaction, event).await?;
@@ -2235,7 +2236,9 @@ impl Infrastructure {
                 (SELECT count(*) FROM message_deletion_jobs WHERE status='scheduled' AND due_at <= now()) + \
                 (SELECT count(*) FROM reminders WHERE status='scheduled' AND next_attempt_at <= now()) + \
                 (SELECT count(*) FROM giveaways WHERE status='active' AND ends_at <= now()) + \
-                (SELECT count(*) FROM polls WHERE status='active' AND ends_at <= now())"
+                (SELECT count(*) FROM polls WHERE status='active' AND ends_at <= now()) + \
+                (SELECT count(*) FROM autorole_jobs WHERE status='scheduled' AND due_at <= now()) + \
+                (SELECT count(*) FROM moderation_jobs WHERE status='scheduled' AND due_at <= now())"
         )
         .fetch_one(&self.pool)
         .await?;
@@ -2244,6 +2247,93 @@ impl Infrastructure {
             database_pool_idle: self.pool.num_idle(),
             due_job_backlog,
         })
+    }
+
+    pub async fn schedule_autorole_job(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        role_id: &str,
+        action: &str,
+        due_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let due = chrono::DateTime::from_timestamp(i64::try_from(due_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        let result = sqlx::query("INSERT INTO autorole_jobs(guild_id,user_id,role_id,action,due_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
+            .bind(guild_id).bind(user_id).bind(role_id).bind(action).bind(due).execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn claim_due_autorole_jobs(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+        limit: i64,
+    ) -> Result<Vec<crate::AutoroleJob>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query("UPDATE autorole_jobs SET status='failed',last_error=COALESCE(last_error,'delivery lease expired'),updated_at=now() WHERE guild_id=$1 AND status='delivering' AND attempts>=5 AND updated_at < $2 - interval '5 minutes'").bind(guild_id).bind(now).execute(&self.pool).await?;
+        sqlx::query_as::<_, crate::AutoroleJob>("WITH due AS (SELECT id FROM autorole_jobs WHERE guild_id=$1 AND ((status='scheduled' AND due_at <= $2) OR (status='delivering' AND attempts<5 AND updated_at < $2 - interval '5 minutes')) ORDER BY due_at,id LIMIT $3 FOR UPDATE SKIP LOCKED) UPDATE autorole_jobs j SET status='delivering',attempts=attempts+1,updated_at=now() FROM due WHERE j.id=due.id RETURNING j.*")
+            .bind(guild_id).bind(now).bind(limit.clamp(1,100)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn finish_autorole_job(
+        &self,
+        guild_id: &str,
+        job_id: i64,
+        completed: bool,
+        error: Option<&str>,
+        retry_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let retry =
+            chrono::DateTime::from_timestamp(i64::try_from(retry_unix).unwrap_or(i64::MAX), 0)
+                .unwrap_or_else(chrono::Utc::now);
+        let terminal: Option<bool> = sqlx::query_scalar("UPDATE autorole_jobs SET status=CASE WHEN $3 THEN 'completed' WHEN attempts>=5 THEN 'failed' ELSE 'scheduled' END,completed_at=CASE WHEN $3 THEN now() ELSE NULL END,last_error=$4,due_at=CASE WHEN NOT $3 AND attempts<5 THEN $5 ELSE due_at END,updated_at=now() WHERE guild_id=$1 AND id=$2 AND status='delivering' RETURNING status='failed'")
+            .bind(guild_id).bind(job_id).bind(completed).bind(error).bind(retry).fetch_optional(&self.pool).await?;
+        Ok(terminal.unwrap_or(false))
+    }
+
+    pub async fn schedule_moderation_job(
+        &self,
+        guild_id: &str,
+        member_id: &str,
+        action: &str,
+        reason: &str,
+        due_unix: u64,
+    ) -> Result<i64, StoreError> {
+        let due = chrono::DateTime::from_timestamp(i64::try_from(due_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query_scalar("INSERT INTO moderation_jobs(guild_id,member_id,action,reason,due_at) VALUES($1,$2,$3,$4,$5) RETURNING id")
+            .bind(guild_id).bind(member_id).bind(action).bind(reason).bind(due).fetch_one(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn claim_due_moderation_jobs(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+        limit: i64,
+    ) -> Result<Vec<crate::ModerationJob>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query("UPDATE moderation_jobs SET status='failed',last_error=COALESCE(last_error,'delivery lease expired'),updated_at=now() WHERE guild_id=$1 AND status='delivering' AND attempts>=5 AND updated_at < $2 - interval '5 minutes'").bind(guild_id).bind(now).execute(&self.pool).await?;
+        sqlx::query_as::<_, crate::ModerationJob>("WITH due AS (SELECT id FROM moderation_jobs WHERE guild_id=$1 AND ((status='scheduled' AND due_at <= $2) OR (status='delivering' AND attempts<5 AND updated_at < $2 - interval '5 minutes')) ORDER BY due_at,id LIMIT $3 FOR UPDATE SKIP LOCKED) UPDATE moderation_jobs j SET status='delivering',attempts=attempts+1,updated_at=now() FROM due WHERE j.id=due.id RETURNING j.*")
+            .bind(guild_id).bind(now).bind(limit.clamp(1,100)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn finish_moderation_job(
+        &self,
+        guild_id: &str,
+        job_id: i64,
+        completed: bool,
+        error: Option<&str>,
+        retry_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let retry =
+            chrono::DateTime::from_timestamp(i64::try_from(retry_unix).unwrap_or(i64::MAX), 0)
+                .unwrap_or_else(chrono::Utc::now);
+        let terminal: Option<bool> = sqlx::query_scalar("UPDATE moderation_jobs SET status=CASE WHEN $3 THEN 'completed' WHEN attempts>=5 THEN 'failed' ELSE 'scheduled' END,completed_at=CASE WHEN $3 THEN now() ELSE NULL END,last_error=$4,due_at=CASE WHEN NOT $3 AND attempts<5 THEN $5 ELSE due_at END,updated_at=now() WHERE guild_id=$1 AND id=$2 AND status='delivering' RETURNING status='failed'")
+            .bind(guild_id).bind(job_id).bind(completed).bind(error).bind(retry).fetch_optional(&self.pool).await?;
+        Ok(terminal.unwrap_or(false))
     }
 
     pub async fn upsert_connected_guild(

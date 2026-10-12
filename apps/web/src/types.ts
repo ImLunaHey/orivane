@@ -209,14 +209,15 @@ export type ModerationCase = {
   guild_id: string
   member_id: string
   moderator_id: string
-  action: 'note' | 'warn' | 'timeout' | 'kick' | 'ban'
+  action: 'note' | 'warn' | 'timeout' | 'kick' | 'ban' | 'unban'
   reason: string
+  evidence_urls: string[]
   status: 'open' | 'resolved' | 'reversed'
   created_at: string
   updated_at: string
 }
 
-export type NewModerationCase = Pick<ModerationCase, 'member_id' | 'action' | 'reason'>
+export type NewModerationCase = Pick<ModerationCase, 'member_id' | 'action' | 'reason'> & { evidence_urls?: string[] }
 export type TemporaryVoiceChannel = { id:number;guild_id:string;channel_id:string;owner_id:string;name:string;user_limit:number;locked:boolean;status:string;created_at:string;updated_at:string;deleted_at:string|null;delete_after:string|null }
 export type EconomyAccount = { guild_id:string;user_id:string;balance:number;lifetime_earned:number;lifetime_spent:number;updated_at:string }
 export type EconomyTransaction = { id:number;guild_id:string;user_id:string;counterparty_id:string|null;amount:number;kind:string;reference:string;metadata:Record<string,unknown>;created_at:string }
