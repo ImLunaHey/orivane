@@ -299,6 +299,9 @@ async fn main() -> Result<()> {
         };
 
         match event {
+            Event::GatewayClose(frame) => {
+                tracing::error!(?frame, "Discord closed the gateway connection");
+            }
             Event::GuildCreate(guild) => {
                 if let GuildCreate::Available(guild) = *guild {
                     let guild_id = guild.id.to_string();
@@ -848,7 +851,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    Ok(())
+    anyhow::bail!("Discord gateway event stream closed")
 }
 
 fn modal_values(components: &[ModalInteractionComponent]) -> BTreeMap<String, String> {
