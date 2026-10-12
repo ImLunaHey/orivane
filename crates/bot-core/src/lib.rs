@@ -24,14 +24,14 @@ pub use community::{
 };
 pub use config::{
     AntiRaidConfig, AutoDeleteConfig, AutoDeleteRule, AutomodConfig, AutomodRuleConfig,
-    AutoresponderConfig, AutoresponseConfig, AutoroleConfig, CustomCommandConfig,
+    AutoresponderConfig, AutoresponseConfig, AutoroleConfig, CounterConfig, CustomCommandConfig,
     CustomCommandsConfig, EconomyConfig, EconomyShopItem, FormConfig, FormQuestionConfig,
     FormsConfig, GiveawaysConfig, GuildConfig, LevelRewardConfig, LevelingConfig, LoggingConfig,
     ManagedEmbedsConfig, ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRoleOption,
     ReactionRolePanel, ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig,
     ScheduledMessagesConfig, StarboardChannelThreshold, StarboardConfig, SuggestionsConfig,
-    TemporaryVoiceConfig, TicketsConfig, UtilityConfig, VerificationConfig, WarningThresholdConfig,
-    WelcomeConfig,
+    TemporaryVoiceConfig, TicketsConfig, UtilityConfig, VerificationConfig, VoiceTextLinkConfig,
+    WarningThresholdConfig, WelcomeConfig,
 };
 pub use economy::{EconomyAccount, EconomyTransaction};
 pub use fleet::{

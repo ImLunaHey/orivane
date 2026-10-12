@@ -87,6 +87,10 @@ impl BotModule for CountersModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bot_core::CounterConfig;
+    use bot_discord::GuildMetrics;
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices, ServiceCall};
+    use std::sync::Arc;
     #[test]
     fn module_uses_dedicated_config_switch() {
         let mut c = GuildConfig::for_guild("1");
@@ -94,5 +98,53 @@ mod tests {
         assert!(!module.enabled(&c));
         c.modules.counters.enabled = true;
         assert!(module.enabled(&c));
+    }
+
+    #[tokio::test]
+    async fn renders_metrics_and_records_successful_updates() {
+        let discord = FakeDiscord::new();
+        discord.set_guild_metrics(GuildMetrics {
+            members: 123,
+            online: 45,
+            boosts: 6,
+        });
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.counters.enabled = true;
+        config.modules.counters.counters.push(CounterConfig {
+            id: "members".into(),
+            enabled: true,
+            channel_id: "20".into(),
+            label: "Members: {count} / {goal} ({remaining} left)".into(),
+            kind: "members".into(),
+            value: 0,
+            goal: Some(200),
+        });
+
+        let outcomes = CountersModule
+            .on_scheduled_tick(&context, &config, &ScheduledTick { now_unix: 1 })
+            .await
+            .unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(
+            discord.calls(),
+            vec![
+                DiscordCall::GuildMetrics { guild_id: 10 },
+                DiscordCall::RenameChannel {
+                    channel_id: 20,
+                    name: "Members: 123 / 200 (77 left)".into(),
+                    reason: "Orivane counter update".into(),
+                }
+            ]
+        );
+        assert!(matches!(
+            services.calls().as_slice(),
+            [ServiceCall::RecordCounterRun { value: 123, status, .. }] if status == "success"
+        ));
     }
 }

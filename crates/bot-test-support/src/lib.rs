@@ -6,8 +6,9 @@ use std::{
 use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
-    DiscordError, GuildChannel, GuildInvite, GuildRole, MessageButton, MessageReactionSummary,
-    ModalDefinition, ModalSubmitInteraction, RichEmbed, RolePanelComponents, UserProfile,
+    DiscordError, GuildChannel, GuildInvite, GuildMetrics, GuildRole, MessageButton,
+    MessageReactionSummary, ModalDefinition, ModalSubmitInteraction, RichEmbed,
+    RolePanelComponents, UserProfile,
 };
 use bot_module_api::{
     AutoroleJobResult, EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput,
@@ -177,6 +178,14 @@ pub enum DiscordCall {
     },
     GuildInvites {
         guild_id: u64,
+    },
+    GuildMetrics {
+        guild_id: u64,
+    },
+    RenameChannel {
+        channel_id: u64,
+        name: String,
+        reason: String,
     },
     GuildMemberRoleIds {
         guild_id: u64,
@@ -471,6 +480,22 @@ pub enum ServiceCall {
     InviteSnapshotReady {
         guild_id: u64,
     },
+    RecordCounterRun {
+        guild_id: u64,
+        counter_id: String,
+        channel_id: u64,
+        value: u64,
+        rendered_name: String,
+        status: String,
+        error: Option<String>,
+    },
+    RecordVoiceLinkEvent {
+        guild_id: u64,
+        user_id: u64,
+        voice_channel_id: u64,
+        text_channel_id: u64,
+        action: String,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -748,6 +773,50 @@ impl ModuleServices for FakeModuleServices {
             .expect("fake lock poisoned")
             .push(ServiceCall::InviteSnapshotReady { guild_id });
         Ok(false)
+    }
+    async fn record_counter_run(
+        &self,
+        guild_id: u64,
+        counter_id: &str,
+        channel_id: u64,
+        value: u64,
+        rendered_name: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RecordCounterRun {
+                guild_id,
+                counter_id: counter_id.into(),
+                channel_id,
+                value,
+                rendered_name: rendered_name.into(),
+                status: status.into(),
+                error: error.map(str::to_owned),
+            });
+        Ok(())
+    }
+    async fn record_voice_link_event(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        voice_channel_id: u64,
+        text_channel_id: u64,
+        action: &str,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RecordVoiceLinkEvent {
+                guild_id,
+                user_id,
+                voice_channel_id,
+                text_channel_id,
+                action: action.into(),
+            });
+        Ok(())
     }
     async fn ticket_by_channel(
         &self,
@@ -1917,6 +1986,7 @@ struct FakeState {
     guild_channels: Vec<GuildChannel>,
     guild_roles: Vec<GuildRole>,
     guild_invites: Vec<GuildInvite>,
+    guild_metrics: GuildMetrics,
     guild_member_role_ids: Vec<u64>,
     next_channel_id: u64,
     next_message_id: u64,
@@ -1958,6 +2028,10 @@ impl FakeDiscord {
 
     pub fn set_guild_invites(&self, invites: Vec<GuildInvite>) {
         self.state.lock().expect("fake lock poisoned").guild_invites = invites;
+    }
+
+    pub fn set_guild_metrics(&self, metrics: GuildMetrics) {
+        self.state.lock().expect("fake lock poisoned").guild_metrics = metrics;
     }
 
     pub fn set_guild_member_role_ids(&self, role_ids: Vec<u64>) {
@@ -2422,6 +2496,29 @@ impl DiscordApi for FakeDiscord {
             .expect("fake lock poisoned")
             .guild_invites
             .clone())
+    }
+
+    async fn guild_metrics(&self, guild_id: u64) -> Result<GuildMetrics, DiscordError> {
+        self.record(DiscordCall::GuildMetrics { guild_id })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .guild_metrics
+            .clone())
+    }
+
+    async fn rename_channel(
+        &self,
+        channel_id: u64,
+        name: &str,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::RenameChannel {
+            channel_id,
+            name: name.into(),
+            reason: reason.into(),
+        })
     }
 
     async fn guild_member_role_ids(

@@ -73,6 +73,9 @@ impl BotModule for VoiceTextLinkingModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bot_core::VoiceTextLinkConfig;
+    use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices, ServiceCall};
+    use std::sync::Arc;
     #[test]
     fn module_uses_dedicated_config_switch() {
         let mut c = GuildConfig::for_guild("1");
@@ -80,5 +83,82 @@ mod tests {
         assert!(!module.enabled(&c));
         c.modules.voice_text_linking.enabled = true;
         assert!(module.enabled(&c));
+    }
+
+    #[tokio::test]
+    async fn announces_channel_moves_and_records_both_sides() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.voice_text_linking.enabled = true;
+        config.modules.voice_text_linking.links = vec![
+            VoiceTextLinkConfig {
+                voice_channel_id: "20".into(),
+                text_channel_id: "21".into(),
+                announce_joins: false,
+                announce_leaves: true,
+            },
+            VoiceTextLinkConfig {
+                voice_channel_id: "30".into(),
+                text_channel_id: "31".into(),
+                announce_joins: true,
+                announce_leaves: false,
+            },
+        ];
+
+        VoiceTextLinkingModule
+            .on_voice_state_change(
+                &context,
+                &config,
+                &VoiceStateChange {
+                    guild_id: 10,
+                    user_id: 40,
+                    user_is_bot: false,
+                    previous_channel_id: Some(20),
+                    channel_id: Some(30),
+                    previous_session_seconds: 120,
+                    previous_session_eligible: true,
+                    username: "luna".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            discord.calls(),
+            vec![
+                DiscordCall::SendMessage {
+                    channel_id: 31,
+                    content: "<@40> joined <#30>.".into(),
+                },
+                DiscordCall::SendMessage {
+                    channel_id: 21,
+                    content: "<@40> left <#20>.".into(),
+                }
+            ]
+        );
+        assert_eq!(
+            services.calls(),
+            vec![
+                ServiceCall::RecordVoiceLinkEvent {
+                    guild_id: 10,
+                    user_id: 40,
+                    voice_channel_id: 30,
+                    text_channel_id: 31,
+                    action: "joined".into(),
+                },
+                ServiceCall::RecordVoiceLinkEvent {
+                    guild_id: 10,
+                    user_id: 40,
+                    voice_channel_id: 20,
+                    text_channel_id: 21,
+                    action: "left".into(),
+                }
+            ]
+        );
     }
 }

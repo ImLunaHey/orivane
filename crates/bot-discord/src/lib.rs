@@ -273,7 +273,7 @@ pub struct GuildInvite {
     pub inviter_id: Option<u64>,
     pub uses: u64,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GuildMetrics {
     pub members: u64,
     pub online: u64,
