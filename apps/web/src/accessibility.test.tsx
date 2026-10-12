@@ -87,6 +87,19 @@ describe('dashboard accessibility', () => {
     cleanup()
   })
 
+  it('shows a member audit trail and real moderation case history', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>)
+    await act(async () => { await router.navigate({ to: '/servers/$serverId/members/$memberId', params: { serverId: '901234567890123456', memberId: '118742006320914432' } }) })
+
+    expect(await screen.findByRole('heading', { name: 'Silver' })).toBeInTheDocument()
+    expect(await screen.findByRole('table', { name: 'Audit history for Discord user 118742006320914432' })).toBeInTheDocument()
+    expect(await screen.findByRole('table', { name: 'Moderation cases for Discord member 118742006320914432' })).toBeInTheDocument()
+    expect(screen.getByText('#187')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Inspect →' })).toHaveAttribute('href', '/servers/901234567890123456/moderation/187')
+    cleanup()
+  })
+
   it('filters and inspects the global audit trail', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>)

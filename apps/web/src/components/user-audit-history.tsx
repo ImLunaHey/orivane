@@ -1,11 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { getUserAuditEvents } from '../lib/api'
 import type { AuditEvent } from '../types'
 import { DataTable } from './data-table'
-import { Badge, Panel } from './ui'
+import { Badge, Button, Panel } from './ui'
 
 type UserAuditHistoryProps = {
   userId: string
@@ -13,11 +13,13 @@ type UserAuditHistoryProps = {
 }
 
 export function UserAuditHistory({ userId, guildId }: UserAuditHistoryProps) {
-  const audit = useQuery({
+  const audit = useInfiniteQuery({
     queryKey: ['user-audit-events', guildId ?? 'global', userId],
-    queryFn: () => getUserAuditEvents(userId, guildId),
+    queryFn: ({ pageParam }) => getUserAuditEvents(userId, guildId, pageParam ?? undefined),
+    initialPageParam: null as number | null,
+    getNextPageParam: (lastPage) => lastPage.length === 25 ? (lastPage.at(-1)?.id ?? null) : null,
   })
-  const events = useMemo(() => audit.data ?? [], [audit.data])
+  const events = useMemo(() => audit.data?.pages.flat() ?? [], [audit.data])
   const columns = useMemo<Array<ColumnDef<AuditEvent>>>(() => [
     { accessorKey: 'occurred_at', header: 'Time', cell: ({ getValue }) => <time dateTime={getValue<string>()}>{new Date(getValue<string>()).toLocaleString()}</time> },
     { id: 'relationship', header: 'Relationship', cell: ({ row }) => <Badge tone={row.original.actor_id === userId ? 'violet' : 'neutral'}>{row.original.actor_id === userId ? 'Actor' : 'Target'}</Badge> },
@@ -29,7 +31,7 @@ export function UserAuditHistory({ userId, guildId }: UserAuditHistoryProps) {
 
   return <Panel className="system-panel audit-table-panel">
     <div className="panel-heading user-audit-heading"><div><p className="eyebrow">Accountability</p><h3>Audit history</h3><p>Actions performed by this user and actions that targeted them.</p></div><Badge tone="neutral">{events.length} events</Badge></div>
-    {audit.isLoading ? <div className="audit-loading">Loading audit history…</div> : audit.isError ? <div className="audit-loading audit-error">Could not load audit history: {audit.error.message}</div> : <DataTable data={events} columns={columns} getRowId={(event) => String(event.id)} ariaLabel={`Audit history for Discord user ${userId}`} emptyMessage="No audit events recorded for this user" />}
+    {audit.isLoading ? <div className="audit-loading">Loading audit history…</div> : audit.isError ? <div className="audit-loading audit-error">Could not load audit history: {audit.error.message}</div> : <><DataTable data={events} columns={columns} getRowId={(event) => String(event.id)} ariaLabel={`Audit history for Discord user ${userId}`} emptyMessage="No audit events recorded for this user" />{audit.hasNextPage && <div className="table-pagination"><Button disabled={audit.isFetchingNextPage} onClick={() => audit.fetchNextPage()}>{audit.isFetchingNextPage ? 'Loading…' : 'Load older events'}</Button></div>}</>}
   </Panel>
 }
 

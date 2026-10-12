@@ -1856,13 +1856,20 @@ impl Infrastructure {
     pub async fn moderation_cases(
         &self,
         guild_id: &str,
+        member_id: Option<&str>,
         limit: i64,
+        before_id: Option<i64>,
     ) -> Result<Vec<ModerationCase>, StoreError> {
         sqlx::query_as::<_, ModerationCase>(
             "SELECT id, guild_id, member_id, moderator_id, action, reason, evidence_urls, status, created_at, updated_at \
-             FROM moderation_cases WHERE guild_id = $1 ORDER BY id DESC LIMIT $2",
+             FROM moderation_cases WHERE guild_id = $1 \
+             AND ($2::text IS NULL OR member_id = $2) \
+             AND ($3::bigint IS NULL OR id < $3) \
+             ORDER BY id DESC LIMIT $4",
         )
         .bind(guild_id)
+        .bind(member_id)
+        .bind(before_id)
         .bind(limit.clamp(1, 200))
         .fetch_all(&self.pool)
         .await
@@ -2755,6 +2762,30 @@ impl Infrastructure {
         )
         .bind(guild_id)
         .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn guild_member(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<GuildMemberSummary>, StoreError> {
+        sqlx::query_as::<_, GuildMemberSummary>(
+            "SELECT i.user_id AS id, d.username, d.display_name, d.avatar_url, \
+                    count(a.id) FILTER (WHERE a.action LIKE 'slash_command.%' AND a.occurred_at >= now() - interval '30 days') AS commands_30d, \
+                    (SELECT count(*) FROM moderation_cases c WHERE c.guild_id = $1 AND c.member_id = i.user_id) AS cases, \
+                    max(a.occurred_at) AS last_seen \
+             FROM (SELECT $2::text AS user_id) i \
+             LEFT JOIN discord_identities d ON d.user_id = i.user_id \
+             LEFT JOIN audit_events a ON a.guild_id = $1 AND a.actor_id = i.user_id \
+             WHERE EXISTS (SELECT 1 FROM audit_events WHERE guild_id = $1 AND actor_id = i.user_id) \
+                OR EXISTS (SELECT 1 FROM moderation_cases WHERE guild_id = $1 AND member_id = i.user_id) \
+             GROUP BY i.user_id, d.username, d.display_name, d.avatar_url",
+        )
+        .bind(guild_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
         .await
         .map_err(StoreError::from)
     }

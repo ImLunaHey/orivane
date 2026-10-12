@@ -3,6 +3,7 @@ import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './
 import type { AfkStatusRecord, AuditEvent, CounterRunRecord, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, InviteAttributionRecord, InviteLeaderboardRecord, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, OperationalRecord, PollRecord, Reminder, ResourceDiagnostics, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel, VerificationAttemptRecord, VoiceLinkEventRecord } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
+import { discordAccountAge } from './discord'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
 
 const configuredApiBase = import.meta.env.VITE_API_BASE_URL as string | undefined
@@ -315,12 +316,13 @@ export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {
   return request<AuditEvent[]>(guildId ? `/v1/guilds/${guildId}/audit?limit=200` : '/v1/audit?limit=200')
 }
 
-export async function getUserAuditEvents(userId: string, guildId?: string): Promise<AuditEvent[]> {
+export async function getUserAuditEvents(userId: string, guildId?: string, beforeId?: number): Promise<AuditEvent[]> {
   if (isDemoMode) {
     const events = await getAuditEvents(guildId)
-    return events.filter((event) => event.actor_id === userId || event.target_id === userId)
+    return events.filter((event) => (event.actor_id === userId || event.target_id === userId) && (!beforeId || event.id < beforeId)).slice(0, 25)
   }
-  const query = new URLSearchParams({ limit: '200', user_id: userId })
+  const query = new URLSearchParams({ limit: '25', user_id: userId })
+  if (beforeId) query.set('before_id', String(beforeId))
   return request<AuditEvent[]>(`${guildId ? `/v1/guilds/${guildId}/audit` : '/v1/audit'}?${query}`)
 }
 
@@ -344,9 +346,14 @@ function demoCases(guildId: string): ModerationCase[] {
   return saved ? JSON.parse(saved) as ModerationCase[] : starterCases.map((item) => ({ ...item, guild_id: guildId }))
 }
 
-export async function getModerationCases(guildId: string): Promise<ModerationCase[]> {
+export async function getModerationCases(guildId: string, options: { memberId?: string; beforeId?: number; limit?: number } = {}): Promise<ModerationCase[]> {
   if (isDemoMode) return demoCases(guildId)
-  return request<ModerationCase[]>(`/v1/guilds/${guildId}/cases`)
+    .filter((item) => (!options.memberId || item.member_id === options.memberId) && (!options.beforeId || item.id < options.beforeId))
+    .slice(0, options.limit ?? 200)
+  const query = new URLSearchParams({ limit: String(options.limit ?? 200) })
+  if (options.memberId) query.set('member_id', options.memberId)
+  if (options.beforeId) query.set('before_id', String(options.beforeId))
+  return request<ModerationCase[]>(`/v1/guilds/${guildId}/cases?${query}`)
 }
 
 export async function getModerationCase(guildId: string, caseId: string): Promise<ModerationCase> {
@@ -418,7 +425,7 @@ function displayUser(user: UserResponse, contexts: UserServerContext[] = []): Gl
     commands: user.commands,
     cases: user.cases,
     lastSeen: user.last_seen ? new Date(user.last_seen).toLocaleString() : 'No activity recorded',
-    accountAge: 'Not available from telemetry',
+    accountAge: discordAccountAge(user.id),
     contexts,
   }
 }
@@ -497,7 +504,44 @@ export type GuildMemberSummary = {
   last_seen: string | null
 }
 
+export type GuildMemberDetail = GuildMemberSummary & {
+  bot: boolean | null
+  joined_at: string | null
+  role_ids: string[]
+  roles: GuildRole[]
+  pending: boolean | null
+  discord_profile_status: 'live' | 'unavailable'
+  tracked_messages: number
+  total_xp: number
+  xp_rank: number
+}
+
 export async function getGuildMembers(guildId: string): Promise<GuildMemberSummary[]> {
   if (isDemoMode) return []
   return request<GuildMemberSummary[]>(`/v1/guilds/${guildId}/members`)
+}
+
+export async function getGuildMember(guildId: string, memberId: string): Promise<GuildMemberDetail> {
+  if (isDemoMode) {
+    const user = globalUsers.find((item) => item.id === memberId)
+    return {
+      id: memberId,
+      username: user?.username ?? `member-${memberId.slice(-4)}`,
+      display_name: user?.displayName ?? `Discord user ${memberId.slice(-4)}`,
+      avatar_url: user?.avatarUrl ?? null,
+      bot: false,
+      joined_at: '2026-08-12T15:05:00.000Z',
+      role_ids: ['100000000000000103'],
+      roles: [{ id: '100000000000000103', name: 'Member', position: 1, managed: false }],
+      pending: false,
+      discord_profile_status: 'live',
+      commands_30d: user?.commands ?? 0,
+      cases: user?.cases ?? 0,
+      last_seen: new Date().toISOString(),
+      tracked_messages: 184,
+      total_xp: 2_400,
+      xp_rank: 12,
+    }
+  }
+  return request<GuildMemberDetail>(`/v1/guilds/${guildId}/members/${memberId}`)
 }

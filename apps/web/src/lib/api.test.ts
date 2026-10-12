@@ -7,6 +7,7 @@ import {
   getCommandVolume,
   getGuildChannels,
   getGuildConfig,
+  getGuildMember,
   getGuildMembers,
   getGuildStats,
   getHealthReport,
@@ -48,6 +49,11 @@ describe('dashboard demo configuration', () => {
     expect((await getCommandVolume('guild-test')).length).toBeGreaterThan(0)
     expect(await getHealthReport()).toMatchObject({ status: 'operational' })
     expect(await getGuildMembers('guild-test')).toEqual([])
+    await expect(getGuildMember('guild-test', '118742006320914432')).resolves.toMatchObject({
+      username: 'silver.arc',
+      discord_profile_status: 'live',
+      tracked_messages: 184,
+    })
   })
 
   it('supports moderation cases and reports missing records', async () => {
@@ -63,6 +69,8 @@ describe('dashboard demo configuration', () => {
     })
     expect(created.id).toBe(188)
     expect((await getModerationCases('guild-test'))[0]).toEqual(created)
+    expect(await getModerationCases('guild-test', { memberId: 'member-1' })).toEqual([created])
+    expect(await getModerationCases('guild-test', { beforeId: created.id, limit: 1 })).toHaveLength(1)
   })
 
   it('records dashboard actions, syncs commands, and resolves audit details', async () => {

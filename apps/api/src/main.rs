@@ -111,6 +111,33 @@ struct AuditParams {
 }
 
 #[derive(Deserialize)]
+struct CaseParams {
+    limit: Option<i64>,
+    before_id: Option<i64>,
+    member_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GuildMemberDetail {
+    id: String,
+    username: Option<String>,
+    display_name: Option<String>,
+    avatar_url: Option<String>,
+    bot: Option<bool>,
+    joined_at: Option<String>,
+    role_ids: Vec<String>,
+    roles: Vec<GuildRole>,
+    pending: Option<bool>,
+    discord_profile_status: &'static str,
+    commands_30d: i64,
+    cases: i64,
+    last_seen: Option<chrono::DateTime<chrono::Utc>>,
+    tracked_messages: i64,
+    total_xp: i64,
+    xp_rank: i64,
+}
+
+#[derive(Deserialize)]
 struct DashboardActivity {
     action: String,
     guild_id: Option<String>,
@@ -367,6 +394,10 @@ async fn main() -> Result<()> {
         )
         .route("/v1/guilds/{guild_id}/stats", get(get_guild_stats))
         .route("/v1/guilds/{guild_id}/members", get(get_guild_members))
+        .route(
+            "/v1/guilds/{guild_id}/members/{member_id}",
+            get(get_guild_member),
+        )
         .route(
             "/v1/guilds/{guild_id}/analytics/commands",
             get(get_guild_command_volume),
@@ -840,6 +871,105 @@ async fn get_guild_members(
     )
     .await;
     Ok(Json(members))
+}
+
+async fn get_guild_member(
+    State(state): State<AppState>,
+    Path((guild_id, member_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<GuildMemberDetail>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_snowflake(&member_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let stored = state
+        .infrastructure
+        .guild_member(&guild_id, &member_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "guild member not found".to_owned()))?;
+    let xp = state
+        .infrastructure
+        .member_xp_profile(&guild_id, &member_id)
+        .await
+        .map_err(internal_error)?;
+
+    let mut username = stored.username;
+    let mut display_name = stored.display_name;
+    let mut avatar_url = stored.avatar_url;
+    let mut bot = None;
+    let mut joined_at = None;
+    let mut role_ids = Vec::new();
+    let mut roles = Vec::new();
+    let mut pending = None;
+    let mut discord_profile_status = "unavailable";
+
+    if let Some(token) = state.discord_token.clone() {
+        match TwilightDiscord::connect(token).await {
+            Ok(discord) => match discord
+                .guild_member_profile(
+                    guild_id.parse().expect("validated Discord snowflake"),
+                    member_id.parse().expect("validated Discord snowflake"),
+                )
+                .await
+            {
+                Ok(profile) => {
+                    username = Some(profile.username);
+                    display_name = Some(profile.display_name);
+                    avatar_url = Some(profile.avatar_url);
+                    bot = Some(profile.bot);
+                    joined_at = profile.joined_at;
+                    role_ids = profile.role_ids.iter().map(ToString::to_string).collect();
+                    pending = Some(profile.pending);
+                    discord_profile_status = "live";
+                    if let Ok(guild_roles) = discord
+                        .guild_roles(guild_id.parse().expect("validated Discord snowflake"))
+                        .await
+                    {
+                        roles = guild_roles
+                            .into_iter()
+                            .filter(|role| {
+                                profile.role_ids.iter().any(|id| role.id == id.to_string())
+                            })
+                            .collect();
+                        roles.sort_by_key(|role| std::cmp::Reverse(role.position));
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%guild_id, %member_id, %error, "Discord member profile lookup failed")
+                }
+            },
+            Err(error) => {
+                tracing::warn!(%guild_id, %member_id, %error, "Discord client initialization failed for member profile")
+            }
+        }
+    }
+
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "community.member.viewed",
+    )
+    .await;
+    Ok(Json(GuildMemberDetail {
+        id: stored.id,
+        username,
+        display_name,
+        avatar_url,
+        bot,
+        joined_at,
+        role_ids,
+        roles,
+        pending,
+        discord_profile_status,
+        commands_30d: stored.commands_30d,
+        cases: stored.cases,
+        last_seen: stored.last_seen,
+        tracked_messages: xp.message_count,
+        total_xp: xp.total_xp,
+        xp_rank: xp.rank,
+    }))
 }
 
 async fn get_guild_command_volume(
@@ -2015,12 +2145,21 @@ async fn get_cases(
     State(state): State<AppState>,
     Path(guild_id): Path<String>,
     headers: HeaderMap,
+    Query(params): Query<CaseParams>,
 ) -> Result<Json<Vec<ModerationCase>>, ApiError> {
     validate_snowflake(&guild_id)?;
+    if let Some(member_id) = params.member_id.as_deref() {
+        validate_snowflake(member_id)?;
+    }
     let actor = state.auth.require_guild(&headers, &guild_id).await?;
     let cases = state
         .infrastructure
-        .moderation_cases(&guild_id, 200)
+        .moderation_cases(
+            &guild_id,
+            params.member_id.as_deref(),
+            params.limit.unwrap_or(200),
+            params.before_id,
+        )
         .await
         .map_err(internal_error)?;
     record_read(

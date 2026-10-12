@@ -5,8 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Panel } from '../components/ui'
 import { DiscordAvatar } from '../components/discord-avatar'
 import { UserAuditHistory } from '../components/user-audit-history'
+import { discordAccountAge, discordAccountCreatedAt } from '../lib/discord'
 import { downloadCsv } from '../lib/export'
-import { getAuditEvents, getGuildMembers, getGuildStats, getHealthReport, isDemoMode, syncCommands } from '../lib/api'
+import { getAuditEvents, getGuildMember, getGuildMembers, getGuildStats, getHealthReport, isDemoMode, syncCommands } from '../lib/api'
+import { MemberCaseHistory } from './system/member-case-history'
 import { Metric } from './system/metric'
 import { PageIntro } from './system/page-intro'
 
@@ -70,18 +72,46 @@ export function MembersPage() {
 
 export function MemberDetailPage() {
   const { serverId, memberId } = useParams({ strict: false }) as { serverId: string; memberId: string }
-  const observed = useQuery({ queryKey: ['guild-members', serverId], queryFn: () => getGuildMembers(serverId) })
-  const member = isDemoMode ? members.find((item) => item.id === memberId) : observed.data?.map(observedMember).find((item) => item.id === memberId)
-  if (!isDemoMode && observed.isLoading) return <div className="loading-state">Loading member details…</div>
+  const detail = useQuery({ queryKey: ['guild-member', serverId, memberId], queryFn: () => getGuildMember(serverId, memberId) })
+  const member = detail.data ? memberDetailView(detail.data) : undefined
+  if (detail.isLoading) return <div className="loading-state">Loading member details…</div>
   if (!member) return <div className="empty-state"><h2>Member not found</h2><Link to="/servers/$serverId/members" params={{ serverId }}>Return to members</Link></div>
 
   return <div className="page-stack">
     <Link to="/servers/$serverId/members" params={{ serverId }} className="back-link"><ArrowLeft size={14} />Back to members</Link>
     <section className="member-profile-header"><DiscordAvatar className="member-profile-avatar" avatarUrl={member.avatarUrl} name={member.name} /><div><p className="eyebrow">Discord member · {member.id}</p><h2>{member.displayName}</h2><p>@{member.name} · Last seen {member.lastSeen}</p></div><Badge tone={member.risk === 'Low' ? 'green' : 'amber'}>{member.risk} risk</Badge></section>
-    <section className="system-metrics"><Metric icon={MessageSquare} label="Messages (30d)" value={member.messages} note={`${member.activity} activity`} /><Metric icon={Command} label="Commands (30d)" value={member.commands} note="Slash commands only" /><Metric icon={ShieldCheck} label="Moderation cases" value={String(member.cases)} note={member.cases ? 'Review available below' : 'No recorded cases'} /><Metric icon={CalendarDays} label="Account age" value={member.accountAge} note={`Joined ${member.joined}`} /></section>
+    <section className="system-metrics"><Metric icon={MessageSquare} label="Tracked messages" value={member.messages} note={`${member.totalXp.toLocaleString()} leveling XP`} /><Metric icon={Command} label="Commands (30d)" value={member.commands} note="Audited slash commands" /><Metric icon={ShieldCheck} label="Moderation cases" value={String(member.cases)} note={member.cases ? 'Review available below' : 'No recorded cases'} /><Metric icon={CalendarDays} label="Account age" value={member.accountAge} note={`Created ${member.accountCreatedAt}`} /></section>
     <UserAuditHistory userId={member.id} guildId={serverId} />
-    <section className="member-detail-grid"><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Profile</p><h3>Server context</h3></div></div><dl className="detail-list"><div><dt>Discord ID</dt><dd>{member.id}</dd></div><div><dt>Joined server</dt><dd>{member.joinedAt}</dd></div><div><dt>Highest role</dt><dd>{member.role}</dd></div><div><dt>Last active</dt><dd>{member.lastSeen}</dd></div></dl><div className="role-list"><p className="eyebrow">Roles</p>{member.roles.map((role) => <Badge key={role} tone={role === 'Member' ? 'neutral' : 'violet'}>{role}</Badge>)}</div></Panel><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Moderation</p><h3>Case history</h3></div><Badge tone={member.cases ? 'amber' : 'green'}>{member.cases} cases</Badge></div>{member.cases ? <div className="member-case"><span>#1042</span><div><strong>Automod warning</strong><small>Repeated message pattern · resolved by mossbyte</small></div><time>Today, 19:04</time></div> : <div className="quiet-state"><ShieldCheck size={24} /><strong>No moderation history</strong><span>This member has no recorded cases.</span></div>}</Panel></section>
+    <section className="member-detail-grid"><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Profile</p><h3>Server context</h3></div><Badge tone={member.profileLive ? 'green' : 'amber'}>{member.profileLive ? 'Live Discord data' : 'Stored telemetry'}</Badge></div><dl className="detail-list"><div><dt>Discord ID</dt><dd>{member.id}</dd></div><div><dt>Joined server</dt><dd>{member.joinedAt}</dd></div><div><dt>Highest role</dt><dd>{member.role}</dd></div><div><dt>Last active</dt><dd>{member.lastSeen}</dd></div></dl><div className="role-list"><p className="eyebrow">Roles</p>{member.roles.length ? member.roles.map((role) => <Badge key={role} tone={role === 'Member' ? 'neutral' : 'violet'}>{role}</Badge>) : <span className="muted-copy">No Discord roles were available.</span>}</div></Panel><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Discord and leveling</p><h3>Current state</h3></div></div><dl className="detail-list"><div><dt>Account type</dt><dd>{member.bot ? 'Bot account' : 'User account'}</dd></div><div><dt>Membership screening</dt><dd>{member.pending ? 'Pending' : member.profileLive ? 'Completed' : 'Unavailable'}</dd></div><div><dt>Leveling XP</dt><dd>{member.totalXp.toLocaleString()}</dd></div><div><dt>XP rank</dt><dd>{member.xpRank ? `#${member.xpRank}` : 'Unranked'}</dd></div></dl></Panel></section>
+    <MemberCaseHistory serverId={serverId} memberId={member.id} />
   </div>
+}
+
+function memberDetailView(member: Awaited<ReturnType<typeof getGuildMember>>) {
+  const username = member.username ?? `Discord user ${member.id.slice(-4)}`
+  const accountCreated = discordAccountCreatedAt(member.id)
+  const roles = member.roles.map((role) => role.name)
+  return {
+    id: member.id,
+    name: username,
+    displayName: member.display_name ?? username,
+    avatarUrl: member.avatar_url,
+    role: roles[0] ?? (member.pending ? 'Pending verification' : member.bot ? 'Bot' : 'Member'),
+    joinedAt: member.joined_at ? new Date(member.joined_at).toLocaleString() : 'Not available',
+    cases: member.cases,
+    messages: member.tracked_messages.toLocaleString(),
+    commands: member.commands_30d.toLocaleString(),
+    lastSeen: member.last_seen ? new Date(member.last_seen).toLocaleString() : 'No activity timestamp',
+    roles,
+    accountAge: discordAccountAge(member.id),
+    accountCreatedAt: accountCreated?.toLocaleDateString() ?? 'Unavailable',
+    risk: member.cases ? 'Medium' : 'Low',
+    bot: member.bot ?? false,
+    pending: member.pending ?? false,
+    profileLive: member.discord_profile_status === 'live',
+    totalXp: member.total_xp,
+    xpRank: member.xp_rank,
+  }
 }
 
 function observedMember(member: Awaited<ReturnType<typeof getGuildMembers>>[number]): typeof members[number] {

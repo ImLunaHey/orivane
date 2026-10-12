@@ -281,6 +281,18 @@ pub struct GuildMetrics {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GuildMemberProfile {
+    pub id: u64,
+    pub username: String,
+    pub display_name: String,
+    pub avatar_url: String,
+    pub joined_at: Option<String>,
+    pub role_ids: Vec<u64>,
+    pub pending: bool,
+    pub bot: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserProfile {
     pub id: u64,
     pub username: String,
@@ -562,6 +574,13 @@ pub trait DiscordApi: Send + Sync {
         guild_id: u64,
         user_id: u64,
     ) -> Result<Vec<u64>, DiscordError>;
+    async fn guild_member_profile(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+    ) -> Result<GuildMemberProfile, DiscordError> {
+        Err(DiscordError::Request("member profile unavailable".into()))
+    }
     async fn guild_invites(&self, _guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
         Err(DiscordError::Request("invite access unavailable".into()))
     }
@@ -1361,6 +1380,58 @@ impl DiscordApi for TwilightDiscord {
             .await
             .map_err(request_error)?;
         Ok(member.roles.into_iter().map(Id::get).collect())
+    }
+    async fn guild_member_profile(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+    ) -> Result<GuildMemberProfile, DiscordError> {
+        let member = self
+            .http
+            .guild_member(
+                Id::<GuildMarker>::new(guild_id),
+                Id::<UserMarker>::new(user_id),
+            )
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        let avatar_url = member.avatar.map_or_else(
+            || {
+                member.user.avatar.map_or_else(
+                    || {
+                        format!(
+                            "https://cdn.discordapp.com/embed/avatars/{}.png",
+                            (user_id >> 22) % 6
+                        )
+                    },
+                    |avatar| {
+                        format!("https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=256")
+                    },
+                )
+            },
+            |avatar| {
+                format!(
+                    "https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/avatars/{avatar}.png?size=256"
+                )
+            },
+        );
+        let display_name = member
+            .nick
+            .clone()
+            .or_else(|| member.user.global_name.clone())
+            .unwrap_or_else(|| member.user.name.clone());
+        Ok(GuildMemberProfile {
+            id: user_id,
+            username: member.user.name,
+            display_name,
+            avatar_url,
+            joined_at: member.joined_at.map(|value| value.iso_8601().to_string()),
+            role_ids: member.roles.into_iter().map(Id::get).collect(),
+            pending: member.pending,
+            bot: member.user.bot,
+        })
     }
     async fn guild_invites(&self, guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
         let invites = self
