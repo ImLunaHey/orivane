@@ -163,8 +163,58 @@ impl ModuleServices for GatewayModuleServices {
                 }
             }))
     }
-    async fn close_poll(&self, g: u64, p: i64) -> Result<bool> {
-        Ok(self.infrastructure.close_poll(&g.to_string(), p).await?)
+    async fn close_poll(&self, g: u64, p: i64) -> Result<Option<bot_module_api::DuePollResult>> {
+        Ok(self
+            .infrastructure
+            .close_poll(&g.to_string(), p)
+            .await?
+            .and_then(
+                |(id, channel, message, question, options, counts, anonymous)| {
+                    Some(bot_module_api::DuePollResult {
+                        id,
+                        channel_id: channel.parse().ok()?,
+                        message_id: message.parse().ok()?,
+                        total_votes: counts.iter().sum(),
+                        question,
+                        options,
+                        counts,
+                        anonymous,
+                    })
+                },
+            ))
+    }
+    async fn attach_poll_message(&self, g: u64, p: i64, m: u64) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .attach_poll_message(&g.to_string(), p, &m.to_string())
+            .await?)
+    }
+    async fn claim_due_polls(
+        &self,
+        g: u64,
+        now: u64,
+        limit: u8,
+    ) -> Result<Vec<bot_module_api::DuePollResult>> {
+        Ok(self
+            .infrastructure
+            .claim_due_polls(&g.to_string(), now, limit)
+            .await?
+            .into_iter()
+            .filter_map(
+                |(id, channel, message, question, options, counts, anonymous)| {
+                    Some(bot_module_api::DuePollResult {
+                        id,
+                        channel_id: channel.parse().ok()?,
+                        message_id: message.parse().ok()?,
+                        total_votes: counts.iter().sum(),
+                        question,
+                        options,
+                        counts,
+                        anonymous,
+                    })
+                },
+            )
+            .collect())
     }
     async fn attribute_invite(
         &self,

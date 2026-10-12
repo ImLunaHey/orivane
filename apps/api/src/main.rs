@@ -1435,16 +1435,45 @@ async fn close_poll_dashboard(
         .await
         .map_err(internal_error)?
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "poll not found".into()))?;
-    if !state
+    let Some((_, channel_id, message_id, question, options, counts, anonymous)) = state
         .infrastructure
         .close_poll(&guild_id, poll_id)
         .await
         .map_err(internal_error)?
-    {
+    else {
         return Err(ApiError(
             StatusCode::CONFLICT,
             "poll is already closed".into(),
         ));
+    };
+    if let Some(token) = state.discord_token.clone()
+        && let (Ok(channel_id), Ok(message_id)) = (channel_id.parse(), message_id.parse())
+    {
+        let total: u64 = counts.iter().sum();
+        let results = options
+            .iter()
+            .zip(&counts)
+            .map(|(option, count)| format!("• {} — {count}", option.replace('@', "@\u{200b}")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let content = format!(
+            "**{}**\nPoll closed · {total} total vote(s){}\n{results}",
+            question.replace('@', "@\u{200b}"),
+            if anonymous { " · anonymous" } else { "" }
+        );
+        match TwilightDiscord::connect(token).await {
+            Ok(discord) => {
+                if let Err(error) = discord
+                    .edit_message_with_buttons(channel_id, message_id, &content, &[])
+                    .await
+                {
+                    tracing::warn!(%guild_id, %poll_id, %error, "could not synchronize closed poll message");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%guild_id, %poll_id, %error, "could not connect Discord client to synchronize closed poll")
+            }
+        }
     }
     let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "poll.closed");
     event.source = "dashboard_api".into();

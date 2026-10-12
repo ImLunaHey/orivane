@@ -5,7 +5,7 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
     CommandResponse, ComponentInteraction, MessageButton, MessageButtonStyle,
 };
-use bot_module_api::{BotModule, ModuleContext, ModuleEventOutcome};
+use bot_module_api::{BotModule, DuePollResult, ModuleContext, ModuleEventOutcome, ScheduledTick};
 pub struct PollsModule;
 const PREFIX: &str = "orivane:poll:";
 const fn text(
@@ -91,6 +91,9 @@ impl BotModule for PollsModule {
     fn handles_component(&self, id: &str) -> bool {
         id.starts_with(PREFIX)
     }
+    fn handles_scheduled_tick(&self) -> bool {
+        true
+    }
     async fn on_command(
         &self,
         ctx: &ModuleContext,
@@ -109,10 +112,20 @@ impl BotModule for PollsModule {
             }
             let id = i.integer("id").context("poll ID required")?;
             let closed = ctx.services.close_poll(i.guild_id, id).await?;
+            if let Some(poll) = &closed {
+                ctx.discord
+                    .edit_message_with_buttons(
+                        poll.channel_id,
+                        poll.message_id,
+                        &closed_poll_content(poll),
+                        &[],
+                    )
+                    .await?;
+            }
             ctx.discord
                 .respond_to_command(
                     i,
-                    CommandResponse::ephemeral(if closed {
+                    CommandResponse::ephemeral(if closed.is_some() {
                         format!("Poll #{id} closed.")
                     } else {
                         format!("Poll #{id} was not active.")
@@ -169,7 +182,8 @@ impl BotModule for PollsModule {
                 style: MessageButtonStyle::Primary,
             })
             .collect::<Vec<_>>();
-        ctx.discord
+        let message_id = ctx
+            .discord
             .send_message_with_buttons(
                 channel,
                 &format!(
@@ -179,6 +193,9 @@ impl BotModule for PollsModule {
                 ),
                 &buttons,
             )
+            .await?;
+        ctx.services
+            .attach_poll_message(i.guild_id, poll.id, message_id)
             .await?;
         ctx.discord
             .respond_to_command(
@@ -233,6 +250,51 @@ impl BotModule for PollsModule {
             target_id: Some(id.to_string()),
         }))
     }
+    async fn on_scheduled_tick(
+        &self,
+        ctx: &ModuleContext,
+        c: &GuildConfig,
+        event: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        let guild_id = c.guild_id.parse()?;
+        let due = ctx
+            .services
+            .claim_due_polls(guild_id, event.now_unix, 25)
+            .await?;
+        let mut outcomes = Vec::with_capacity(due.len());
+        for poll in due {
+            ctx.discord
+                .edit_message_with_buttons(
+                    poll.channel_id,
+                    poll.message_id,
+                    &closed_poll_content(&poll),
+                    &[],
+                )
+                .await?;
+            outcomes.push(ModuleEventOutcome {
+                action: "poll.expired".into(),
+                target_type: "poll".into(),
+                target_id: Some(poll.id.to_string()),
+            });
+        }
+        Ok(outcomes)
+    }
+}
+fn closed_poll_content(poll: &DuePollResult) -> String {
+    let results = poll
+        .options
+        .iter()
+        .zip(&poll.counts)
+        .map(|(option, count)| format!("• {} — {count}", safe(option)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "**{}**\nPoll closed · {} total vote(s){}\n{}",
+        safe(&poll.question),
+        poll.total_votes,
+        if poll.anonymous { " · anonymous" } else { "" },
+        results
+    )
 }
 fn safe(v: &str) -> String {
     v.replace('@', "@\u{200b}")
@@ -250,5 +312,21 @@ mod tests {
     #[test]
     fn neutralizes_mentions() {
         assert!(safe("@here").contains('\u{200b}'));
+    }
+    #[test]
+    fn closed_results_include_every_axis_of_the_vote() {
+        let content = closed_poll_content(&DuePollResult {
+            id: 1,
+            channel_id: 2,
+            message_id: 3,
+            question: "Ship it?".into(),
+            options: vec!["Yes".into(), "No".into()],
+            counts: vec![4, 1],
+            total_votes: 5,
+            anonymous: true,
+        });
+        assert!(content.contains("Poll closed · 5 total vote(s) · anonymous"));
+        assert!(content.contains("• Yes — 4"));
+        assert!(content.contains("• No — 1"));
     }
 }

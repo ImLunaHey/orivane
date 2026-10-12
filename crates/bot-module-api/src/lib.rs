@@ -92,6 +92,17 @@ pub struct PollResult {
     pub anonymous: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DuePollResult {
+    pub id: i64,
+    pub channel_id: u64,
+    pub message_id: u64,
+    pub question: String,
+    pub options: Vec<String>,
+    pub counts: Vec<u64>,
+    pub total_votes: u64,
+    pub anonymous: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InviteUsageInput {
     pub code: String,
     pub inviter_id: Option<u64>,
@@ -319,8 +330,24 @@ pub trait ModuleServices: Send + Sync {
     ) -> Result<Option<PollResult>> {
         Ok(None)
     }
-    async fn close_poll(&self, _guild_id: u64, _poll_id: i64) -> Result<bool> {
-        Ok(false)
+    async fn close_poll(&self, _guild_id: u64, _poll_id: i64) -> Result<Option<DuePollResult>> {
+        Ok(None)
+    }
+    async fn attach_poll_message(
+        &self,
+        _guild_id: u64,
+        _poll_id: i64,
+        _message_id: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+    async fn claim_due_polls(
+        &self,
+        _guild_id: u64,
+        _now_unix: u64,
+        _limit: u8,
+    ) -> Result<Vec<DuePollResult>> {
+        Ok(Vec::new())
     }
     async fn attribute_invite(
         &self,

@@ -171,10 +171,100 @@ impl Infrastructure {
         }
         Ok(Some((question, options, counts, anonymous)))
     }
-    pub async fn close_poll(&self, guild_id: &str, poll_id: i64) -> Result<bool, StoreError> {
-        let result = sqlx::query("UPDATE polls SET status='closed',closed_at=now() WHERE guild_id=$1 AND id=$2 AND status='active'")
-            .bind(guild_id).bind(poll_id).execute(&self.pool).await?;
-        Ok(result.rows_affected() > 0)
+    #[allow(clippy::type_complexity)]
+    pub async fn close_poll(
+        &self,
+        guild_id: &str,
+        poll_id: i64,
+    ) -> Result<Option<(i64, String, String, String, Vec<String>, Vec<u64>, bool)>, StoreError>
+    {
+        let mut transaction = self.pool.begin().await?;
+        let row: Option<(i64, String, String, String, serde_json::Value, bool)> = sqlx::query_as(
+            "UPDATE polls SET status='closed',closed_at=now() WHERE guild_id=$1 AND id=$2 AND status='active' AND message_id IS NOT NULL RETURNING id,channel_id,message_id,question,options,anonymous",
+        )
+        .bind(guild_id)
+        .bind(poll_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some((id, channel_id, message_id, question, options, anonymous)) = row else {
+            transaction.commit().await?;
+            return Ok(None);
+        };
+        let options: Vec<String> = serde_json::from_value(options)?;
+        let raw: Vec<i32> =
+            sqlx::query_scalar("SELECT option_index FROM poll_votes WHERE poll_id=$1")
+                .bind(id)
+                .fetch_all(&mut *transaction)
+                .await?;
+        let mut counts = vec![0; options.len()];
+        for option in raw {
+            if let Ok(index) = usize::try_from(option)
+                && let Some(count) = counts.get_mut(index)
+            {
+                *count += 1;
+            }
+        }
+        transaction.commit().await?;
+        Ok(Some((
+            id, channel_id, message_id, question, options, counts, anonymous,
+        )))
+    }
+    pub async fn attach_poll_message(
+        &self,
+        guild_id: &str,
+        poll_id: i64,
+        message_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE polls SET message_id=$3 WHERE guild_id=$1 AND id=$2 AND status='active'",
+        )
+        .bind(guild_id)
+        .bind(poll_id)
+        .bind(message_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+    #[allow(clippy::type_complexity)]
+    pub async fn claim_due_polls(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<(i64, String, String, String, Vec<String>, Vec<u64>, bool)>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        let mut transaction = self.pool.begin().await?;
+        let rows: Vec<(i64, String, String, String, serde_json::Value, bool)> = sqlx::query_as(
+            "UPDATE polls SET status='expired',closed_at=$2 WHERE id IN (SELECT id FROM polls WHERE guild_id=$1 AND status='active' AND message_id IS NOT NULL AND ends_at <= $2 ORDER BY ends_at FOR UPDATE SKIP LOCKED LIMIT $3) RETURNING id,channel_id,message_id,question,options,anonymous",
+        )
+        .bind(guild_id)
+        .bind(now)
+        .bind(i64::from(limit.clamp(1, 100)))
+        .fetch_all(&mut *transaction)
+        .await?;
+        let mut due = Vec::with_capacity(rows.len());
+        for (id, channel_id, message_id, question, options, anonymous) in rows {
+            let options: Vec<String> = serde_json::from_value(options)?;
+            let raw: Vec<i32> =
+                sqlx::query_scalar("SELECT option_index FROM poll_votes WHERE poll_id=$1")
+                    .bind(id)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+            let mut counts = vec![0; options.len()];
+            for option in raw {
+                if let Ok(index) = usize::try_from(option)
+                    && let Some(count) = counts.get_mut(index)
+                {
+                    *count += 1;
+                }
+            }
+            due.push((
+                id, channel_id, message_id, question, options, counts, anonymous,
+            ));
+        }
+        transaction.commit().await?;
+        Ok(due)
     }
     pub async fn attribute_invite(
         &self,
@@ -1455,7 +1545,7 @@ impl Infrastructure {
 
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true' OR config #>> '{modules,forms,enabled}' = 'true' OR config #>> '{modules,invite_tracking,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true' OR config #>> '{modules,forms,enabled}' = 'true' OR config #>> '{modules,invite_tracking,enabled}' = 'true' OR config #>> '{modules,polls,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;
