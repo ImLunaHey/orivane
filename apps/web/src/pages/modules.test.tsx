@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { router } from '../router'
 
@@ -66,5 +66,56 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules/not-real`)
     expect(await screen.findByRole('heading', { name: 'Module not found' })).toBeVisible()
     expect(screen.getByRole('link', { name: 'Return to modules' })).toBeVisible()
+  })
+
+  it('creates and edits a custom slash response', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/custom_commands`)
+    await screen.findByRole('heading', { name: 'Custom commands settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add command' }))
+    fireEvent.change(screen.getByLabelText(/^Command name/), { target: { value: 'Greeting!' } })
+    fireEvent.change(screen.getByLabelText(/^Description/), { target: { value: 'Greets a member' } })
+    fireEvent.change(screen.getByLabelText(/^Response/), { target: { value: 'Hello {user}' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Ephemeral response' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+    const saved = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}')
+    expect(saved.modules.custom_commands.commands[0]).toMatchObject({ name: 'greeting', description: 'Greets a member', response: 'Hello {user}', ephemeral: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('No custom commands yet')).toBeVisible()
+  })
+
+  it('reveals optional welcome and goodbye editors', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/welcome`)
+    await screen.findByRole('heading', { name: 'Welcome settings' })
+    fireEvent.click(screen.getByRole('switch', { name: 'Direct-message new members' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Goodbye messages' }))
+    expect(screen.getByText('Direct welcome message')).toBeVisible()
+    expect(screen.getByText('Goodbye message')).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Goodbye channel' })).toBeVisible()
+  })
+
+  it('operates the responsive navigation, server menu, account menu, and command palette', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules`)
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    expect(screen.getByRole('button', { name: 'Close navigation overlay' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Close navigation overlay' }))
+
+    const guildPicker = screen.getByRole('button', { name: /Luna's studio/ })
+    fireEvent.click(guildPicker)
+    expect(screen.getByRole('menu')).toBeVisible()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByText('Switch server')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Luna.*Demo owner/ }))
+    expect(screen.getByText('No live account connected')).toBeVisible()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    const palette = screen.getByRole('dialog', { name: 'Command palette' })
+    fireEvent.click(within(palette).getByRole('button', { name: /Servers/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/servers'))
   })
 })
