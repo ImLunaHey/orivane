@@ -30,6 +30,7 @@ Reference feature sets:
 | Forms | Live | Native Discord modals, five configurable fields, role access, anonymous mode, Discord delivery, durable submission inbox and answer detail pages | Branching questions, approval workflows, exports and configurable retention |
 | Suggestions | Live | `/suggest`, anonymous mode, durable per-user cooldowns, persistent up/down votes, staff-role workflow, five statuses, notes, list/detail dashboard and vote/status analytics | Discord post status updates, threads and configurable vote emojis |
 | Giveaways | Live | Slash and dashboard creation, button entry, automatic durable draws, unique weighted entries, role/account-age eligibility, multiple winners, manual ending, rerolls, entrants and analytics | Rich embeds, external membership requirements and recurring giveaways |
+| Reminders | Live | `/remind`, `/reminders`, and `/reminder-cancel`; channel or DM delivery, per-member limits, durable claiming, exponential retries, terminal failure state, dashboard directory/details and analytics | Natural-language dates, repeating reminders and cross-server personal inbox |
 
 ## Popular-bot areas not yet implemented
 
@@ -37,7 +38,6 @@ These are not represented as fake or configuration-only cards in the dashboard.
 
 | Capability family | Seen in | Orivane status |
 | --- | --- | --- |
-| Reminders | Dyno and similar bots | Not built |
 | Auto-delete and scheduled purge | Dyno | Not built |
 | Managed embeds | Dyno and Carl-bot-class bots | Not built |
 | Social feeds | Dyno and MEE6-class bots | Not built |

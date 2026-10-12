@@ -13,7 +13,7 @@ use axum::{
 use bot_core::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, Giveaway, GiveawayEntry,
     GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
-    InfrastructureHealth, ModerationCase, NewAuditEvent, NewGiveaway, NewModerationCase,
+    InfrastructureHealth, ModerationCase, NewAuditEvent, NewGiveaway, NewModerationCase, Reminder,
     Suggestion, UserGuildContext,
 };
 use bot_discord::{
@@ -167,6 +167,15 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/giveaways/{giveaway_id}/reroll",
             axum::routing::post(reroll_giveaway),
+        )
+        .route("/v1/guilds/{guild_id}/reminders", get(get_reminders))
+        .route(
+            "/v1/guilds/{guild_id}/reminders/{reminder_id}",
+            get(get_reminder),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/reminders/{reminder_id}/cancel",
+            axum::routing::post(cancel_reminder),
         )
         .route(
             "/v1/guilds/{guild_id}/forms/{form_id}/submissions",
@@ -423,6 +432,7 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_forms::COMMANDS,
         bot_module_suggestions::COMMANDS,
         bot_module_giveaways::COMMANDS,
+        bot_module_reminders::COMMANDS,
     ];
     groups
         .iter()
@@ -1221,6 +1231,86 @@ fn validate_record_id(id: i64, name: &str) -> Result<(), ApiError> {
     } else {
         Ok(())
     }
+}
+
+async fn get_reminders(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Reminder>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let reminders = state
+        .infrastructure
+        .reminders(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "reminders.viewed",
+    )
+    .await;
+    Ok(Json(reminders))
+}
+
+async fn get_reminder(
+    State(state): State<AppState>,
+    Path((guild_id, reminder_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Reminder>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(reminder_id, "reminder")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let reminder = state
+        .infrastructure
+        .reminder(&guild_id, reminder_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "reminder not found".into()))?;
+    record_read(&state, Some(&guild_id), &actor, &headers, "reminder.viewed").await;
+    Ok(Json(reminder))
+}
+
+async fn cancel_reminder(
+    State(state): State<AppState>,
+    Path((guild_id, reminder_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Reminder>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(reminder_id, "reminder")?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if !state
+        .infrastructure
+        .cancel_reminder_as_admin(&guild_id, reminder_id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "reminder is not active".into(),
+        ));
+    }
+    let reminder = state
+        .infrastructure
+        .reminder(&guild_id, reminder_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "reminder not found".into()))?;
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "reminder.cancelled");
+    event.source = "dashboard_api".into();
+    event.target_type = "reminder".into();
+    event.target_id = Some(reminder_id.to_string());
+    event.metadata = serde_json::json!({ "delivery_mode": reminder.delivery_mode });
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(reminder))
 }
 async fn api_discord(state: &AppState) -> Result<TwilightDiscord, ApiError> {
     let token = state.discord_token.clone().ok_or_else(|| {

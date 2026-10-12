@@ -24,6 +24,8 @@ const suggestionDetailRoute = createRoute({ getParentRoute: () => rootRoute, pat
 const giveawaysRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawaysPage') })
 const giveawayCreateRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways/new', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawayCreatePage') })
 const giveawayDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways/$giveawayId', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawayDetailPage') })
+const remindersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/reminders', component: lazyRouteComponent(() => import('./pages/reminders'), 'RemindersPage') })
+const reminderDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/reminders/$reminderId', component: lazyRouteComponent(() => import('./pages/reminders'), 'ReminderDetailPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -56,6 +58,8 @@ const routeTree = rootRoute.addChildren([
   giveawaysRoute,
   giveawayCreateRoute,
   giveawayDetailRoute,
+  remindersRoute,
+  reminderDetailRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

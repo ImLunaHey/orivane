@@ -44,6 +44,8 @@ pub struct ModulesConfig {
     pub suggestions: SuggestionsConfig,
     #[serde(default)]
     pub giveaways: GiveawaysConfig,
+    #[serde(default)]
+    pub reminders: RemindersConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -382,6 +384,20 @@ pub struct GiveawaysConfig {
     pub bonus_entries: u8,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RemindersConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub allow_direct_messages: bool,
+    #[serde(default = "default_max_active_reminders")]
+    pub max_active_per_user: u8,
+    #[serde(default = "default_minimum_reminder_delay")]
+    pub minimum_delay_minutes: u16,
+    #[serde(default = "default_maximum_reminder_days")]
+    pub maximum_delay_days: u16,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -428,6 +444,8 @@ pub enum ConfigValidationError {
     InvalidSuggestions,
     #[error("giveaway channel, roles, duration, winner count, or bonus entries are invalid")]
     InvalidGiveaways,
+    #[error("reminder limits or delay bounds are invalid")]
+    InvalidReminders,
 }
 
 impl GuildConfig {
@@ -752,6 +770,16 @@ impl GuildConfig {
             return Err(ConfigValidationError::InvalidGiveaways);
         }
 
+        let reminders = &self.modules.reminders;
+        if !(1..=50).contains(&reminders.max_active_per_user)
+            || !(1..=1_440).contains(&reminders.minimum_delay_minutes)
+            || !(1..=3_650).contains(&reminders.maximum_delay_days)
+            || u32::from(reminders.minimum_delay_minutes)
+                > u32::from(reminders.maximum_delay_days) * 1_440
+        {
+            return Err(ConfigValidationError::InvalidReminders);
+        }
+
         Ok(())
     }
 }
@@ -773,6 +801,27 @@ const fn default_giveaway_winners() -> u8 {
 }
 const fn default_bonus_entries() -> u8 {
     1
+}
+const fn default_max_active_reminders() -> u8 {
+    10
+}
+const fn default_minimum_reminder_delay() -> u16 {
+    1
+}
+const fn default_maximum_reminder_days() -> u16 {
+    365
+}
+
+impl Default for RemindersConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_direct_messages: true,
+            max_active_per_user: default_max_active_reminders(),
+            minimum_delay_minutes: default_minimum_reminder_delay(),
+            maximum_delay_days: default_maximum_reminder_days(),
+        }
+    }
 }
 
 impl Default for GiveawaysConfig {
@@ -1103,6 +1152,18 @@ mod tests {
         assert_eq!(
             config.validate(),
             Err(ConfigValidationError::InvalidGiveaways)
+        );
+    }
+
+    #[test]
+    fn reminders_require_bounded_limits_and_delays() {
+        let mut config = GuildConfig::for_guild("123");
+        config.modules.reminders.enabled = true;
+        assert_eq!(config.validate(), Ok(()));
+        config.modules.reminders.max_active_per_user = 0;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidReminders)
         );
     }
 }

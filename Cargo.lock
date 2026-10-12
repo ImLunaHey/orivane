@@ -865,6 +865,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-reminders"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-scheduled-messages"
 version = "0.1.0"
 dependencies = [
@@ -1596,6 +1609,7 @@ dependencies = [
  "bot-module-giveaways",
  "bot-module-leveling",
  "bot-module-moderation",
+ "bot-module-reminders",
  "bot-module-suggestions",
  "bot-module-tickets",
  "bot-module-utility",
@@ -1633,6 +1647,7 @@ dependencies = [
  "bot-module-logging",
  "bot-module-moderation",
  "bot-module-reaction-roles",
+ "bot-module-reminders",
  "bot-module-scheduled-messages",
  "bot-module-starboard",
  "bot-module-suggestions",

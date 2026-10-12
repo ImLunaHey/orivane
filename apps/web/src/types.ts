@@ -54,6 +54,7 @@ export type GuildConfig = {
     forms: { enabled: boolean; forms: ServerForm[] }
     suggestions: { enabled: boolean; channel_id: string | null; staff_role_ids: string[]; allow_anonymous: boolean; cooldown_seconds: number }
     giveaways: { enabled: boolean; default_channel_id: string | null; manager_role_ids: string[]; default_duration_minutes: number; default_winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number }
+    reminders: { enabled: boolean; allow_direct_messages: boolean; max_active_per_user: number; minimum_delay_minutes: number; maximum_delay_days: number }
   }
 }
 
@@ -70,6 +71,8 @@ export type GiveawayStatus = 'pending_delivery' | 'active' | 'ended' | 'cancelle
 export type Giveaway = { id: number; guild_id: string; channel_id: string; message_id: string | null; creator_id: string; creator_username: string | null; creator_display_name: string | null; title: string; description: string; status: GiveawayStatus; winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number; winner_ids: string[]; entrant_count: number; total_entries: number; ends_at: string; ended_at: string | null; reroll_count: number; created_at: string; updated_at: string }
 export type GiveawayEntry = { user_id: string; username: string | null; display_name: string | null; weight: number; created_at: string }
 export type NewGiveaway = { channel_id: string; title: string; description: string; winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number; ends_at_unix: number }
+export type ReminderStatus = 'scheduled' | 'delivering' | 'delivered' | 'cancelled' | 'failed'
+export type Reminder = { id: number; guild_id: string; channel_id: string | null; user_id: string; username: string | null; display_name: string | null; message: string; delivery_mode: 'channel' | 'dm'; status: ReminderStatus; remind_at: string; next_attempt_at: string; delivered_at: string | null; attempts: number; created_at: string; updated_at: string }
 
 export type CustomCommand = {
   enabled: boolean

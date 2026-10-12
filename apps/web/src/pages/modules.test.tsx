@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(17)
+    expect(screen.getAllByText('Live')).toHaveLength(18)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -249,6 +249,25 @@ describe('module configuration pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'End and draw now' }))
     expect(await screen.findByRole('heading', { name: 'Winners' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Reroll winners' })).toBeVisible()
+  })
+
+  it('configures reminders and cancels one from its details page', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/reminders`)
+    expect(await screen.findByRole('heading', { name: 'Server reminders' })).toBeVisible()
+    expect(screen.getByLabelText('Number of reminders grouped by delivery status')).toBeVisible()
+    expect(screen.getAllByRole('link', { name: 'Inspect' })).toHaveLength(2)
+    fireEvent.change(screen.getByLabelText(/^Active reminders per member/), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Reminders' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+
+    await navigateTo(`/servers/${serverId}/modules/reminders/2`)
+    expect(await screen.findByRole('heading', { name: 'Community game night starts soon' })).toBeVisible()
+    expect(screen.getByRole('link', { name: /Silver.*@silver\.arc/ })).toHaveAttribute('href', `/servers/${serverId}/members/118742006320914432`)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel reminder' }))
+    await screen.findByText('Cancelled')
+    expect(screen.queryByRole('button', { name: 'Cancel reminder' })).not.toBeInTheDocument()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

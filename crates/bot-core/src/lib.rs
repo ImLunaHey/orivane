@@ -4,6 +4,7 @@ mod config;
 mod fleet;
 mod forms;
 mod giveaways;
+mod reminders;
 mod store;
 mod suggestions;
 
@@ -13,8 +14,9 @@ pub use config::{
     AntiRaidConfig, AutomodConfig, AutoresponderConfig, AutoresponseConfig, AutoroleConfig,
     CustomCommandConfig, CustomCommandsConfig, FormConfig, FormQuestionConfig, FormsConfig,
     GiveawaysConfig, GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig,
-    ReactionRoleBinding, ReactionRolesConfig, ScheduledMessageConfig, ScheduledMessagesConfig,
-    StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig, WelcomeConfig,
+    ReactionRoleBinding, ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig,
+    ScheduledMessagesConfig, StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig,
+    WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
@@ -22,5 +24,6 @@ pub use fleet::{
 };
 pub use forms::{FormSubmission, NewFormSubmission};
 pub use giveaways::{Giveaway, GiveawayEntry, NewGiveaway};
+pub use reminders::{NewReminder, Reminder};
 pub use store::{Infrastructure, StoreError, level_for_xp};
 pub use suggestions::{NewSuggestion, Suggestion};

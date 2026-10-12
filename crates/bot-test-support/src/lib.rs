@@ -11,7 +11,8 @@ use bot_discord::{
 };
 use bot_module_api::{
     FormSubmissionInput, GiveawayInput, GiveawayResult, ModerationCaseInput, ModuleServices,
-    SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    ReminderInput, ReminderResult, SuggestionInput, SuggestionResult, TicketRecordInput,
+    XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,6 +228,31 @@ pub enum ServiceCall {
     RerollGiveaway {
         guild_id: u64,
         giveaway_id: i64,
+    },
+    CreateReminder(ReminderInput),
+    UserReminders {
+        guild_id: u64,
+        user_id: u64,
+        limit: u8,
+    },
+    CancelReminder {
+        guild_id: u64,
+        reminder_id: i64,
+        user_id: u64,
+    },
+    ClaimDueReminders {
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    },
+    CompleteReminder {
+        guild_id: u64,
+        reminder_id: i64,
+    },
+    RetryReminder {
+        guild_id: u64,
+        reminder_id: i64,
+        next_attempt_unix: u64,
     },
 }
 
@@ -526,6 +552,105 @@ impl ModuleServices for FakeModuleServices {
         Ok(Some(result))
     }
 
+    async fn create_reminder(
+        &self,
+        input: ReminderInput,
+    ) -> anyhow::Result<Option<ReminderResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CreateReminder(input.clone()));
+        Ok(Some(fake_reminder(14, &input)))
+    }
+
+    async fn user_reminders(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        limit: u8,
+    ) -> anyhow::Result<Vec<ReminderResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::UserReminders {
+                guild_id,
+                user_id,
+                limit,
+            });
+        Ok(vec![])
+    }
+
+    async fn cancel_reminder(
+        &self,
+        guild_id: u64,
+        reminder_id: i64,
+        user_id: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CancelReminder {
+                guild_id,
+                reminder_id,
+                user_id,
+            });
+        Ok(true)
+    }
+
+    async fn claim_due_reminders(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> anyhow::Result<Vec<ReminderResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimDueReminders {
+                guild_id,
+                now_unix,
+                limit,
+            });
+        Ok(vec![ReminderResult {
+            id: 14,
+            channel_id: Some(20),
+            user_id: 30,
+            message: "check the oven".into(),
+            delivery_mode: "channel".into(),
+            status: "delivering".into(),
+            remind_at_unix: now_unix,
+            attempts: 1,
+        }])
+    }
+
+    async fn complete_reminder(&self, guild_id: u64, reminder_id: i64) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::CompleteReminder {
+                guild_id,
+                reminder_id,
+            });
+        Ok(())
+    }
+
+    async fn retry_reminder(
+        &self,
+        guild_id: u64,
+        reminder_id: i64,
+        next_attempt_unix: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RetryReminder {
+                guild_id,
+                reminder_id,
+                next_attempt_unix,
+            });
+        Ok(false)
+    }
+
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> anyhow::Result<i64> {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
         calls.push(ServiceCall::CreateModerationCase(input));
@@ -754,6 +879,19 @@ fn fake_giveaway(id: i64, input: &GiveawayInput) -> GiveawayResult {
         total_entries: 0,
         ends_at_unix: input.ends_at_unix,
         reroll_count: 0,
+    }
+}
+
+fn fake_reminder(id: i64, input: &ReminderInput) -> ReminderResult {
+    ReminderResult {
+        id,
+        channel_id: input.channel_id,
+        user_id: input.user_id,
+        message: input.message.clone(),
+        delivery_mode: input.delivery_mode.clone(),
+        status: "scheduled".into(),
+        remind_at_unix: input.remind_at_unix,
+        attempts: 0,
     }
 }
 

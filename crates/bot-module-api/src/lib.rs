@@ -118,6 +118,29 @@ pub struct GiveawayResult {
     pub reroll_count: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReminderInput {
+    pub guild_id: u64,
+    pub channel_id: Option<u64>,
+    pub user_id: u64,
+    pub message: String,
+    pub delivery_mode: String,
+    pub remind_at_unix: u64,
+    pub max_active_per_user: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReminderResult {
+    pub id: i64,
+    pub channel_id: Option<u64>,
+    pub user_id: u64,
+    pub message: String,
+    pub delivery_mode: String,
+    pub status: String,
+    pub remind_at_unix: u64,
+    pub attempts: u8,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
@@ -218,6 +241,27 @@ pub trait ModuleServices: Send + Sync {
         guild_id: u64,
         giveaway_id: i64,
     ) -> Result<Option<GiveawayResult>>;
+    async fn create_reminder(&self, input: ReminderInput) -> Result<Option<ReminderResult>>;
+    async fn user_reminders(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        limit: u8,
+    ) -> Result<Vec<ReminderResult>>;
+    async fn cancel_reminder(&self, guild_id: u64, reminder_id: i64, user_id: u64) -> Result<bool>;
+    async fn claim_due_reminders(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<ReminderResult>>;
+    async fn complete_reminder(&self, guild_id: u64, reminder_id: i64) -> Result<()>;
+    async fn retry_reminder(
+        &self,
+        guild_id: u64,
+        reminder_id: i64,
+        next_attempt_unix: u64,
+    ) -> Result<bool>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

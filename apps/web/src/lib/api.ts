@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewGiveaway, NewModerationCase, Suggestion, SuggestionStatus } from '../types'
+import type { AuditEvent, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewGiveaway, NewModerationCase, Reminder, Suggestion, SuggestionStatus } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -178,6 +178,21 @@ async function changeDemoOrLiveGiveaway(input: { guildId: string; giveawayId: st
     const now = new Date().toISOString(); const updated = { ...before, status: 'ended' as const, winner_ids: winners, ended_at: before.ended_at ?? now, reroll_count: before.reroll_count + Number(reroll), updated_at: now }; localStorage.setItem(giveawayKey(input.guildId), JSON.stringify(items.map((item) => item.id === updated.id ? updated : item))); appendDemoAuditEvent({ id: Date.now(), occurred_at: now, scope: 'guild', guild_id: input.guildId, actor_id: demoActorId, actor_kind: 'user', action: reroll ? 'giveaway.rerolled' : 'giveaway.ended', target_type: 'giveaway', target_id: input.giveawayId, outcome: 'success', source: 'dashboard_api', request_id: `demo_${Date.now()}`, reason: null, metadata: { winner_count: winners.length }, before_state: null, after_state: null }); return updated
   }
   return request<Giveaway>(`/v1/guilds/${input.guildId}/giveaways/${input.giveawayId}/${reroll ? 'reroll' : 'end'}`, { method: 'POST' })
+}
+
+const reminderKey = (guildId: string) => `orivane:reminders:${guildId}`
+function demoReminders(guildId: string): Reminder[] {
+  const saved = localStorage.getItem(reminderKey(guildId)); if (saved) return JSON.parse(saved) as Reminder[]
+  const now = Date.now(); return [
+    { id: 2, guild_id: guildId, channel_id: '100000000000000005', user_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', message: 'Community game night starts soon', delivery_mode: 'channel', status: 'scheduled', remind_at: new Date(now + 3_600_000).toISOString(), next_attempt_at: new Date(now + 3_600_000).toISOString(), delivered_at: null, attempts: 0, created_at: new Date(now - 600_000).toISOString(), updated_at: new Date(now - 600_000).toISOString() },
+    { id: 1, guild_id: guildId, channel_id: null, user_id: demoActorId, username: 'imlunahey', display_name: 'luna', message: 'Review the moderation queue', delivery_mode: 'dm', status: 'delivered', remind_at: new Date(now - 3_600_000).toISOString(), next_attempt_at: new Date(now - 3_600_000).toISOString(), delivered_at: new Date(now - 3_600_000).toISOString(), attempts: 1, created_at: new Date(now - 7_200_000).toISOString(), updated_at: new Date(now - 3_600_000).toISOString() },
+  ]
+}
+export async function getReminders(guildId: string): Promise<Reminder[]> { if (isDemoMode) return demoReminders(guildId); return request<Reminder[]>(`/v1/guilds/${guildId}/reminders`) }
+export async function getReminder(guildId: string, reminderId: string): Promise<Reminder> { if (isDemoMode) { const item = demoReminders(guildId).find((reminder) => String(reminder.id) === reminderId); if (!item) throw new Error('Reminder not found'); return item } return request<Reminder>(`/v1/guilds/${guildId}/reminders/${reminderId}`) }
+export async function cancelReminder(input: { guildId: string; reminderId: string }): Promise<Reminder> {
+  if (isDemoMode) { const items = demoReminders(input.guildId); const before = items.find((item) => String(item.id) === input.reminderId); if (!before || before.status !== 'scheduled') throw new Error('Reminder is not active'); const updated = { ...before, status: 'cancelled' as const, updated_at: new Date().toISOString() }; localStorage.setItem(reminderKey(input.guildId), JSON.stringify(items.map((item) => item.id === updated.id ? updated : item))); return updated }
+  return request<Reminder>(`/v1/guilds/${input.guildId}/reminders/${input.reminderId}/cancel`, { method: 'POST' })
 }
 
 export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {

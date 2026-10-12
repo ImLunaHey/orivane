@@ -8,8 +8,8 @@ use crate::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, Giveaway,
     GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
     InfrastructureHealth, MemberXpAward, MemberXpProfile, ModerationCase, NewAuditEvent,
-    NewFormSubmission, NewGiveaway, NewModerationCase, NewSuggestion, Suggestion, UserGuildContext,
-    config::ConfigValidationError,
+    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, Reminder,
+    Suggestion, UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -37,6 +37,139 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn create_reminder(
+        &self,
+        input: &NewReminder,
+        max_active_per_user: u8,
+    ) -> Result<Option<Reminder>, StoreError> {
+        let id: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO reminders (guild_id, channel_id, user_id, message, delivery_mode, remind_at, next_attempt_at) \
+             SELECT $1, $2, $3, $4, $5, $6, $6 WHERE (SELECT count(*) FROM reminders WHERE guild_id = $1 AND user_id = $3 AND status IN ('scheduled', 'delivering')) < $7 \
+             RETURNING id",
+        )
+        .bind(&input.guild_id)
+        .bind(&input.channel_id)
+        .bind(&input.user_id)
+        .bind(input.message.trim())
+        .bind(&input.delivery_mode)
+        .bind(input.remind_at)
+        .bind(i64::from(max_active_per_user))
+        .fetch_optional(&self.pool)
+        .await?;
+        match id {
+            Some(id) => self.reminder(&input.guild_id, id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn reminders(&self, guild_id: &str, limit: i64) -> Result<Vec<Reminder>, StoreError> {
+        sqlx::query_as::<_, Reminder>("SELECT r.id, r.guild_id, r.channel_id, r.user_id, d.username, d.display_name, r.message, r.delivery_mode, r.status, r.remind_at, r.next_attempt_at, r.delivered_at, r.attempts, r.created_at, r.updated_at FROM reminders r LEFT JOIN discord_identities d ON d.user_id = r.user_id WHERE r.guild_id = $1 ORDER BY r.id DESC LIMIT $2")
+            .bind(guild_id)
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn reminder(
+        &self,
+        guild_id: &str,
+        reminder_id: i64,
+    ) -> Result<Option<Reminder>, StoreError> {
+        sqlx::query_as::<_, Reminder>("SELECT r.id, r.guild_id, r.channel_id, r.user_id, d.username, d.display_name, r.message, r.delivery_mode, r.status, r.remind_at, r.next_attempt_at, r.delivered_at, r.attempts, r.created_at, r.updated_at FROM reminders r LEFT JOIN discord_identities d ON d.user_id = r.user_id WHERE r.guild_id = $1 AND r.id = $2")
+            .bind(guild_id)
+            .bind(reminder_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn user_reminders(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Reminder>, StoreError> {
+        sqlx::query_as::<_, Reminder>("SELECT r.id, r.guild_id, r.channel_id, r.user_id, d.username, d.display_name, r.message, r.delivery_mode, r.status, r.remind_at, r.next_attempt_at, r.delivered_at, r.attempts, r.created_at, r.updated_at FROM reminders r LEFT JOIN discord_identities d ON d.user_id = r.user_id WHERE r.guild_id = $1 AND r.user_id = $2 AND r.status IN ('scheduled', 'delivering') ORDER BY r.remind_at LIMIT $3")
+            .bind(guild_id)
+            .bind(user_id)
+            .bind(limit.clamp(1, 50))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn cancel_reminder(
+        &self,
+        guild_id: &str,
+        reminder_id: i64,
+        user_id: &str,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query("UPDATE reminders SET status = 'cancelled', updated_at = now() WHERE guild_id = $1 AND id = $2 AND user_id = $3 AND status = 'scheduled'")
+            .bind(guild_id).bind(reminder_id).bind(user_id).execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn cancel_reminder_as_admin(
+        &self,
+        guild_id: &str,
+        reminder_id: i64,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query("UPDATE reminders SET status = 'cancelled', updated_at = now() WHERE guild_id = $1 AND id = $2 AND status = 'scheduled'")
+            .bind(guild_id).bind(reminder_id).execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn claim_due_reminders(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+        limit: i64,
+    ) -> Result<Vec<Reminder>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query(
+            "UPDATE reminders SET status = 'failed', updated_at = now() WHERE guild_id = $1 AND status = 'delivering' AND attempts >= 5 AND updated_at <= $2 - interval '5 minutes'",
+        )
+        .bind(guild_id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query_as::<_, Reminder>(
+            "WITH due AS (SELECT id FROM reminders WHERE guild_id = $1 AND ((status = 'scheduled' AND next_attempt_at <= $2) OR (status = 'delivering' AND attempts < 5 AND updated_at <= $2 - interval '5 minutes')) ORDER BY next_attempt_at, id FOR UPDATE SKIP LOCKED LIMIT $3), \
+             claimed AS (UPDATE reminders r SET status = 'delivering', attempts = attempts + 1, updated_at = now() FROM due WHERE r.id = due.id RETURNING r.*) \
+             SELECT c.id, c.guild_id, c.channel_id, c.user_id, d.username, d.display_name, c.message, c.delivery_mode, c.status, c.remind_at, c.next_attempt_at, c.delivered_at, c.attempts, c.created_at, c.updated_at FROM claimed c LEFT JOIN discord_identities d ON d.user_id = c.user_id ORDER BY c.next_attempt_at, c.id",
+        )
+        .bind(guild_id).bind(now).bind(limit.clamp(1, 100)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn complete_reminder(
+        &self,
+        guild_id: &str,
+        reminder_id: i64,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE reminders SET status = 'delivered', delivered_at = now(), updated_at = now() WHERE guild_id = $1 AND id = $2 AND status = 'delivering'")
+            .bind(guild_id).bind(reminder_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn retry_reminder(
+        &self,
+        guild_id: &str,
+        reminder_id: i64,
+        next_attempt_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let next_attempt = chrono::DateTime::from_timestamp(
+            i64::try_from(next_attempt_unix).unwrap_or(i64::MAX),
+            0,
+        )
+        .unwrap_or_else(chrono::Utc::now);
+        let terminal: Option<bool> = sqlx::query_scalar(
+            "UPDATE reminders SET status = CASE WHEN attempts >= 5 THEN 'failed' ELSE 'scheduled' END, next_attempt_at = CASE WHEN attempts >= 5 THEN next_attempt_at ELSE $3 END, updated_at = now() WHERE guild_id = $1 AND id = $2 AND status = 'delivering' RETURNING status = 'failed'",
+        ).bind(guild_id).bind(reminder_id).bind(next_attempt).fetch_optional(&self.pool).await?;
+        Ok(terminal.unwrap_or(false))
+    }
+
     pub async fn create_giveaway(&self, input: &NewGiveaway) -> Result<Giveaway, StoreError> {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO giveaways (guild_id, channel_id, creator_id, title, description, winner_count, minimum_account_age_days, required_role_ids, bonus_role_id, bonus_entries, ends_at) \
@@ -432,7 +565,7 @@ impl Infrastructure {
 
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;

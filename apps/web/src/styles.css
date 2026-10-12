@@ -480,6 +480,8 @@ small { font-size: 14px !important; line-height: 1.45; }
 .suggestions-page .metric-chart { padding: 6px 18px 18px; }
 .giveaways-page .analytics-chart-panel { padding: 0; }
 .giveaways-page .metric-chart { padding: 6px 18px 18px; }
+.reminders-page .analytics-chart-panel { padding: 0; }
+.reminders-page .metric-chart { padding: 6px 18px 18px; }
 .giveaway-title-cell { display: flex; align-items: center; gap: 10px; min-width: 250px; }
 .giveaway-title-cell > svg { flex: none; color: #fbbf24; }
 .giveaway-title-cell span, .giveaway-title-cell a, .giveaway-title-cell small { display: block; }
@@ -491,6 +493,7 @@ small { font-size: 14px !important; line-height: 1.45; }
 .giveaway-rules dt { color: #9999a3; font-size: 14px; }
 .giveaway-rules dd { margin: 5px 0 0; overflow-wrap: anywhere; color: #e2e2e6; font-size: 15px; }
 .giveaway-detail-page .bottom-save-bar > span:first-child { color: #aaaab3; font-size: 14px; }
+.reminder-message p { margin: 0; max-width: 80ch; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 16px; line-height: 1.65; }
 
 @media (max-width: 760px) {
   .forms-summary, .suggestions-page .forms-summary, .giveaways-page .forms-summary, .suggestion-detail-summary, .suggestion-metadata dl, .giveaway-rules dl { grid-template-columns: 1fr; }

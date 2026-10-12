@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, Bot, CalendarClock, Check, ClipboardList, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus } from 'lucide-react'
+import { ArrowLeft, Bell, Bot, CalendarClock, Check, ClipboardList, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DiscordChannelSelect } from '../components/discord-channel-select'
 import { DiscordChannelMultiSelect } from '../components/discord-channel-multi-select'
@@ -31,6 +31,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   forms: { title: 'Forms', description: 'Collect structured responses with native Discord modals and route them to staff.', icon: ClipboardList, tone: 'green', runtime: 'Live' },
   suggestions: { title: 'Suggestions', description: 'Collect ideas, let members vote, and manage an audited staff decision workflow.', icon: Lightbulb, tone: 'amber', runtime: 'Live' },
   giveaways: { title: 'Giveaways', description: 'Run scheduled button-entry prize draws with eligibility rules and accountable rerolls.', icon: Gift, tone: 'amber', runtime: 'Live' },
+  reminders: { title: 'Reminders', description: 'Deliver durable personal reminders in channels or direct messages.', icon: Bell, tone: 'blue', runtime: 'Live' },
 }
 
 export function ModulesPage() {
@@ -122,6 +123,7 @@ function ModuleSettings({ moduleKey, config, update, channels, channelsPending, 
     case 'forms': return null
     case 'suggestions': return null
     case 'giveaways': return null
+    case 'reminders': return null
   }
 }
 

@@ -28,6 +28,7 @@ bot-module-scheduled-messages.workspace = true
 bot-module-forms.workspace = true
 bot-module-suggestions.workspace = true
 bot-module-giveaways.workspace = true
+bot-module-reminders.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

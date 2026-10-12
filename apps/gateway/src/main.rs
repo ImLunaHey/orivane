@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::{
     Giveaway, Infrastructure, NewAuditEvent, NewFormSubmission, NewGiveaway, NewModerationCase,
-    NewSuggestion, Suggestion, level_for_xp,
+    NewReminder, NewSuggestion, Reminder, Suggestion, level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -19,8 +19,8 @@ use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
     AuditNotice, BotModule, FormSubmissionInput, GiveawayInput, GiveawayResult, MemberJoin,
     MemberLeave, MessageCreate, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
-    ScheduledTick, SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput,
-    XpAwardResult, XpProfile,
+    ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
+    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
@@ -32,6 +32,7 @@ use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_moderation::ModerationModule;
 use bot_module_reaction_roles::ReactionRolesModule;
+use bot_module_reminders::RemindersModule;
 use bot_module_scheduled_messages::ScheduledMessagesModule;
 use bot_module_starboard::StarboardModule;
 use bot_module_suggestions::SuggestionsModule;
@@ -177,6 +178,90 @@ impl ModuleServices for GatewayModuleServices {
             .await?
             .as_ref()
             .map(giveaway_result))
+    }
+
+    async fn create_reminder(&self, input: ReminderInput) -> Result<Option<ReminderResult>> {
+        let remind_at = chrono::DateTime::from_timestamp(
+            i64::try_from(input.remind_at_unix).unwrap_or(i64::MAX),
+            0,
+        )
+        .context("reminder time is invalid")?;
+        Ok(self
+            .infrastructure
+            .create_reminder(
+                &NewReminder {
+                    guild_id: input.guild_id.to_string(),
+                    channel_id: input.channel_id.map(|id| id.to_string()),
+                    user_id: input.user_id.to_string(),
+                    message: input.message,
+                    delivery_mode: input.delivery_mode,
+                    remind_at,
+                },
+                input.max_active_per_user,
+            )
+            .await?
+            .as_ref()
+            .map(reminder_result))
+    }
+
+    async fn user_reminders(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        limit: u8,
+    ) -> Result<Vec<ReminderResult>> {
+        Ok(self
+            .infrastructure
+            .user_reminders(
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                i64::from(limit),
+            )
+            .await?
+            .iter()
+            .map(reminder_result)
+            .collect())
+    }
+
+    async fn cancel_reminder(&self, guild_id: u64, reminder_id: i64, user_id: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .cancel_reminder(&guild_id.to_string(), reminder_id, &user_id.to_string())
+            .await?)
+    }
+
+    async fn claim_due_reminders(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+        limit: u8,
+    ) -> Result<Vec<ReminderResult>> {
+        Ok(self
+            .infrastructure
+            .claim_due_reminders(&guild_id.to_string(), now_unix, i64::from(limit))
+            .await?
+            .iter()
+            .map(reminder_result)
+            .collect())
+    }
+
+    async fn complete_reminder(&self, guild_id: u64, reminder_id: i64) -> Result<()> {
+        self.infrastructure
+            .complete_reminder(&guild_id.to_string(), reminder_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn retry_reminder(
+        &self,
+        guild_id: u64,
+        reminder_id: i64,
+        next_attempt_unix: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .retry_reminder(&guild_id.to_string(), reminder_id, next_attempt_unix)
+            .await?)
     }
 
     async fn claim_suggestion_cooldown(
@@ -537,6 +622,22 @@ fn giveaway_result(giveaway: &Giveaway) -> GiveawayResult {
     }
 }
 
+fn reminder_result(reminder: &Reminder) -> ReminderResult {
+    ReminderResult {
+        id: reminder.id,
+        channel_id: reminder
+            .channel_id
+            .as_deref()
+            .and_then(|id| id.parse().ok()),
+        user_id: reminder.user_id.parse().unwrap_or_default(),
+        message: reminder.message.clone(),
+        delivery_mode: reminder.delivery_mode.clone(),
+        status: reminder.status.clone(),
+        remind_at_unix: u64::try_from(reminder.remind_at.timestamp()).unwrap_or_default(),
+        attempts: u8::try_from(reminder.attempts).unwrap_or_default(),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
@@ -562,6 +663,7 @@ async fn main() -> Result<()> {
         Arc::new(FormsModule),
         Arc::new(SuggestionsModule),
         Arc::new(GiveawaysModule),
+        Arc::new(RemindersModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
