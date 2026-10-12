@@ -44,7 +44,7 @@ describe('module configuration pages', () => {
       ['moderation', 'Moderation settings', 'Default reason', 'text', 'Be kind'],
       ['automod', 'Automod settings', 'Enable Automod', 'switch', true],
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
-      ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
+      ['starboard', 'Starboard settings', 'Default reaction threshold', 'number', '5'],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
@@ -137,6 +137,7 @@ describe('module configuration pages', () => {
     await screen.findByRole('heading', { name: 'Discord event logging' })
 
     expect(screen.getByRole('combobox', { name: 'Default logging channel' })).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^Audit retention/), { target: { value: '180' } })
     expect(screen.getByRole('switch', { name: 'Log messages' })).toBeChecked()
     expect(screen.getByRole('switch', { name: 'Log moderation' })).toBeChecked()
     expect(screen.getByRole('table', { name: 'Recent Discord logging events' })).toBeVisible()
@@ -146,7 +147,7 @@ describe('module configuration pages', () => {
     expect(save).toBeEnabled()
     fireEvent.click(save)
     await screen.findByText('Saved')
-    expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging.voice_events).toBe(false)
+    expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging).toMatchObject({ voice_events: false, retention_days: 180 })
   })
 
   it('configures moderator roles and warning escalation thresholds', async () => {
@@ -253,23 +254,41 @@ describe('module configuration pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add command' }))
     fireEvent.change(screen.getByLabelText(/^Command name/), { target: { value: 'Greeting!' } })
     fireEvent.change(screen.getByLabelText(/^Description/), { target: { value: 'Greets a member' } })
-    fireEvent.change(screen.getByLabelText(/^Response/), { target: { value: 'Hello {user}' } })
+    fireEvent.change(screen.getByLabelText(/^Primary response/), { target: { value: 'Hello {user}' } })
+    fireEvent.change(screen.getByLabelText(/^Additional responses/), { target: { value: 'Hi {user}\nWelcome {user}' } })
+    fireEvent.change(screen.getByLabelText(/^Per-member cooldown/), { target: { value: '15' } })
     fireEvent.click(screen.getByRole('switch', { name: 'Ephemeral response' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await screen.findByText('Saved')
     const saved = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}')
-    expect(saved.modules.custom_commands.commands[0]).toMatchObject({ name: 'greeting', description: 'Greets a member', response: 'Hello {user}', ephemeral: true })
+    expect(saved.modules.custom_commands.commands[0]).toMatchObject({ name: 'greeting', description: 'Greets a member', response: 'Hello {user}', additional_responses: ['Hi {user}', 'Welcome {user}'], cooldown_seconds: 15, ephemeral: true })
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No custom commands yet')).toBeVisible()
+  })
+
+  it('configures per-channel starboard thresholds', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/starboard`)
+    await screen.findByRole('heading', { name: 'Starboard settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add override' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Source channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
+    fireEvent.change(screen.getAllByLabelText(/^Reaction threshold/)[0], { target: { value: '7' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+    const saved = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}')
+    expect(saved.modules.starboard.channel_thresholds[0]).toMatchObject({ threshold: 7 })
   })
 
   it('reveals optional welcome and goodbye editors', async () => {
     renderDashboard()
     await navigateTo(`/servers/${serverId}/modules/welcome`)
     await screen.findByRole('heading', { name: 'Welcome settings' })
+    fireEvent.click(screen.getByRole('switch', { name: 'Rich welcome embed' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Direct-message new members' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Goodbye messages' }))
     expect(screen.getByText('Direct welcome message')).toBeVisible()
+    expect(screen.getByLabelText(/^Welcome image URL/)).toBeVisible()
     expect(screen.getByText('Goodbye message')).toBeVisible()
     expect(screen.getByRole('combobox', { name: 'Goodbye channel' })).toBeVisible()
   })
@@ -330,6 +349,9 @@ describe('module configuration pages', () => {
     fireEvent.change(screen.getByLabelText(/^Trigger/), { target: { value: 'hello' } })
     fireEvent.change(screen.getByLabelText(/^Match mode/), { target: { value: 'exact' } })
     fireEvent.change(screen.getByLabelText(/^Response/), { target: { value: 'Hello {user}' } })
+    fireEvent.change(screen.getByLabelText(/^Per-member cooldown/), { target: { value: '30' } })
+    fireEvent.change(screen.getByLabelText(/^Embed title/), { target: { value: 'Greeting' } })
+    fireEvent.change(screen.getByLabelText(/^Reactions/), { target: { value: '👋, ✨' } })
     fireEvent.click(screen.getByRole('switch', { name: 'Case sensitive' }))
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
@@ -360,6 +382,17 @@ describe('module configuration pages', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'End automatically' }))
     expect(screen.getByLabelText(/^Schedule ID/)).toHaveValue('dailyupdate')
     expect(screen.getByLabelText(/^Final delivery cutoff/)).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^Schedule type/), { target: { value: 'weekdays' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Mon' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fri' }))
+    expect(screen.getByRole('button', { name: 'Mon' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Fri' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByLabelText(/^Repeat interval/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/^Schedule type/), { target: { value: 'once' } })
+    expect(screen.getByLabelText(/^Delivery time/)).toBeVisible()
+    expect(screen.queryByRole('switch', { name: 'End automatically' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/^Content source/), { target: { value: '1' } })
+    expect(screen.queryByLabelText(/^Message/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No schedules yet')).toBeVisible()
   })
@@ -373,10 +406,21 @@ describe('module configuration pages', () => {
     expect(screen.getByRole('link', { name: 'New form' })).toBeVisible()
     expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', `/servers/${serverId}/modules/forms/staff-application`)
     expect(screen.getByRole('link', { name: 'Submissions' })).toHaveAttribute('href', `/servers/${serverId}/modules/forms/staff-application/submissions`)
+    fireEvent.change(screen.getByLabelText(/^Retention period/), { target: { value: '180' } })
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Forms' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
     expect(save).toBeEnabled()
     expect(save.compareDocumentPosition(screen.getByRole('heading', { name: 'Current forms' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
+  it('reviews ordinary form submissions with the shared workflow', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/forms/staff-application/submissions/1`)
+    expect(await screen.findByRole('heading', { name: 'Review submission' })).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^Decision note/), { target: { value: 'Strong application.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    await screen.findByText('approved')
+    expect(screen.getAllByText('Strong application.')).toHaveLength(2)
   })
 
   it('creates a native modal form on a dedicated details page', async () => {

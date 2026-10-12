@@ -20,6 +20,7 @@ pub struct ModerationCaseInput {
     pub member_id: u64,
     pub action: String,
     pub reason: String,
+    pub evidence_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,7 +162,12 @@ pub struct SuggestionInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SuggestionResult {
     pub id: i64,
+    pub channel_id: u64,
+    pub message_id: Option<u64>,
+    pub author_id: Option<u64>,
+    pub content: String,
     pub status: String,
+    pub staff_note: Option<String>,
     pub upvotes: u64,
     pub downvotes: u64,
 }
@@ -230,6 +236,31 @@ pub struct MessageDeletionJobResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoroleJobResult {
+    pub id: i64,
+    pub user_id: u64,
+    pub role_id: u64,
+    pub action: String,
+    pub attempts: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModerationJobResult {
+    pub id: i64,
+    pub member_id: u64,
+    pub action: String,
+    pub reason: String,
+    pub attempts: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StarboardPostResult {
+    pub source_channel_id: u64,
+    pub starboard_message_id: u64,
+    pub reaction_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManagedEmbedResult {
     pub id: i64,
     pub name: String,
@@ -247,8 +278,10 @@ pub struct ManagedEmbedDeliveryInput {
     pub error: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
+    async fn purge_guild_audit_events(&self, guild_id: u64, retention_days: u16) -> Result<u64>;
     async fn set_afk_status(
         &self,
         _guild_id: u64,
@@ -268,6 +301,8 @@ pub trait ModuleServices: Send + Sync {
     async fn create_poll(
         &self,
         _guild_id: u64,
+        _channel_id: u64,
+        _creator_id: u64,
         _question: &str,
         _options: &[String],
         _anonymous: bool,
@@ -290,9 +325,44 @@ pub trait ModuleServices: Send + Sync {
     async fn attribute_invite(
         &self,
         _guild_id: u64,
+        _joined_user_id: u64,
         _invites: &[InviteUsageInput],
     ) -> Result<Option<InviteAttributionResult>> {
         Ok(None)
+    }
+    async fn record_verification_attempt(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _outcome: &str,
+        _reason: Option<&str>,
+        _account_age_days: u64,
+        _has_avatar: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn record_counter_run(
+        &self,
+        _guild_id: u64,
+        _counter_id: &str,
+        _channel_id: u64,
+        _value: u64,
+        _rendered_name: &str,
+        _outcome: &str,
+        _error: Option<&str>,
+    ) -> Result<()> {
+        Ok(())
+    }
+    async fn record_voice_link_event(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _voice_channel_id: u64,
+        _text_channel_id: u64,
+        _action: &str,
+    ) -> Result<()> {
+        Ok(())
     }
     async fn claim_appeal_cooldown(
         &self,
@@ -314,6 +384,9 @@ pub trait ModuleServices: Send + Sync {
     }
     async fn record_managed_embed_delivery(&self, _input: ManagedEmbedDeliveryInput) -> Result<()> {
         Ok(())
+    }
+    async fn purge_form_submissions(&self, _guild_id: u64, _retention_days: u16) -> Result<u64> {
+        Ok(0)
     }
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
     async fn moderation_warning_count(&self, _guild_id: u64, _member_id: u64) -> Result<u64> {
@@ -465,6 +538,20 @@ pub trait ModuleServices: Send + Sync {
         source_message_id: u64,
         starboard_channel_id: u64,
     ) -> Result<bool>;
+    async fn starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+    ) -> Result<Option<StarboardPostResult>>;
+    async fn complete_starboard_post(
+        &self,
+        guild_id: u64,
+        source_message_id: u64,
+        source_channel_id: u64,
+        starboard_message_id: u64,
+        reaction_count: u64,
+    ) -> Result<()>;
+    async fn remove_starboard_post(&self, guild_id: u64, source_message_id: u64) -> Result<()>;
     async fn record_raid_join(
         &self,
         guild_id: u64,
@@ -490,6 +577,14 @@ pub trait ModuleServices: Send + Sync {
     async fn create_suggestion(&self, input: SuggestionInput) -> Result<SuggestionResult>;
     async fn claim_suggestion_cooldown(
         &self,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> Result<bool>;
+    async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
         guild_id: u64,
         user_id: u64,
         cooldown_seconds: u32,
@@ -594,6 +689,62 @@ pub trait ModuleServices: Send + Sync {
         _retry_unix: u64,
     ) -> Result<bool> {
         anyhow::bail!("message deletion service unavailable")
+    }
+    async fn schedule_autorole_job(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _role_id: u64,
+        _action: &str,
+        _due_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("autorole job service unavailable")
+    }
+    async fn claim_due_autorole_jobs(
+        &self,
+        _guild_id: u64,
+        _now_unix: u64,
+        _limit: u8,
+    ) -> Result<Vec<AutoroleJobResult>> {
+        anyhow::bail!("autorole job service unavailable")
+    }
+    async fn finish_autorole_job(
+        &self,
+        _guild_id: u64,
+        _job_id: i64,
+        _completed: bool,
+        _error: Option<&str>,
+        _retry_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("autorole job service unavailable")
+    }
+    async fn schedule_moderation_job(
+        &self,
+        _guild_id: u64,
+        _member_id: u64,
+        _action: &str,
+        _reason: &str,
+        _due_unix: u64,
+    ) -> Result<i64> {
+        anyhow::bail!("moderation job service unavailable")
+    }
+    async fn claim_due_moderation_jobs(
+        &self,
+        _guild_id: u64,
+        _now_unix: u64,
+        _limit: u8,
+    ) -> Result<Vec<ModerationJobResult>> {
+        anyhow::bail!("moderation job service unavailable")
+    }
+    async fn finish_moderation_job(
+        &self,
+        _guild_id: u64,
+        _job_id: i64,
+        _completed: bool,
+        _error: Option<&str>,
+        _retry_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("moderation job service unavailable")
     }
 }
 

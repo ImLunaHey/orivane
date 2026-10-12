@@ -5,7 +5,9 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
     CommandResponse,
 };
-use bot_module_api::{BotModule, ModerationCaseInput, ModuleContext};
+use bot_module_api::{
+    BotModule, ModerationCaseInput, ModuleContext, ModuleEventOutcome, ScheduledTick,
+};
 
 pub struct ModerationModule;
 
@@ -16,7 +18,8 @@ const ADMINISTRATOR: u64 = 1 << 3;
 const MANAGE_CHANNELS: u64 = 1 << 4;
 const MANAGE_MESSAGES: u64 = 1 << 13;
 
-const USER_REASON_OPTIONS: &[CommandOptionDefinition] = &[user_option(), reason_option()];
+const USER_REASON_OPTIONS: &[CommandOptionDefinition] =
+    &[user_option(), reason_option(), evidence_option()];
 const TIMEOUT_OPTIONS: &[CommandOptionDefinition] = &[
     user_option(),
     CommandOptionDefinition {
@@ -30,6 +33,7 @@ const TIMEOUT_OPTIONS: &[CommandOptionDefinition] = &[
         max_length: None,
     },
     reason_option(),
+    evidence_option(),
 ];
 const BAN_OPTIONS: &[CommandOptionDefinition] = &[
     user_option(),
@@ -44,6 +48,17 @@ const BAN_OPTIONS: &[CommandOptionDefinition] = &[
         min_length: None,
         max_length: None,
     },
+    CommandOptionDefinition {
+        name: "duration_hours",
+        description: "Automatically unban after this many hours",
+        kind: CommandOptionKind::Integer,
+        required: false,
+        min_value: Some(1),
+        max_value: Some(8_760),
+        min_length: None,
+        max_length: None,
+    },
+    evidence_option(),
 ];
 const PURGE_OPTIONS: &[CommandOptionDefinition] = &[
     CommandOptionDefinition {
@@ -96,6 +111,19 @@ const fn reason_option() -> CommandOptionDefinition {
         max_value: None,
         min_length: Some(1),
         max_length: Some(512),
+    }
+}
+
+const fn evidence_option() -> CommandOptionDefinition {
+    CommandOptionDefinition {
+        name: "evidence_url",
+        description: "Optional HTTP(S) link to supporting evidence",
+        kind: CommandOptionKind::String,
+        required: false,
+        min_value: None,
+        max_value: None,
+        min_length: Some(8),
+        max_length: Some(2_000),
     }
 }
 
@@ -189,6 +217,9 @@ impl BotModule for ModerationModule {
     fn commands(&self) -> &'static [CommandDefinition] {
         COMMANDS
     }
+    fn handles_scheduled_tick(&self) -> bool {
+        true
+    }
 
     async fn on_command(
         &self,
@@ -203,6 +234,11 @@ impl BotModule for ModerationModule {
             .filter(|reason| !reason.is_empty())
             .unwrap_or(&config.modules.moderation.default_reason)
             .to_owned();
+        let evidence_urls = interaction
+            .string("evidence_url")
+            .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+            .map(|url| vec![url.to_owned()])
+            .unwrap_or_default();
         if matches!(
             interaction.command_name.as_str(),
             "purge" | "lock" | "unlock" | "slowmode"
@@ -263,8 +299,31 @@ impl BotModule for ModerationModule {
                 member_id,
                 action: interaction.command_name.clone(),
                 reason: reason.clone(),
+                evidence_urls,
             })
             .await?;
+
+        if interaction.command_name == "ban"
+            && let Some(hours) = interaction.integer("duration_hours")
+        {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let duration = u64::try_from(hours)
+                .unwrap_or_default()
+                .saturating_mul(3_600);
+            context
+                .services
+                .schedule_moderation_job(
+                    interaction.guild_id,
+                    member_id,
+                    "unban",
+                    &format!("Temporary ban case #{case_id} expired"),
+                    now.saturating_add(duration),
+                )
+                .await?;
+        }
 
         let escalation = if interaction.command_name == "warn" {
             let warnings = context
@@ -316,6 +375,7 @@ impl BotModule for ModerationModule {
                         member_id,
                         action: format!("auto_{}", threshold.action),
                         reason: escalation_reason,
+                        evidence_urls: Vec::new(),
                     })
                     .await?;
                 Some(threshold.action.as_str())
@@ -361,6 +421,68 @@ impl BotModule for ModerationModule {
             )
             .await?;
         Ok(())
+    }
+
+    async fn on_scheduled_tick(
+        &self,
+        context: &ModuleContext,
+        config: &GuildConfig,
+        tick: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        let guild_id = config.guild_id.parse::<u64>().context("invalid guild ID")?;
+        let jobs = context
+            .services
+            .claim_due_moderation_jobs(guild_id, tick.now_unix, 50)
+            .await?;
+        let mut outcomes = Vec::new();
+        for job in jobs {
+            let result = match job.action.as_str() {
+                "unban" => {
+                    context
+                        .discord
+                        .unban_member(guild_id, job.member_id, &job.reason)
+                        .await
+                }
+                _ => continue,
+            };
+            let error = result.as_ref().err().map(ToString::to_string);
+            let retry_delay = 30_u64.saturating_mul(2_u64.pow(u32::from(job.attempts.min(5))));
+            let terminal = context
+                .services
+                .finish_moderation_job(
+                    guild_id,
+                    job.id,
+                    result.is_ok(),
+                    error.as_deref(),
+                    tick.now_unix.saturating_add(retry_delay),
+                )
+                .await?;
+            if result.is_ok() {
+                context
+                    .services
+                    .create_moderation_case(ModerationCaseInput {
+                        guild_id,
+                        moderator_id: 0,
+                        member_id: job.member_id,
+                        action: job.action.clone(),
+                        reason: job.reason.clone(),
+                        evidence_urls: Vec::new(),
+                    })
+                    .await?;
+            }
+            if result.is_ok() || terminal {
+                outcomes.push(ModuleEventOutcome {
+                    action: if result.is_ok() {
+                        "moderation.temporary_ban.expired".into()
+                    } else {
+                        "moderation.temporary_ban.failed".into()
+                    },
+                    target_type: "member".into(),
+                    target_id: Some(job.member_id.to_string()),
+                });
+            }
+        }
+        Ok(outcomes)
     }
 }
 
@@ -469,6 +591,7 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use bot_discord::CommandValue;
+    use bot_module_api::ModerationJobResult;
     use bot_test_support::{DiscordCall, FakeDiscord, FakeModuleServices, ServiceCall};
 
     use super::*;
@@ -519,6 +642,7 @@ mod tests {
                 member_id: 50,
                 action: "timeout".to_owned(),
                 reason: "spam".to_owned(),
+                evidence_urls: Vec::new(),
             })]
         );
         assert_eq!(
@@ -567,6 +691,55 @@ mod tests {
         );
         assert!(discord.calls().is_empty());
         assert!(services.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn temporary_ban_schedules_and_executes_a_durable_unban() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services.clone()),
+        };
+        let mut config = GuildConfig::for_guild("20");
+        config.modules.moderation.enabled = true;
+        let command = interaction(
+            "ban",
+            BTreeMap::from([
+                ("member".into(), CommandValue::User(50)),
+                ("duration_hours".into(), CommandValue::Integer(24)),
+            ]),
+        );
+        ModerationModule
+            .on_command(&context, &config, &command)
+            .await
+            .unwrap();
+        assert!(services.calls().iter().any(|call| matches!(
+            call,
+            ServiceCall::ScheduleModerationJob { guild_id: 20, member_id: 50, action, .. } if action == "unban"
+        )));
+
+        discord.take_calls();
+        services.set_due_moderation_jobs(vec![ModerationJobResult {
+            id: 9,
+            member_id: 50,
+            action: "unban".into(),
+            reason: "Temporary ban expired".into(),
+            attempts: 1,
+        }]);
+        let outcomes = ModerationModule
+            .on_scheduled_tick(&context, &config, &ScheduledTick { now_unix: 2_000 })
+            .await
+            .unwrap();
+        assert_eq!(outcomes[0].action, "moderation.temporary_ban.expired");
+        assert_eq!(
+            discord.calls(),
+            vec![DiscordCall::UnbanMember {
+                guild_id: 20,
+                user_id: 50,
+                reason: "Temporary ban expired".into(),
+            }]
+        );
     }
 
     #[tokio::test]

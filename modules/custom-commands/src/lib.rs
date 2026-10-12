@@ -88,8 +88,57 @@ impl BotModule for CustomCommandsModule {
                 .await?;
             return Ok(());
         }
-        let response = command
-            .response
+        if !command.allowed_role_ids.is_empty()
+            && !interaction.actor_role_ids.iter().any(|role_id| {
+                command
+                    .allowed_role_ids
+                    .iter()
+                    .any(|allowed| allowed == &role_id.to_string())
+            })
+        {
+            context
+                .discord
+                .respond_to_command(
+                    interaction,
+                    CommandResponse::ephemeral(
+                        "You do not have a role allowed to run that custom command.",
+                    ),
+                )
+                .await?;
+            return Ok(());
+        }
+        if !context
+            .services
+            .claim_module_cooldown(
+                "custom-commands",
+                &command.name,
+                interaction.guild_id,
+                interaction.actor_id,
+                command.cooldown_seconds,
+            )
+            .await?
+        {
+            context
+                .discord
+                .respond_to_command(
+                    interaction,
+                    CommandResponse::ephemeral(format!(
+                        "That command is on cooldown. Try again in up to {} seconds.",
+                        command.cooldown_seconds
+                    )),
+                )
+                .await?;
+            return Ok(());
+        }
+        let responses = std::iter::once(&command.response)
+            .chain(
+                command
+                    .additional_responses
+                    .iter()
+                    .filter(|response| !response.trim().is_empty()),
+            )
+            .collect::<Vec<_>>();
+        let response = responses[(interaction.id as usize) % responses.len()]
             .replace("{user}", &format!("<@{}>", interaction.actor_id))
             .replace("{user_id}", &interaction.actor_id.to_string())
             .replace(
@@ -143,8 +192,11 @@ mod tests {
                 name: "hello".to_owned(),
                 description: "Say hello".to_owned(),
                 response: "Hello {user} in {channel}".to_owned(),
+                additional_responses: vec![],
                 ephemeral: false,
                 allowed_channel_ids: vec!["30".to_owned()],
+                allowed_role_ids: vec![],
+                cooldown_seconds: 0,
             });
         let interaction = CommandInteraction {
             id: 10,
@@ -171,5 +223,50 @@ mod tests {
                 response: CommandResponse::public("Hello <@40> in <#30>"),
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn enforces_roles_and_selects_from_multiple_responses() {
+        let discord = FakeDiscord::new();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(FakeModuleServices::default()),
+        };
+        let mut config = GuildConfig::for_guild("20");
+        config.modules.custom_commands.enabled = true;
+        config
+            .modules
+            .custom_commands
+            .commands
+            .push(CustomCommandConfig {
+                enabled: true,
+                name: "answer".into(),
+                description: String::new(),
+                response: "First".into(),
+                additional_responses: vec!["Second".into()],
+                ephemeral: false,
+                allowed_channel_ids: vec![],
+                allowed_role_ids: vec!["55".into()],
+                cooldown_seconds: 10,
+            });
+        let interaction = CommandInteraction {
+            id: 11,
+            token: "token".into(),
+            guild_id: 20,
+            channel_id: Some(30),
+            actor_id: 40,
+            actor_role_ids: vec![55],
+            actor_permissions: 0,
+            command_name: "custom".into(),
+            options: BTreeMap::from([("name".into(), CommandValue::String("answer".into()))]),
+        };
+        CustomCommandsModule
+            .on_command(&context, &config, &interaction)
+            .await
+            .unwrap();
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::RespondToCommand { response, .. } if response.content == "Second"
+        )));
     }
 }
