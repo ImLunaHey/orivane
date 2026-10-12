@@ -70,4 +70,6 @@ Each feature lives in its own crate under `modules/`. The gateway only assembles
 
 The full design—including the Vite/React/Tailwind/TanStack dashboard, logging, metrics, tracing, and analytics roadmap—is in [docs/architecture.md](docs/architecture.md). The current dashboard includes bot-wide and guild-scoped navigation, accessible shared charts, TanStack tables, audit detail pages, live dependency health, and explicit demo/live data modes.
 
+Production releases and rollback expectations are documented in [docs/deployment.md](docs/deployment.md). Tagged releases publish immutable API, gateway, and web images to GitHub Container Registry; deployments should always pin an exact version or SHA.
+
 Discord-facing code is testable without Discord: production uses the Twilight adapter while tests use a deterministic in-memory fake that records calls and injects failures. See [docs/testing.md](docs/testing.md).

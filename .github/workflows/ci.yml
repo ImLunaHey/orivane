@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: discord_test
+          POSTGRES_USER: discord
+          POSTGRES_PASSWORD: discord
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U discord -d discord_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://discord:discord@127.0.0.1:5432/discord_test
+      REDIS_URL: redis://127.0.0.1:6379
+      API_BIND: 127.0.0.1:3010
+      BETTER_AUTH_SECRET: ci-only-secret-with-at-least-32-bytes
+      BETTER_AUTH_URL: http://127.0.0.1:3010/api/auth
+      DISCORD_CLIENT_ID: "100000000000000001"
+      DISCORD_CLIENT_SECRET: ci-placeholder-not-a-secret
+      DISCORD_TOKEN: ci-placeholder-not-a-token
+      BOT_OWNER_DISCORD_IDS: "100000000000000002"
+      AUTH_DEVELOPMENT_BYPASS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.94"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Unit and integration tests
+        run: cargo test --workspace --all-features --locked
+      - name: Migration and health smoke test
+        run: |
+          cargo run --locked -p discord-bot-api > /tmp/orivane-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true; cat /tmp/orivane-api.log' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3010/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+  web:
+    name: Web checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: Tests, accessibility checks, and coverage gates
+        run: pnpm test:coverage
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-coverage
+          path: apps/web/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+  compose:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create non-secret CI environment
+        run: cp .env.example .env
+      - name: Validate Compose model
+        run: docker compose config --quiet
+      - name: Build production images
+        run: docker compose build api gateway web
+
