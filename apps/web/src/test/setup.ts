@@ -1,4 +1,17 @@
 import '@testing-library/jest-dom/vitest'
+import { vi } from 'vitest'
+
+vi.mock('../lib/auth-client', () => ({
+  authClient: {
+    useSession: () => ({
+      data: null,
+      error: null,
+      isPending: false,
+    }),
+    signIn: { social: vi.fn() },
+    signOut: vi.fn(),
+  },
+}))
 
 window.scrollTo = () => undefined
 
