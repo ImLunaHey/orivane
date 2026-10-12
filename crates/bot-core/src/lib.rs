@@ -24,7 +24,7 @@ pub use config::{
     ManagedEmbedsConfig, ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRoleOption,
     ReactionRolePanel, ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig,
     ScheduledMessagesConfig, StarboardConfig, SuggestionsConfig, TemporaryVoiceConfig,
-    TicketsConfig, UtilityConfig, WarningThresholdConfig, WelcomeConfig,
+    TicketsConfig, UtilityConfig, VerificationConfig, WarningThresholdConfig, WelcomeConfig,
 };
 pub use economy::{EconomyAccount, EconomyTransaction};
 pub use fleet::{

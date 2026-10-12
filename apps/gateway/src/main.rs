@@ -46,6 +46,7 @@ use bot_module_suggestions::SuggestionsModule;
 use bot_module_temporary_voice::TemporaryVoiceModule;
 use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
+use bot_module_verification::VerificationModule;
 use bot_module_welcome::WelcomeModule;
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_model::application::interaction::{
@@ -1174,6 +1175,7 @@ async fn main() -> Result<()> {
         Arc::new(ManagedEmbedsModule),
         Arc::new(TemporaryVoiceModule),
         Arc::new(EconomyModule),
+        Arc::new(VerificationModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;

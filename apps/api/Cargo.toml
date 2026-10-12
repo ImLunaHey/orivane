@@ -25,6 +25,7 @@ bot-module-auto-delete.workspace = true
 bot-module-managed-embeds.workspace = true
 bot-module-temporary-voice.workspace = true
 bot-module-economy.workspace = true
+bot-module-verification.workspace = true
 chrono.workspace = true
 lucid-auth.workspace = true
 openssl.workspace = true

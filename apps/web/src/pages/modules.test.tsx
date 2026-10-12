@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(22)
+    expect(screen.getAllByText('Live')).toHaveLength(23)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -49,6 +49,7 @@ describe('module configuration pages', () => {
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
       ['scheduled_messages', 'Scheduled messages settings', 'Enable Scheduled messages', 'switch', true],
+      ['verification', 'Verification settings', 'Minimum account age', 'number', '7'],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, Bell, Bot, CalendarClock, Check, ClipboardList, Coins, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, PanelsTopLeft, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus, Volume2 } from 'lucide-react'
+import { ArrowLeft, Bell, Bot, CalendarClock, Check, ClipboardList, Coins, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, PanelsTopLeft, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserCheck, UserPlus, Volume2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DiscordChannelSelect } from '../components/discord-channel-select'
 import { DiscordChannelMultiSelect } from '../components/discord-channel-multi-select'
@@ -36,6 +36,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   managed_embeds: { title: 'Managed embeds', description: 'Design reusable rich messages and synchronize published Discord posts.', icon: PanelsTopLeft, tone: 'violet', runtime: 'Live' },
   temporary_voice: { title: 'Temporary voice', description: 'Create owner-controlled voice channels from a lobby and clean them up automatically.', icon: Volume2, tone: 'blue', runtime: 'Live' },
   economy: { title: 'Economy and games', description: 'Run a durable currency, reward shop, transfers, earning cooldowns, and bounded games.', icon: Coins, tone: 'amber', runtime: 'Live' },
+  verification: { title: 'Verification', description: 'Gate onboarding with account policy, pending roles, and an audited verification button.', icon: UserCheck, tone: 'green', runtime: 'Live' },
 }
 
 export function ModulesPage() {
@@ -132,6 +133,7 @@ function ModuleSettings({ moduleKey, config, update, channels, channelsPending, 
     case 'managed_embeds': return null
     case 'temporary_voice': return null
     case 'economy': return null
+    case 'verification': return <div className="form-grid"><DiscordChannelSelect title="Verification channel" detail="New members receive their personal verification prompt here" value={modules.verification.channel_id} kind="text" channels={channels} pending={channelsPending} error={channelsError} onChange={(channel_id)=>update('verification',{...modules.verification,channel_id})}/><DiscordRoleSelect title="Verified role" detail="Granted after a successful verification" values={modules.verification.verified_role_id?[modules.verification.verified_role_id]:[]} roles={roles} pending={rolesPending} error={rolesError} max={1} onChange={(values)=>update('verification',{...modules.verification,verified_role_id:values[0]??null})}/><DiscordRoleSelect title="Pending role" detail="Optional restricted role assigned while verification is pending" values={modules.verification.pending_role_id?[modules.verification.pending_role_id]:[]} roles={roles} pending={rolesPending} error={rolesError} max={1} onChange={(values)=>update('verification',{...modules.verification,pending_role_id:values[0]??null})}/><NumberField title="Minimum account age" detail="Days required before a member may verify" min={0} max={3650} value={modules.verification.minimum_account_age_days} onChange={(minimum_account_age_days)=>update('verification',{...modules.verification,minimum_account_age_days})}/><ToggleField title="Require profile avatar" detail="Reject accounts that still use Discord's default avatar" checked={modules.verification.require_avatar} onChange={(require_avatar)=>update('verification',{...modules.verification,require_avatar})}/><TextField wide title="Verification message" detail="Supports {user}, {username}, and {server}" value={modules.verification.message} onChange={(message)=>update('verification',{...modules.verification,message})}/><TextField wide title="Rejection message" detail="Shown when the account policy is not met" value={modules.verification.rejection_message} onChange={(rejection_message)=>update('verification',{...modules.verification,rejection_message})}/></div>
   }
 }
 

@@ -996,6 +996,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-verification"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-welcome"
 version = "0.1.0"
 dependencies = [
@@ -1672,6 +1685,7 @@ dependencies = [
  "bot-module-temporary-voice",
  "bot-module-tickets",
  "bot-module-utility",
+ "bot-module-verification",
  "chrono",
  "lucid-auth",
  "openssl",
@@ -1716,6 +1730,7 @@ dependencies = [
  "bot-module-temporary-voice",
  "bot-module-tickets",
  "bot-module-utility",
+ "bot-module-verification",
  "bot-module-welcome",
  "chrono",
  "rustls",

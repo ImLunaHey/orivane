@@ -28,6 +28,7 @@ members = [
     "modules/managed-embeds",
     "modules/temporary-voice",
     "modules/economy",
+    "modules/verification",
 ]
 resolver = "3"
 
@@ -66,6 +67,7 @@ bot-module-auto-delete = { path = "modules/auto-delete" }
 bot-module-managed-embeds = { path = "modules/managed-embeds" }
 bot-module-temporary-voice = { path = "modules/temporary-voice" }
 bot-module-economy = { path = "modules/economy" }
+bot-module-verification = { path = "modules/verification" }
 chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }

@@ -35,6 +35,7 @@ Reference feature sets:
 | Auto-delete | Live | Per-channel delayed deletion rules, bot/role exclusions, durable content-free queue, retries and crash recovery, queue analytics | Attachment/type filters and calendar-based purge windows |
 | Managed embeds | Live | Reusable rich embed templates, Discord-style preview, variable autocomplete, fields/media/author/footer/timestamp controls, `/embed-send`, dashboard sends, synchronized edits, durable delivery history and analytics | Attachments, webhook identity overrides and scheduled template delivery |
 | Economy and games | Live | Durable per-server balances and immutable transaction ledger; `/balance`, `/daily`, `/work`, taxed `/pay`, `/economy-leaderboard`; configurable role shop with purchase refunds; bounded `/coinflip` and `/slots`; permission-gated add/remove/set administration; dashboard policy, shop, account and ledger views | Inventory collectibles and seasonal resets are optional future depth |
+| Verification and onboarding | Live | Join-time account-age and avatar policy, optional pending role, personal button verification, verified-role assignment, configurable messages and audited outcomes | CAPTCHA and external identity providers are intentionally deferred |
 
 ## Popular-bot areas not yet implemented
 
@@ -44,7 +45,7 @@ These are not represented as fake or configuration-only cards in the dashboard.
 | --- | --- | --- |
 | AFK and keyword highlights | Dyno | Not built |
 
-Social-feed integrations are intentionally out of scope for Orivane and are not part of the parity backlog.
+Social-feed integrations, anti-nuke/server-recovery systems, and music are permanently out of scope for Orivane and are not part of the parity backlog.
 
 ## Definition of done for future modules
 

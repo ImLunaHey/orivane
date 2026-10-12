@@ -605,6 +605,7 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_managed_embeds::COMMANDS,
         bot_module_temporary_voice::COMMANDS,
         bot_module_economy::COMMANDS,
+        bot_module_verification::COMMANDS,
     ];
     groups
         .iter()

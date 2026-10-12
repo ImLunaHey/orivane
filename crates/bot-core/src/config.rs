@@ -54,6 +54,47 @@ pub struct ModulesConfig {
     pub temporary_voice: TemporaryVoiceConfig,
     #[serde(default)]
     pub economy: EconomyConfig,
+    #[serde(default)]
+    pub verification: VerificationConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct VerificationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub channel_id: Option<String>,
+    pub verified_role_id: Option<String>,
+    pub pending_role_id: Option<String>,
+    #[serde(default)]
+    pub minimum_account_age_days: u16,
+    #[serde(default)]
+    pub require_avatar: bool,
+    #[serde(default = "default_verification_message")]
+    pub message: String,
+    #[serde(default = "default_verification_rejection")]
+    pub rejection_message: String,
+}
+
+impl Default for VerificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            channel_id: None,
+            verified_role_id: None,
+            pending_role_id: None,
+            minimum_account_age_days: 0,
+            require_avatar: false,
+            message: default_verification_message(),
+            rejection_message: default_verification_rejection(),
+        }
+    }
+}
+
+fn default_verification_message() -> String {
+    "Welcome {user}. Press Verify to access {server}.".into()
+}
+fn default_verification_rejection() -> String {
+    "Your account does not meet this server's verification requirements.".into()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -725,6 +766,8 @@ pub enum ConfigValidationError {
     InvalidTemporaryVoice,
     #[error("economy currency, rewards, cooldowns, wagers, tax, or shop items are invalid")]
     InvalidEconomy,
+    #[error("verification channels, roles, account policy, or messages are invalid")]
+    InvalidVerification,
 }
 
 impl GuildConfig {
@@ -911,6 +954,31 @@ impl GuildConfig {
             })
         {
             return Err(ConfigValidationError::InvalidEconomy);
+        }
+        let verification = &self.modules.verification;
+        if verification.minimum_account_age_days > 3650
+            || verification.message.trim().is_empty()
+            || verification.message.chars().count() > 1800
+            || verification.rejection_message.trim().is_empty()
+            || verification.rejection_message.chars().count() > 500
+            || verification
+                .channel_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || verification
+                .verified_role_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || verification
+                .pending_role_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || (verification.enabled
+                && (verification.channel_id.is_none()
+                    || verification.verified_role_id.is_none()
+                    || verification.pending_role_id == verification.verified_role_id))
+        {
+            return Err(ConfigValidationError::InvalidVerification);
         }
         let moderation = &self.modules.moderation;
         let mut warning_counts = std::collections::HashSet::new();
