@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(11)
+    expect(screen.getAllByText('Live')).toHaveLength(12)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -49,6 +49,7 @@ describe('module configuration pages', () => {
       ['tickets', 'Tickets settings', 'Support roles', null, null],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
       ['reaction_roles', 'Reaction roles settings', 'Enable Reaction roles', 'switch', true],
+      ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -117,6 +118,20 @@ describe('module configuration pages', () => {
     expect(screen.getByLabelText(/^Message ID/)).toHaveValue('123456789012345678')
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No reaction mappings yet')).toBeVisible()
+  })
+
+  it('creates and edits an automatic response', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/autoresponder`)
+    await screen.findByRole('heading', { name: 'Autoresponder settings' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add response' }))
+    fireEvent.change(screen.getByLabelText(/^Trigger/), { target: { value: 'hello' } })
+    fireEvent.change(screen.getByLabelText(/^Match mode/), { target: { value: 'exact' } })
+    fireEvent.change(screen.getByLabelText(/^Response/), { target: { value: 'Hello {user}' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Case sensitive' }))
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('No automatic responses yet')).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

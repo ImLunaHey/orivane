@@ -12,6 +12,7 @@ use bot_module_api::{
     XpProfile,
 };
 use bot_module_automod::AutomodModule;
+use bot_module_autoresponder::AutoresponderModule;
 use bot_module_autorole::AutoroleModule;
 use bot_module_custom_commands::CustomCommandsModule;
 use bot_module_leveling::LevelingModule;
@@ -193,6 +194,7 @@ async fn main() -> Result<()> {
         Arc::new(TicketsModule),
         Arc::new(CustomCommandsModule),
         Arc::new(ReactionRolesModule),
+        Arc::new(AutoresponderModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;

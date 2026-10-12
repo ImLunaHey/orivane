@@ -24,6 +24,7 @@ Reference feature sets:
 | Tickets | Live | Private ticket channels, duplicate protection, support roles, close command, closure log | Panel/buttons, claims, transcripts, intake forms, per-user limits, reopen/transfer |
 | Custom commands | Live | Slash responses, variables, per-channel restriction, public/ephemeral response | Dynamic command registration, embeds, role permissions, cooldowns, multiple/random responses |
 | Utility | Live | `/ping`, `/help`, `/serverinfo` | User/server/avatar info variants, polls and richer diagnostics |
+| Autoresponder | Live | Exact, contains and starts-with triggers; case handling; channel and role controls; variables | Reactions as responses, cooldowns, regex and rich embeds |
 
 ## Popular-bot areas not yet implemented
 
@@ -34,7 +35,7 @@ These are not represented as fake or configuration-only cards in the dashboard.
 | Suggestions and voting | Carl-bot and similar community bots | Not built |
 | Giveaways | Dyno and MEE6-class bots | Not built |
 | Reminders and scheduled messages | Dyno and similar bots | Not built |
-| Autoresponder and automatic messages | Dyno | Not built |
+| Automatic scheduled messages | Dyno | Not built |
 | Auto-delete and scheduled purge | Dyno | Not built |
 | Forms | Dyno | Not built |
 | Managed embeds | Dyno and Carl-bot-class bots | Not built |

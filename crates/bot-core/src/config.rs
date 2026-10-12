@@ -32,6 +32,8 @@ pub struct ModulesConfig {
     pub custom_commands: CustomCommandsConfig,
     #[serde(default)]
     pub reaction_roles: ReactionRolesConfig,
+    #[serde(default)]
+    pub autoresponder: AutoresponderConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -213,6 +215,30 @@ pub struct ReactionRoleBinding {
     pub role_id: String,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AutoresponderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub responses: Vec<AutoresponseConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AutoresponseConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub trigger: String,
+    pub response: String,
+    #[serde(default = "default_match_mode")]
+    pub match_mode: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub allowed_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub ignored_role_ids: Vec<String>,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -247,6 +273,8 @@ pub enum ConfigValidationError {
     InvalidCustomCommands,
     #[error("reaction-role mappings must be unique and contain valid messages, roles, and emoji")]
     InvalidReactionRoles,
+    #[error("autoresponses contain an invalid trigger, response, matching mode, or restriction")]
+    InvalidAutoresponder,
 }
 
 impl GuildConfig {
@@ -433,6 +461,24 @@ impl GuildConfig {
         {
             return Err(ConfigValidationError::InvalidReactionRoles);
         }
+        let autoresponder = &self.modules.autoresponder;
+        if (autoresponder.enabled && autoresponder.responses.is_empty())
+            || autoresponder.responses.len() > 100
+            || autoresponder.responses.iter().any(|response| {
+                response.trigger.trim().is_empty()
+                    || response.trigger.chars().count() > 200
+                    || response.response.trim().is_empty()
+                    || response.response.chars().count() > 2_000
+                    || !matches!(
+                        response.match_mode.as_str(),
+                        "exact" | "contains" | "starts_with"
+                    )
+                    || invalid_snowflake_list(&response.allowed_channel_ids, 100)
+                    || invalid_snowflake_list(&response.ignored_role_ids, 100)
+            })
+        {
+            return Err(ConfigValidationError::InvalidAutoresponder);
+        }
 
         Ok(())
     }
@@ -585,6 +631,10 @@ fn default_goodbye_message() -> String {
 }
 const fn default_true() -> bool {
     true
+}
+
+fn default_match_mode() -> String {
+    "contains".to_owned()
 }
 const fn default_starboard_threshold() -> u16 {
     3

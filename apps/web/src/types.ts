@@ -48,10 +48,12 @@ export type GuildConfig = {
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
     reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[] }
+    autoresponder: { enabled: boolean; responses: Autoresponse[] }
   }
 }
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }
+export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[] }
 
 export type CustomCommand = {
   enabled: boolean

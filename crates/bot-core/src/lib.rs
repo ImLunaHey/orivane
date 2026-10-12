@@ -7,9 +7,10 @@ mod store;
 pub use audit::{AuditEvent, NewAuditEvent};
 pub use cases::{ModerationCase, NewModerationCase};
 pub use config::{
-    AutomodConfig, AutoroleConfig, CustomCommandConfig, CustomCommandsConfig, GuildConfig,
-    LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig, ReactionRoleBinding,
-    ReactionRolesConfig, StarboardConfig, TicketsConfig, UtilityConfig, WelcomeConfig,
+    AutomodConfig, AutoresponderConfig, AutoresponseConfig, AutoroleConfig, CustomCommandConfig,
+    CustomCommandsConfig, GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig,
+    ModulesConfig, ReactionRoleBinding, ReactionRolesConfig, StarboardConfig, TicketsConfig,
+    UtilityConfig, WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
