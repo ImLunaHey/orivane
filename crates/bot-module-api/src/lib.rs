@@ -75,6 +75,21 @@ pub struct EconomyClaimResult {
     pub profile: Option<EconomyProfile>,
     pub retry_after_seconds: u64,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AfkStatusResult {
+    pub user_id: u64,
+    pub reason: String,
+    pub set_at_unix: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PollResult {
+    pub id: i64,
+    pub question: String,
+    pub options: Vec<String>,
+    pub counts: Vec<u64>,
+    pub total_votes: u64,
+    pub anonymous: bool,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketRecordInput {
@@ -222,6 +237,41 @@ pub struct ManagedEmbedDeliveryInput {
 
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
+    async fn set_afk_status(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _reason: &str,
+        _now_unix: u64,
+        _ttl_seconds: u64,
+    ) -> Result<()> {
+        anyhow::bail!("AFK service unavailable")
+    }
+    async fn afk_status(&self, _guild_id: u64, _user_id: u64) -> Result<Option<AfkStatusResult>> {
+        Ok(None)
+    }
+    async fn clear_afk_status(&self, _guild_id: u64, _user_id: u64) -> Result<bool> {
+        Ok(false)
+    }
+    async fn create_poll(
+        &self,
+        _guild_id: u64,
+        _question: &str,
+        _options: &[String],
+        _anonymous: bool,
+        _ttl_seconds: u64,
+    ) -> Result<PollResult> {
+        anyhow::bail!("poll service unavailable")
+    }
+    async fn vote_poll(
+        &self,
+        _guild_id: u64,
+        _poll_id: i64,
+        _user_id: u64,
+        _option: usize,
+    ) -> Result<Option<PollResult>> {
+        Ok(None)
+    }
     async fn guild_name(&self, _guild_id: u64) -> Result<Option<String>> {
         Ok(None)
     }

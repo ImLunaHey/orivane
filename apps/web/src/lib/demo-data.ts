@@ -92,6 +92,12 @@ export const defaultConfig: GuildConfig = {
     temporary_voice: { enabled: false, lobby_channel_id: null, category_id: null, default_name: "{username}'s channel", user_limit: 0, delete_delay_seconds: 5, owner_controls: true },
     economy: { enabled: false, currency_name: 'credits', currency_symbol: '◈', daily_amount: 250, work_min: 25, work_max: 100, work_cooldown_seconds: 3600, transfer_tax_percent: 0, games_enabled: true, minimum_wager: 10, maximum_wager: 100000, shop_items: [] },
     verification: { enabled: false, channel_id: null, verified_role_id: null, pending_role_id: null, minimum_account_age_days: 0, require_avatar: false, message: 'Welcome {user}. Press Verify to access {server}.', rejection_message: "Your account does not meet this server's verification requirements." },
+    moderation_appeals: { enabled:false, review_channel_id:null, reviewer_role_ids:[], cooldown_hours:24, prompt:'Explain why this moderation action should be reviewed.' },
+    invite_tracking: { enabled:false, log_channel_id:null, reward_role_ids:[] },
+    polls: { enabled:false, default_duration_minutes:1440, maximum_options:10, allow_anonymous:true, manager_role_ids:[] },
+    counters: { enabled:false, counters:[] },
+    afk: { enabled:false, maximum_hours:168, clear_on_message:true, notify_mentions:true },
+    voice_text_linking: { enabled:false, links:[] },
   },
 }
 

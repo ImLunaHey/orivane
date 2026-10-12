@@ -56,6 +56,149 @@ pub struct ModulesConfig {
     pub economy: EconomyConfig,
     #[serde(default)]
     pub verification: VerificationConfig,
+    #[serde(default)]
+    pub moderation_appeals: ModerationAppealsConfig,
+    #[serde(default)]
+    pub invite_tracking: InviteTrackingConfig,
+    #[serde(default)]
+    pub polls: PollsConfig,
+    #[serde(default)]
+    pub counters: CountersConfig,
+    #[serde(default)]
+    pub afk: AfkConfig,
+    #[serde(default)]
+    pub voice_text_linking: VoiceTextLinkingConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ModerationAppealsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub review_channel_id: Option<String>,
+    #[serde(default)]
+    pub reviewer_role_ids: Vec<String>,
+    #[serde(default = "default_appeal_cooldown")]
+    pub cooldown_hours: u16,
+    #[serde(default = "default_appeal_prompt")]
+    pub prompt: String,
+}
+impl Default for ModerationAppealsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            review_channel_id: None,
+            reviewer_role_ids: vec![],
+            cooldown_hours: 24,
+            prompt: default_appeal_prompt(),
+        }
+    }
+}
+fn default_appeal_cooldown() -> u16 {
+    24
+}
+fn default_appeal_prompt() -> String {
+    "Explain why this moderation action should be reviewed.".into()
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct InviteTrackingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub log_channel_id: Option<String>,
+    #[serde(default)]
+    pub reward_role_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PollsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_poll_duration")]
+    pub default_duration_minutes: u32,
+    #[serde(default = "default_poll_options")]
+    pub maximum_options: u8,
+    #[serde(default = "default_true")]
+    pub allow_anonymous: bool,
+    #[serde(default)]
+    pub manager_role_ids: Vec<String>,
+}
+impl Default for PollsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_duration_minutes: 1440,
+            maximum_options: 10,
+            allow_anonymous: true,
+            manager_role_ids: vec![],
+        }
+    }
+}
+fn default_poll_duration() -> u32 {
+    1440
+}
+fn default_poll_options() -> u8 {
+    10
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CountersConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub counters: Vec<CounterConfig>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CounterConfig {
+    pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub channel_id: String,
+    pub label: String,
+    pub kind: String,
+    #[serde(default)]
+    pub goal: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AfkConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_afk_max_hours")]
+    pub maximum_hours: u16,
+    #[serde(default = "default_true")]
+    pub clear_on_message: bool,
+    #[serde(default = "default_true")]
+    pub notify_mentions: bool,
+}
+impl Default for AfkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            maximum_hours: 168,
+            clear_on_message: true,
+            notify_mentions: true,
+        }
+    }
+}
+fn default_afk_max_hours() -> u16 {
+    168
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct VoiceTextLinkingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub links: Vec<VoiceTextLinkConfig>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct VoiceTextLinkConfig {
+    pub voice_channel_id: String,
+    pub text_channel_id: String,
+    #[serde(default = "default_true")]
+    pub announce_joins: bool,
+    #[serde(default)]
+    pub announce_leaves: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

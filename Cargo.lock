@@ -715,6 +715,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-afk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+]
+
+[[package]]
 name = "bot-module-anti-raid"
 version = "0.1.0"
 dependencies = [
@@ -893,6 +904,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-moderation-appeals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
+name = "bot-module-polls"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+]
+
+[[package]]
 name = "bot-module-reaction-roles"
 version = "0.1.0"
 dependencies = [
@@ -1006,6 +1041,17 @@ dependencies = [
  "bot-module-api",
  "bot-test-support",
  "tokio",
+]
+
+[[package]]
+name = "bot-module-voice-text-linking"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
 ]
 
 [[package]]
@@ -1670,6 +1716,7 @@ dependencies = [
  "axum",
  "bot-core",
  "bot-discord",
+ "bot-module-afk",
  "bot-module-anti-raid",
  "bot-module-auto-delete",
  "bot-module-autorole",
@@ -1680,12 +1727,15 @@ dependencies = [
  "bot-module-leveling",
  "bot-module-managed-embeds",
  "bot-module-moderation",
+ "bot-module-moderation-appeals",
+ "bot-module-polls",
  "bot-module-reminders",
  "bot-module-suggestions",
  "bot-module-temporary-voice",
  "bot-module-tickets",
  "bot-module-utility",
  "bot-module-verification",
+ "bot-module-voice-text-linking",
  "chrono",
  "lucid-auth",
  "openssl",
@@ -1708,6 +1758,7 @@ dependencies = [
  "async-trait",
  "bot-core",
  "bot-discord",
+ "bot-module-afk",
  "bot-module-anti-raid",
  "bot-module-api",
  "bot-module-auto-delete",
@@ -1722,6 +1773,8 @@ dependencies = [
  "bot-module-logging",
  "bot-module-managed-embeds",
  "bot-module-moderation",
+ "bot-module-moderation-appeals",
+ "bot-module-polls",
  "bot-module-reaction-roles",
  "bot-module-reminders",
  "bot-module-scheduled-messages",
@@ -1731,6 +1784,7 @@ dependencies = [
  "bot-module-tickets",
  "bot-module-utility",
  "bot-module-verification",
+ "bot-module-voice-text-linking",
  "bot-module-welcome",
  "chrono",
  "rustls",

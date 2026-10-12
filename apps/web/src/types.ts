@@ -68,6 +68,12 @@ export type GuildConfig = {
     temporary_voice: { enabled:boolean;lobby_channel_id:string|null;category_id:string|null;default_name:string;user_limit:number;delete_delay_seconds:number;owner_controls:boolean }
     economy: { enabled:boolean;currency_name:string;currency_symbol:string;daily_amount:number;work_min:number;work_max:number;work_cooldown_seconds:number;transfer_tax_percent:number;games_enabled:boolean;minimum_wager:number;maximum_wager:number;shop_items:{id:string;name:string;description:string;price:number;role_id:string|null}[] }
     verification: { enabled:boolean;channel_id:string|null;verified_role_id:string|null;pending_role_id:string|null;minimum_account_age_days:number;require_avatar:boolean;message:string;rejection_message:string }
+    moderation_appeals: { enabled:boolean;review_channel_id:string|null;reviewer_role_ids:string[];cooldown_hours:number;prompt:string }
+    invite_tracking: { enabled:boolean;log_channel_id:string|null;reward_role_ids:string[] }
+    polls: { enabled:boolean;default_duration_minutes:number;maximum_options:number;allow_anonymous:boolean;manager_role_ids:string[] }
+    counters: { enabled:boolean;counters:{id:string;enabled:boolean;channel_id:string;label:string;kind:string;goal:number|null}[] }
+    afk: { enabled:boolean;maximum_hours:number;clear_on_message:boolean;notify_mentions:boolean }
+    voice_text_linking: { enabled:boolean;links:{voice_channel_id:string;text_channel_id:string;announce_joins:boolean;announce_leaves:boolean}[] }
   }
 }
 

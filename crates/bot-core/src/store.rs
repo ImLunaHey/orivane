@@ -45,6 +45,145 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn set_afk_status(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        reason: &str,
+        set_at_unix: u64,
+        ttl_seconds: u64,
+    ) -> Result<(), StoreError> {
+        let mut cache = self.redis.clone();
+        let value = serde_json::json!({"reason":reason,"set_at_unix":set_at_unix}).to_string();
+        redis::cmd("SET")
+            .arg(format!("afk:{guild_id}:{user_id}"))
+            .arg(value)
+            .arg("EX")
+            .arg(ttl_seconds.max(1))
+            .query_async::<()>(&mut cache)
+            .await?;
+        Ok(())
+    }
+    pub async fn afk_status(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<Option<(String, u64)>, StoreError> {
+        let mut cache = self.redis.clone();
+        let value: Option<String> = redis::cmd("GET")
+            .arg(format!("afk:{guild_id}:{user_id}"))
+            .query_async(&mut cache)
+            .await?;
+        Ok(value
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+            .map(|value| {
+                (
+                    value["reason"].as_str().unwrap_or("Away").to_owned(),
+                    value["set_at_unix"].as_u64().unwrap_or_default(),
+                )
+            }))
+    }
+    pub async fn clear_afk_status(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        let removed: u64 = redis::cmd("DEL")
+            .arg(format!("afk:{guild_id}:{user_id}"))
+            .query_async(&mut cache)
+            .await?;
+        Ok(removed > 0)
+    }
+    pub async fn create_poll(
+        &self,
+        guild_id: &str,
+        question: &str,
+        options: &[String],
+        anonymous: bool,
+        ttl_seconds: u64,
+    ) -> Result<i64, StoreError> {
+        let mut cache = self.redis.clone();
+        let id: i64 = redis::cmd("INCR")
+            .arg(format!("poll-sequence:{guild_id}"))
+            .query_async(&mut cache)
+            .await?;
+        let key = format!("poll:{guild_id}:{id}");
+        redis::cmd("HSET")
+            .arg(&key)
+            .arg("question")
+            .arg(question)
+            .arg("options")
+            .arg(serde_json::to_string(options)?)
+            .arg("anonymous")
+            .arg(if anonymous { "1" } else { "0" })
+            .query_async::<()>(&mut cache)
+            .await?;
+        redis::cmd("EXPIRE")
+            .arg(&key)
+            .arg(ttl_seconds.max(60))
+            .query_async::<()>(&mut cache)
+            .await?;
+        Ok(id)
+    }
+    pub async fn vote_poll(
+        &self,
+        guild_id: &str,
+        poll_id: i64,
+        user_id: &str,
+        option: usize,
+    ) -> Result<Option<(String, Vec<String>, Vec<u64>, bool)>, StoreError> {
+        let mut cache = self.redis.clone();
+        let key = format!("poll:{guild_id}:{poll_id}");
+        let values: Vec<Option<String>> = redis::cmd("HMGET")
+            .arg(&key)
+            .arg("question")
+            .arg("options")
+            .arg("anonymous")
+            .query_async(&mut cache)
+            .await?;
+        let Some(question) = values.first().and_then(Clone::clone) else {
+            return Ok(None);
+        };
+        let options: Vec<String> =
+            serde_json::from_str(values.get(1).and_then(|v| v.as_deref()).unwrap_or("[]"))?;
+        if option >= options.len() {
+            return Ok(None);
+        }
+        let votes_key = format!("{key}:votes");
+        redis::cmd("HSET")
+            .arg(&votes_key)
+            .arg(user_id)
+            .arg(option)
+            .query_async::<()>(&mut cache)
+            .await?;
+        let ttl: i64 = redis::cmd("TTL").arg(&key).query_async(&mut cache).await?;
+        if ttl > 0 {
+            redis::cmd("EXPIRE")
+                .arg(&votes_key)
+                .arg(ttl)
+                .query_async::<()>(&mut cache)
+                .await?;
+        }
+        let raw: Vec<String> = redis::cmd("HVALS")
+            .arg(&votes_key)
+            .query_async(&mut cache)
+            .await?;
+        let mut counts = vec![0; options.len()];
+        for item in raw {
+            if let Ok(index) = item.parse::<usize>() {
+                if let Some(count) = counts.get_mut(index) {
+                    *count += 1;
+                }
+            }
+        }
+        Ok(Some((
+            question,
+            options,
+            counts,
+            values.get(2).and_then(|v| v.as_deref()) == Some("1"),
+        )))
+    }
     pub async fn economy_account(
         &self,
         guild_id: &str,

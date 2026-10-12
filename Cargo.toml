@@ -29,6 +29,10 @@ members = [
     "modules/temporary-voice",
     "modules/economy",
     "modules/verification",
+    "modules/moderation-appeals",
+    "modules/voice-text-linking",
+    "modules/afk",
+    "modules/polls",
 ]
 resolver = "3"
 
@@ -68,6 +72,10 @@ bot-module-managed-embeds = { path = "modules/managed-embeds" }
 bot-module-temporary-voice = { path = "modules/temporary-voice" }
 bot-module-economy = { path = "modules/economy" }
 bot-module-verification = { path = "modules/verification" }
+bot-module-moderation-appeals = { path = "modules/moderation-appeals" }
+bot-module-voice-text-linking = { path = "modules/voice-text-linking" }
+bot-module-afk = { path = "modules/afk" }
+bot-module-polls = { path = "modules/polls" }
 chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }

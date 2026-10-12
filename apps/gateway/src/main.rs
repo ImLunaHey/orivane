@@ -16,6 +16,7 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
     DiscordApi, ModalSubmitInteraction, TwilightDiscord,
 };
+use bot_module_afk::AfkModule;
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
     AuditNotice, BotModule, DiscordLogEvent, EconomyClaimResult, EconomyProfile,
@@ -38,6 +39,8 @@ use bot_module_leveling::LevelingModule;
 use bot_module_logging::LoggingModule;
 use bot_module_managed_embeds::ManagedEmbedsModule;
 use bot_module_moderation::ModerationModule;
+use bot_module_moderation_appeals::ModerationAppealsModule;
+use bot_module_polls::PollsModule;
 use bot_module_reaction_roles::ReactionRolesModule;
 use bot_module_reminders::RemindersModule;
 use bot_module_scheduled_messages::ScheduledMessagesModule;
@@ -47,6 +50,7 @@ use bot_module_temporary_voice::TemporaryVoiceModule;
 use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
 use bot_module_verification::VerificationModule;
+use bot_module_voice_text_linking::VoiceTextLinkingModule;
 use bot_module_welcome::WelcomeModule;
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_model::application::interaction::{
@@ -65,6 +69,73 @@ struct GatewayModuleServices {
 
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn set_afk_status(&self, g: u64, u: u64, r: &str, n: u64, t: u64) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .set_afk_status(&g.to_string(), &u.to_string(), r, n, t)
+            .await?)
+    }
+    async fn afk_status(&self, g: u64, u: u64) -> Result<Option<bot_module_api::AfkStatusResult>> {
+        Ok(self
+            .infrastructure
+            .afk_status(&g.to_string(), &u.to_string())
+            .await?
+            .map(|(reason, set_at_unix)| bot_module_api::AfkStatusResult {
+                user_id: u,
+                reason,
+                set_at_unix,
+            }))
+    }
+    async fn clear_afk_status(&self, g: u64, u: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .clear_afk_status(&g.to_string(), &u.to_string())
+            .await?)
+    }
+    async fn create_poll(
+        &self,
+        g: u64,
+        q: &str,
+        o: &[String],
+        a: bool,
+        t: u64,
+    ) -> Result<bot_module_api::PollResult> {
+        let id = self
+            .infrastructure
+            .create_poll(&g.to_string(), q, o, a, t)
+            .await?;
+        Ok(bot_module_api::PollResult {
+            id,
+            question: q.into(),
+            options: o.to_vec(),
+            counts: vec![0; o.len()],
+            total_votes: 0,
+            anonymous: a,
+        })
+    }
+    async fn vote_poll(
+        &self,
+        g: u64,
+        p: i64,
+        u: u64,
+        o: usize,
+    ) -> Result<Option<bot_module_api::PollResult>> {
+        Ok(self
+            .infrastructure
+            .vote_poll(&g.to_string(), p, &u.to_string(), o)
+            .await?
+            .map(|(question, options, counts, anonymous)| {
+                let total_votes = counts.iter().sum();
+                bot_module_api::PollResult {
+                    id: p,
+                    question,
+                    options,
+                    counts,
+                    total_votes,
+                    anonymous,
+                }
+            }))
+    }
     async fn guild_name(&self, guild_id: u64) -> Result<Option<String>> {
         Ok(self
             .infrastructure
@@ -1176,6 +1247,10 @@ async fn main() -> Result<()> {
         Arc::new(TemporaryVoiceModule),
         Arc::new(EconomyModule),
         Arc::new(VerificationModule),
+        Arc::new(ModerationAppealsModule),
+        Arc::new(VoiceTextLinkingModule),
+        Arc::new(AfkModule),
+        Arc::new(PollsModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
