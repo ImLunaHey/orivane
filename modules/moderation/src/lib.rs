@@ -268,6 +268,7 @@ mod tests {
             guild_id: 20,
             channel_id: Some(30),
             actor_id: 40,
+            actor_role_ids: vec![],
             command_name: command.to_owned(),
             options,
         }

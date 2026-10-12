@@ -103,6 +103,7 @@ mod tests {
             guild_id: 200,
             channel_id: Some(300),
             actor_id: 400,
+            actor_role_ids: vec![],
             command_name: "ping".into(),
             options: Default::default(),
         };

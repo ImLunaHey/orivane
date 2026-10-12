@@ -133,6 +133,14 @@ pub struct AutoroleConfig {
     pub role_ids: Vec<String>,
     #[serde(default)]
     pub delay_seconds: u16,
+    #[serde(default)]
+    pub remove_role_ids: Vec<String>,
+    #[serde(default)]
+    pub remove_delay_seconds: u32,
+    #[serde(default)]
+    pub joinable_role_ids: Vec<String>,
+    #[serde(default)]
+    pub single_joinable_role: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -312,14 +320,14 @@ impl GuildConfig {
         {
             return Err(ConfigValidationError::MissingLoggingChannel);
         }
-        if (self.modules.autorole.enabled && self.modules.autorole.role_ids.is_empty())
-            || self.modules.autorole.role_ids.len() > 10
-            || self
-                .modules
-                .autorole
-                .role_ids
-                .iter()
-                .any(|id| !valid_snowflake(id))
+        let autorole = &self.modules.autorole;
+        if (autorole.enabled
+            && autorole.role_ids.is_empty()
+            && autorole.remove_role_ids.is_empty()
+            && autorole.joinable_role_ids.is_empty())
+            || invalid_snowflake_list(&autorole.role_ids, 10)
+            || invalid_snowflake_list(&autorole.remove_role_ids, 10)
+            || invalid_snowflake_list(&autorole.joinable_role_ids, 25)
         {
             return Err(ConfigValidationError::InvalidAutoroles);
         }

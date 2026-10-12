@@ -78,6 +78,7 @@ pub struct CommandInteraction {
     pub guild_id: u64,
     pub channel_id: Option<u64>,
     pub actor_id: u64,
+    pub actor_role_ids: Vec<u64>,
     pub command_name: String,
     pub options: BTreeMap<String, CommandValue>,
 }
@@ -100,6 +101,13 @@ impl CommandInteraction {
     pub fn user(&self, name: &str) -> Option<u64> {
         match self.options.get(name) {
             Some(CommandValue::User(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn role(&self, name: &str) -> Option<u64> {
+        match self.options.get(name) {
+            Some(CommandValue::Role(value)) => Some(*value),
             _ => None,
         }
     }

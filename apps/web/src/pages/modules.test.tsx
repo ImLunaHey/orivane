@@ -96,6 +96,16 @@ describe('module configuration pages', () => {
     expect(screen.getByRole('combobox', { name: 'Goodbye channel' })).toBeVisible()
   })
 
+  it('configures delayed and exclusive autoroles', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/autorole`)
+    await screen.findByRole('heading', { name: 'Autorole settings' })
+    fireEvent.change(screen.getByLabelText(/^Assignment delay/), { target: { value: '30' } })
+    fireEvent.change(screen.getByLabelText(/^Removal delay/), { target: { value: '3600' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Only one self-assignable role' }))
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+  })
+
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {
     renderDashboard()
     await navigateTo(`/servers/${serverId}/modules`)

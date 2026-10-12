@@ -523,6 +523,11 @@ async fn main() -> Result<()> {
                         guild_id: guild_id.get(),
                         channel_id: interaction.channel.as_ref().map(|channel| channel.id.get()),
                         actor_id,
+                        actor_role_ids: interaction
+                            .member
+                            .as_ref()
+                            .map(|member| member.roles.iter().map(|role| role.get()).collect())
+                            .unwrap_or_default(),
                         command_name: command.name.clone(),
                         options: command_options(&command.options),
                     };

@@ -44,7 +44,7 @@ export const defaultConfig: GuildConfig = {
     logging: { enabled: true, channel_id: '901256781234567892' },
     utility: { enabled: true, ephemeral_responses: false },
     moderation: { enabled: true, dm_on_action: true, default_reason: 'No reason provided' },
-    autorole: { enabled: false, role_ids: [], delay_seconds: 0 },
+    autorole: { enabled: false, role_ids: [], delay_seconds: 0, remove_role_ids: [], remove_delay_seconds: 0, joinable_role_ids: [], single_joinable_role: false },
     starboard: { enabled: false, channel_id: null, emoji: '⭐', threshold: 3, allow_self_stars: false, ignored_channel_ids: [] },
     tickets: { enabled: false, category_id: null, support_role_ids: [], transcript_channel_id: null, welcome_message: 'Welcome {user}. Please describe what you need help with. A member of {support_roles} will respond soon.', channel_name: 'ticket-{user_id}' },
     custom_commands: { enabled: false, max_commands: 25, commands: [] },

@@ -524,6 +524,7 @@ mod tests {
             guild_id: 2,
             channel_id: Some(3),
             actor_id: 4,
+            actor_role_ids: vec![],
             command_name: "ping".to_owned(),
             options: Default::default(),
         };

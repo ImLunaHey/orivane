@@ -243,6 +243,7 @@ mod tests {
             guild_id: 10,
             channel_id: Some(50),
             actor_id: 40,
+            actor_role_ids: vec![],
             command_name: "ticket".to_owned(),
             options: BTreeMap::from([(
                 "reason".to_owned(),
