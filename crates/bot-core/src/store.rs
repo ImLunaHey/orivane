@@ -1376,9 +1376,19 @@ impl Infrastructure {
         self.form_submission(guild_id, form_id, submission_id).await
     }
 
+    pub async fn purge_form_submissions(
+        &self,
+        guild_id: &str,
+        retention_days: u16,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query("DELETE FROM form_submissions WHERE guild_id=$1 AND created_at < now() - make_interval(days => $2)")
+            .bind(guild_id).bind(i32::from(retention_days)).execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true' OR config #>> '{modules,counters,enabled}' = 'true' OR config #>> '{modules,forms,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;

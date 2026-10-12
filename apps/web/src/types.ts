@@ -59,7 +59,7 @@ export type GuildConfig = {
     autoresponder: { enabled: boolean; responses: Autoresponse[] }
     anti_raid: { enabled: boolean; join_threshold: number; join_window_seconds: number; minimum_account_age_days: number; require_avatar: boolean; punish_all_during_raid: boolean; action: 'log' | 'quarantine' | 'timeout' | 'kick' | 'ban'; timeout_seconds: number; quarantine_role_id: string | null; alert_channel_id: string | null }
     scheduled_messages: { enabled: boolean; schedules: ScheduledMessage[] }
-    forms: { enabled: boolean; forms: ServerForm[] }
+    forms: { enabled: boolean; forms: ServerForm[]; retention_days: number }
     suggestions: { enabled: boolean; channel_id: string | null; staff_role_ids: string[]; allow_anonymous: boolean; cooldown_seconds: number }
     giveaways: { enabled: boolean; default_channel_id: string | null; manager_role_ids: string[]; default_duration_minutes: number; default_winner_count: number; minimum_account_age_days: number; required_role_ids: string[]; bonus_role_id: string | null; bonus_entries: number }
     reminders: { enabled: boolean; allow_direct_messages: boolean; max_active_per_user: number; minimum_delay_minutes: number; maximum_delay_days: number }

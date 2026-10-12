@@ -757,12 +757,28 @@ fn default_schedule_kind() -> String {
     "interval".into()
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct FormsConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub forms: Vec<FormConfig>,
+    #[serde(default = "default_form_retention_days")]
+    pub retention_days: u16,
+}
+
+impl Default for FormsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            forms: Vec::new(),
+            retention_days: default_form_retention_days(),
+        }
+    }
+}
+
+const fn default_form_retention_days() -> u16 {
+    365
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1431,6 +1447,7 @@ impl GuildConfig {
         let forms = &self.modules.forms;
         let mut form_ids = std::collections::HashSet::new();
         if (forms.enabled && forms.forms.is_empty())
+            || !(1..=3650).contains(&forms.retention_days)
             || forms.forms.len() > 25
             || forms.forms.iter().any(|form| {
                 let mut question_ids = std::collections::HashSet::new();

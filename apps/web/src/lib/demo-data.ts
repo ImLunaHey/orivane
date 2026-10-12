@@ -65,6 +65,7 @@ export const defaultConfig: GuildConfig = {
     scheduled_messages: { enabled: false, schedules: [] },
     forms: {
       enabled: false,
+      retention_days: 365,
       forms: [{
         enabled: true,
         id: 'staff-application',

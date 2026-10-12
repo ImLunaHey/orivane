@@ -808,6 +808,12 @@ impl ModuleServices for GatewayModuleServices {
             .await?;
         Ok(case.id)
     }
+    async fn purge_form_submissions(&self, guild_id: u64, retention_days: u16) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .purge_form_submissions(&guild_id.to_string(), retention_days)
+            .await?)
+    }
 
     async fn moderation_warning_count(&self, guild_id: u64, member_id: u64) -> Result<u64> {
         Ok(self

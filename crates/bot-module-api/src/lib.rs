@@ -372,6 +372,9 @@ pub trait ModuleServices: Send + Sync {
     async fn record_managed_embed_delivery(&self, _input: ManagedEmbedDeliveryInput) -> Result<()> {
         Ok(())
     }
+    async fn purge_form_submissions(&self, _guild_id: u64, _retention_days: u16) -> Result<u64> {
+        Ok(0)
+    }
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
     async fn moderation_warning_count(&self, _guild_id: u64, _member_id: u64) -> Result<u64> {
         Ok(0)

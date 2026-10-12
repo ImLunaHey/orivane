@@ -384,10 +384,21 @@ describe('module configuration pages', () => {
     expect(screen.getByRole('link', { name: 'New form' })).toBeVisible()
     expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', `/servers/${serverId}/modules/forms/staff-application`)
     expect(screen.getByRole('link', { name: 'Submissions' })).toHaveAttribute('href', `/servers/${serverId}/modules/forms/staff-application/submissions`)
+    fireEvent.change(screen.getByLabelText(/^Retention period/), { target: { value: '180' } })
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Forms' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
     expect(save).toBeEnabled()
     expect(save.compareDocumentPosition(screen.getByRole('heading', { name: 'Current forms' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
+  it('reviews ordinary form submissions with the shared workflow', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/forms/staff-application/submissions/1`)
+    expect(await screen.findByRole('heading', { name: 'Review submission' })).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^Decision note/), { target: { value: 'Strong application.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    await screen.findByText('approved')
+    expect(screen.getAllByText('Strong application.')).toHaveLength(2)
   })
 
   it('creates a native modal form on a dedicated details page', async () => {

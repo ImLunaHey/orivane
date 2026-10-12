@@ -422,6 +422,10 @@ pub enum ServiceCall {
         completed: bool,
         retry_unix: u64,
     },
+    PurgeFormSubmissions {
+        guild_id: u64,
+        retention_days: u16,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -463,6 +467,20 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn purge_form_submissions(
+        &self,
+        guild_id: u64,
+        retention_days: u16,
+    ) -> anyhow::Result<u64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::PurgeFormSubmissions {
+                guild_id,
+                retention_days,
+            });
+        Ok(2)
+    }
     async fn schedule_autorole_job(
         &self,
         guild_id: u64,
