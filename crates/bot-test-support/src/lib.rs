@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
     DiscordError, GuildChannel, GuildRole, MessageButton, MessageReactionSummary, ModalDefinition,
-    ModalSubmitInteraction, RichEmbed, RolePanelComponents,
+    ModalSubmitInteraction, RichEmbed, RolePanelComponents, UserProfile,
 };
 use bot_module_api::{
     AutoroleJobResult, EconomyClaimResult, EconomyProfile, FormSubmissionInput, GiveawayInput,
@@ -173,6 +173,9 @@ pub enum DiscordCall {
     },
     GuildRoles {
         guild_id: u64,
+    },
+    UserProfile {
+        user_id: u64,
     },
     CreateTicketChannel {
         guild_id: u64,
@@ -1860,6 +1863,7 @@ struct FakeState {
     next_channel_id: u64,
     next_message_id: u64,
     message_reaction_summary: MessageReactionSummary,
+    user_profile: UserProfile,
 }
 
 impl FakeDiscord {
@@ -1913,6 +1917,10 @@ impl FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .message_reaction_summary = summary;
+    }
+
+    pub fn set_user_profile(&self, profile: UserProfile) {
+        self.state.lock().expect("fake lock poisoned").user_profile = profile;
     }
 
     fn record(&self, call: DiscordCall) -> Result<(), DiscordError> {
@@ -2335,6 +2343,22 @@ impl DiscordApi for FakeDiscord {
             .expect("fake lock poisoned")
             .guild_roles
             .clone())
+    }
+
+    async fn user_profile(&self, user_id: u64) -> Result<UserProfile, DiscordError> {
+        self.record(DiscordCall::UserProfile { user_id })?;
+        let mut profile = self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .user_profile
+            .clone();
+        if profile.id == 0 {
+            profile.id = user_id;
+            profile.username = format!("user-{user_id}");
+            profile.display_name = profile.username.clone();
+        }
+        Ok(profile)
     }
 
     async fn create_ticket_channel(

@@ -281,6 +281,15 @@ pub struct GuildMetrics {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UserProfile {
+    pub id: u64,
+    pub username: String,
+    pub display_name: String,
+    pub avatar_url: String,
+    pub bot: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MessageReactionSummary {
     pub author_id: u64,
     pub author_name: String,
@@ -554,6 +563,7 @@ pub trait DiscordApi: Send + Sync {
     async fn guild_metrics(&self, _guild_id: u64) -> Result<GuildMetrics, DiscordError> {
         Err(DiscordError::Request("guild metrics unavailable".into()))
     }
+    async fn user_profile(&self, user_id: u64) -> Result<UserProfile, DiscordError>;
     async fn rename_channel(
         &self,
         _channel_id: u64,
@@ -1364,6 +1374,32 @@ impl DiscordApi for TwilightDiscord {
                 .unwrap_or_default(),
             online: guild.approximate_presence_count.unwrap_or_default(),
             boosts: guild.premium_subscription_count.unwrap_or_default(),
+        })
+    }
+    async fn user_profile(&self, user_id: u64) -> Result<UserProfile, DiscordError> {
+        let user = self
+            .http
+            .user(Id::<UserMarker>::new(user_id))
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        let avatar_url = user.avatar.map_or_else(
+            || {
+                format!(
+                    "https://cdn.discordapp.com/embed/avatars/{}.png",
+                    (user_id >> 22) % 6
+                )
+            },
+            |avatar| format!("https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=1024"),
+        );
+        Ok(UserProfile {
+            id: user_id,
+            display_name: user.global_name.unwrap_or_else(|| user.name.clone()),
+            username: user.name,
+            avatar_url,
+            bot: user.bot,
         })
     }
     async fn rename_channel(
