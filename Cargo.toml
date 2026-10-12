@@ -6,6 +6,7 @@ members = [
     "crates/bot-discord",
     "crates/bot-test-support",
     "crates/bot-module-api",
+    "crates/bot-observability",
     "modules/utility",
     "modules/welcome",
     "modules/autorole",
@@ -51,6 +52,7 @@ bot-core = { path = "crates/bot-core" }
 bot-discord = { path = "crates/bot-discord" }
 bot-test-support = { path = "crates/bot-test-support" }
 bot-module-api = { path = "crates/bot-module-api" }
+bot-observability = { path = "crates/bot-observability" }
 bot-module-utility = { path = "modules/utility" }
 bot-module-welcome = { path = "modules/welcome" }
 bot-module-autorole = { path = "modules/autorole" }

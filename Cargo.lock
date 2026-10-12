@@ -1089,6 +1089,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-observability"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "bot-test-support"
 version = "0.1.0"
 dependencies = [
@@ -1760,6 +1767,7 @@ dependencies = [
  "bot-module-utility",
  "bot-module-verification",
  "bot-module-voice-text-linking",
+ "bot-observability",
  "chrono",
  "lucid-auth",
  "openssl",
@@ -1780,6 +1788,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "bot-core",
  "bot-discord",
  "bot-module-afk",
@@ -1812,6 +1821,7 @@ dependencies = [
  "bot-module-verification",
  "bot-module-voice-text-linking",
  "bot-module-welcome",
+ "bot-observability",
  "chrono",
  "rustls",
  "serde_json",

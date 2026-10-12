@@ -1,15 +1,16 @@
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, time::Instant};
 
 mod auth;
 
 use anyhow::{Context, Result};
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::{
         HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
     },
+    middleware::{Next, from_fn_with_state},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -26,6 +27,7 @@ use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
     RolePanelComponents, RolePanelOption, TwilightDiscord,
 };
+use bot_observability::ServiceMetrics;
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
@@ -36,6 +38,7 @@ struct AppState {
     infrastructure: Infrastructure,
     auth: AuthState,
     discord_token: Option<String>,
+    metrics: ServiceMetrics,
 }
 
 #[derive(Debug)]
@@ -168,14 +171,19 @@ async fn main() -> Result<()> {
     let cors_origin: HeaderValue = frontend_origin
         .parse()
         .context("API_CORS_ORIGIN must be a valid HTTP header value")?;
+    let metrics = ServiceMetrics::new("api");
     let state = AppState {
         infrastructure: Infrastructure::connect(&database_url, &redis_url).await?,
         auth: AuthState::new(&database_url, &frontend_origin).await?,
         discord_token: env::var("DISCORD_TOKEN").ok(),
+        metrics: metrics.clone(),
     };
     let auth_router = lucid_auth::axum::router(state.auth.service.clone());
     let app = Router::new()
         .route("/health", get(health))
+        .route("/health/live", get(liveness))
+        .route("/health/ready", get(health))
+        .route("/metrics", get(prometheus_metrics))
         .route("/v1/audit", get(get_global_audit))
         .route("/v1/health", get(get_health_report))
         .route("/v1/servers", get(get_servers))
@@ -369,17 +377,82 @@ async fn main() -> Result<()> {
                 .allow_headers([CONTENT_TYPE, HeaderName::from_static("x-request-id")]),
         )
         .layer(TraceLayer::new_for_http())
+        .layer(from_fn_with_state(metrics.clone(), instrument_request))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
+    metrics.set_ready(true);
     tracing::info!(%bind, "API listening");
-    axum::serve(
+    let result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    .await;
+    metrics.set_ready(false);
+    result?;
     Ok(())
+}
+
+async fn instrument_request(
+    State(metrics): State<ServiceMetrics>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .map(str::to_owned)
+        .unwrap_or_else(|| metrics.request_id());
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert("x-request-id", value);
+    }
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let started = Instant::now();
+    let mut response = next.run(request).await;
+    let status = response.status();
+    metrics.record_request(status.is_server_error(), started.elapsed());
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", value);
+    }
+    tracing::info!(
+        %request_id,
+        %method,
+        %path,
+        status = status.as_u16(),
+        latency_ms = started.elapsed().as_millis(),
+        "request completed"
+    );
+    response
+}
+
+async fn liveness() -> impl IntoResponse {
+    (StatusCode::OK, Json(HealthResponse { status: "ok" }))
+}
+
+async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let mut output = state.metrics.render_prometheus();
+    if let Ok(runtime) = state.infrastructure.runtime_metrics().await {
+        output.push_str(&format!(
+            concat!(
+                "# HELP orivane_database_pool_connections Database connection pool size.\n",
+                "# TYPE orivane_database_pool_connections gauge\n",
+                "orivane_database_pool_connections{{state=\"total\"}} {}\n",
+                "orivane_database_pool_connections{{state=\"idle\"}} {}\n",
+                "# HELP orivane_due_job_backlog Jobs whose delivery time has passed.\n",
+                "# TYPE orivane_due_job_backlog gauge\n",
+                "orivane_due_job_backlog {}\n"
+            ),
+            runtime.database_pool_size, runtime.database_pool_idle, runtime.due_job_backlog,
+        ));
+    }
+    (
+        [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        output,
+    )
 }
 
 async fn health(State(state): State<AppState>) -> Response {
@@ -3307,5 +3380,16 @@ fn init_tracing() {
 }
 
 async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
+    tracing::info!("shutdown requested; draining API requests");
 }

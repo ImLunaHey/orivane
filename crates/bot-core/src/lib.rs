@@ -29,7 +29,8 @@ pub use config::{
 pub use economy::{EconomyAccount, EconomyTransaction};
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
-    GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile, UserGuildContext,
+    GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile, RuntimeMetrics,
+    UserGuildContext,
 };
 pub use forms::{FormSubmission, NewFormSubmission};
 pub use giveaways::{Giveaway, GiveawayEntry, NewGiveaway};

@@ -7,6 +7,13 @@ use std::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use axum::{
+    Router,
+    extract::State,
+    http::{StatusCode, header::CONTENT_TYPE},
+    response::IntoResponse,
+    routing::get,
+};
 use bot_core::{
     EconomyAccount, Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery,
     NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket,
@@ -54,6 +61,7 @@ use bot_module_utility::UtilityModule;
 use bot_module_verification::VerificationModule;
 use bot_module_voice_text_linking::VoiceTextLinkingModule;
 use bot_module_welcome::WelcomeModule;
+use bot_observability::ServiceMetrics;
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_model::application::interaction::{
     InteractionData,
@@ -1254,6 +1262,7 @@ async fn main() -> Result<()> {
     let token = required_env("DISCORD_TOKEN")?;
     let database_url = required_env("DATABASE_URL")?;
     let redis_url = required_env("REDIS_URL")?;
+    let metrics = ServiceMetrics::new("gateway");
 
     let modules: Vec<Arc<dyn BotModule>> = vec![
         Arc::new(UtilityModule),
@@ -1309,22 +1318,41 @@ async fn main() -> Result<()> {
         context.clone(),
         modules.clone(),
         infrastructure.clone(),
+        metrics.clone(),
     ));
+    tokio::spawn(run_metrics_server(metrics.clone()));
 
     tracing::info!("gateway worker starting");
-    while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
+    let mut shutdown = Box::pin(shutdown_signal());
+    loop {
+        let item = tokio::select! {
+            _ = &mut shutdown => {
+                tracing::info!("shutdown requested; stopping gateway intake");
+                break;
+            }
+            item = shard.next_event(EventTypeFlags::all()) => item,
+        };
+        let Some(item) = item else {
+            metrics.set_ready(false);
+            anyhow::bail!("Discord gateway event stream closed");
+        };
         let event = match item {
             Ok(event) => event,
             Err(error) => {
+                metrics.record_gateway_error();
                 tracing::warn!(%error, "failed to receive gateway event");
                 continue;
             }
         };
+        metrics.record_gateway_event();
 
         match event {
             Event::GatewayClose(frame) => {
+                metrics.set_ready(false);
+                metrics.record_gateway_error();
                 tracing::error!(?frame, "Discord closed the gateway connection");
             }
+            Event::Ready(_) | Event::Resumed => metrics.set_ready(true),
             Event::GuildAuditLogEntryCreate(entry) => {
                 let Some(guild_id) = entry.guild_id else {
                     continue;
@@ -2086,6 +2114,7 @@ async fn main() -> Result<()> {
                 .await;
             }
             Event::InteractionCreate(interaction) => {
+                metrics.record_interaction(false);
                 if let Some(author) = interaction.author() {
                     let display_name = interaction
                         .member
@@ -2167,6 +2196,7 @@ async fn main() -> Result<()> {
                                 .map(|()| None)
                         };
                         if let Err(error) = &result {
+                            metrics.record_interaction_failure();
                             tracing::error!(module = module.name(), %error, "component interaction failed");
                             if let Err(response_error) = context
                                 .discord
@@ -2199,6 +2229,7 @@ async fn main() -> Result<()> {
                             audit.outcome = "denied".into();
                         }
                         if let Err(error) = &result {
+                            metrics.record_interaction_failure();
                             audit.outcome = "failure".into();
                             audit.reason = Some(error.to_string());
                         }
@@ -2383,6 +2414,7 @@ async fn main() -> Result<()> {
                     };
                     let latency_ms =
                         started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    metrics.record_interaction_latency(started_at.elapsed());
                     let mut audit = NewAuditEvent::guild(
                         guild_id.to_string(),
                         actor_id.to_string(),
@@ -2397,6 +2429,7 @@ async fn main() -> Result<()> {
                         audit.reason = Some("module is disabled for this server".to_owned());
                     }
                     if let Err(error) = &result {
+                        metrics.record_interaction_failure();
                         audit.outcome = "failure".to_owned();
                         audit.reason = Some(error.to_string());
                         tracing::error!(module = module.name(), %error, "module failed");
@@ -2425,8 +2458,8 @@ async fn main() -> Result<()> {
             _ => {}
         }
     }
-
-    anyhow::bail!("Discord gateway event stream closed")
+    metrics.set_ready(false);
+    Ok(())
 }
 
 async fn dispatch_discord_log_event(
@@ -2516,10 +2549,12 @@ async fn run_scheduler(
     context: ModuleContext,
     modules: Vec<Arc<dyn BotModule>>,
     infrastructure: Infrastructure,
+    metrics: ServiceMetrics,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
     loop {
         interval.tick().await;
+        metrics.record_scheduled_tick(false);
         let now_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -2527,6 +2562,7 @@ async fn run_scheduler(
         let configs = match infrastructure.scheduled_guild_configs().await {
             Ok(configs) => configs,
             Err(error) => {
+                metrics.record_scheduled_failure();
                 tracing::error!(%error, "failed to load scheduled-message guilds");
                 continue;
             }
@@ -2555,6 +2591,7 @@ async fn run_scheduler(
                         }
                     }
                     Err(error) => {
+                        metrics.record_scheduled_failure();
                         tracing::error!(module = module.name(), guild_id = %config.guild_id, %error, "scheduled module failed");
                         let mut audit = NewAuditEvent::guild(
                             &config.guild_id,
@@ -2573,6 +2610,59 @@ async fn run_scheduler(
             }
         }
     }
+}
+
+async fn run_metrics_server(metrics: ServiceMetrics) {
+    let bind = env::var("GATEWAY_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:3011".to_owned());
+    let listener = match tokio::net::TcpListener::bind(&bind).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::error!(%bind, %error, "could not bind gateway health server");
+            return;
+        }
+    };
+    let app = Router::new()
+        .route("/health/live", get(gateway_liveness))
+        .route("/health/ready", get(gateway_readiness))
+        .route("/metrics", get(gateway_metrics))
+        .with_state(metrics);
+    tracing::info!(%bind, "gateway health server listening");
+    if let Err(error) = axum::serve(listener, app).await {
+        tracing::error!(%error, "gateway health server stopped");
+    }
+}
+
+async fn gateway_liveness() -> impl IntoResponse {
+    (StatusCode::OK, "ok")
+}
+
+async fn gateway_readiness(State(metrics): State<ServiceMetrics>) -> impl IntoResponse {
+    if metrics.is_ready() {
+        (StatusCode::OK, "ready")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "not ready")
+    }
+}
+
+async fn gateway_metrics(State(metrics): State<ServiceMetrics>) -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        metrics.render_prometheus(),
+    )
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 async fn register_commands(discord: &dyn DiscordApi, modules: &[Arc<dyn BotModule>]) -> Result<()> {

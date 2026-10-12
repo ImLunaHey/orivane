@@ -10,7 +10,7 @@ use crate::{
     GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, InfrastructureHealth,
     MemberXpAward, MemberXpProfile, MessageDeletionJob, ModerationCase, NewAuditEvent,
     NewEmbedDelivery, NewEmbedTemplate, NewFormSubmission, NewGiveaway, NewModerationCase,
-    NewReminder, NewSuggestion, NewTicket, NewTicketPanel, Reminder, Suggestion,
+    NewReminder, NewSuggestion, NewTicket, NewTicketPanel, Reminder, RuntimeMetrics, Suggestion,
     TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
     UserGuildContext, config::ConfigValidationError,
 };
@@ -2124,6 +2124,22 @@ impl Infrastructure {
                 },
             ],
         }
+    }
+
+    pub async fn runtime_metrics(&self) -> Result<RuntimeMetrics, StoreError> {
+        let due_job_backlog: i64 = sqlx::query_scalar(
+            "SELECT \
+                (SELECT count(*) FROM message_deletion_jobs WHERE status='scheduled' AND due_at <= now()) + \
+                (SELECT count(*) FROM reminders WHERE status='scheduled' AND next_attempt_at <= now()) + \
+                (SELECT count(*) FROM giveaways WHERE status='active' AND ends_at <= now())"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(RuntimeMetrics {
+            database_pool_size: self.pool.size(),
+            database_pool_idle: self.pool.num_idle(),
+            due_job_backlog,
+        })
     }
 
     pub async fn upsert_connected_guild(
