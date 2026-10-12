@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::GuildConfig;
+use bot_discord::RichEmbed;
 use bot_module_api::{BotModule, MemberJoin, MemberLeave, ModuleContext};
 
 pub struct WelcomeModule;
@@ -34,15 +35,44 @@ impl BotModule for WelcomeModule {
             .context("welcome channel is not configured")?
             .parse::<u64>()
             .context("welcome channel is invalid")?;
-        let message = render(
+        let template = selected_message(
             &config.modules.welcome.message,
+            &config.modules.welcome.additional_messages,
+            event.user_id,
+        );
+        let message = render(
+            template,
             event.guild_id,
             &event.guild_name,
             event.user_id,
             &event.username,
             &event.display_name,
         );
-        context.discord.send_message(channel_id, &message).await?;
+        if config.modules.welcome.embed_enabled {
+            context
+                .discord
+                .send_rich_embed(
+                    channel_id,
+                    &RichEmbed {
+                        title: render(
+                            &config.modules.welcome.embed_title,
+                            event.guild_id,
+                            &event.guild_name,
+                            event.user_id,
+                            &event.username,
+                            &event.display_name,
+                        ),
+                        description: message,
+                        color: config.modules.welcome.embed_color,
+                        image_url: config.modules.welcome.image_url.clone(),
+                        timestamp: true,
+                        ..RichEmbed::default()
+                    },
+                )
+                .await?;
+        } else {
+            context.discord.send_message(channel_id, &message).await?;
+        }
         if config.modules.welcome.dm_enabled {
             let direct_message = render(
                 &config.modules.welcome.dm_message,
@@ -77,8 +107,13 @@ impl BotModule for WelcomeModule {
             .context("goodbye channel is not configured")?
             .parse::<u64>()
             .context("goodbye channel is invalid")?;
-        let message = render(
+        let template = selected_message(
             &config.modules.welcome.goodbye_message,
+            &config.modules.welcome.goodbye_additional_messages,
+            event.user_id,
+        );
+        let message = render(
+            template,
             event.guild_id,
             &event.guild_name,
             event.user_id,
@@ -87,6 +122,16 @@ impl BotModule for WelcomeModule {
         );
         context.discord.send_message(channel_id, &message).await?;
         Ok(())
+    }
+}
+
+fn selected_message<'a>(primary: &'a str, additional: &'a [String], user_id: u64) -> &'a str {
+    let count = additional.len() + 1;
+    let index = usize::try_from(user_id).unwrap_or_default() % count;
+    if index == 0 {
+        primary
+    } else {
+        &additional[index - 1]
     }
 }
 
@@ -212,5 +257,46 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn sends_a_rich_randomized_welcome() {
+        let discord = FakeDiscord::new();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(FakeModuleServices::default()),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.welcome.channel_id = Some("20".into());
+        config.modules.welcome.message = "First {user}".into();
+        config.modules.welcome.additional_messages = vec!["Second {user}".into()];
+        config.modules.welcome.embed_enabled = true;
+        config.modules.welcome.embed_title = "Welcome to {server}".into();
+        config.modules.welcome.embed_color = 0x5865f2;
+        config.modules.welcome.image_url = "https://cdn.example/welcome.png".into();
+        WelcomeModule
+            .on_member_join(
+                &context,
+                &config,
+                &MemberJoin {
+                    guild_id: 10,
+                    guild_name: "Guild".into(),
+                    user_id: 31,
+                    username: "luna".into(),
+                    display_name: "Luna".into(),
+                    account_age_seconds: 100,
+                    has_avatar: true,
+                    is_bot: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::SendRichEmbed { embed, .. }
+                if embed.title == "Welcome to Guild"
+                    && embed.description == "Second <@31>"
+                    && embed.image_url == "https://cdn.example/welcome.png"
+        )));
     }
 }

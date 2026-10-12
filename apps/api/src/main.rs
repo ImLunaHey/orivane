@@ -1,32 +1,43 @@
-use std::{env, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    env,
+    hash::{Hash, Hasher},
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 mod auth;
 
 use anyhow::{Context, Result};
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::{
         HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
     },
+    middleware::{Next, from_fn_with_state},
     response::{IntoResponse, Response},
     routing::get,
 };
 use bot_core::{
-    AuditEvent, CommandVolumeBucket, ConnectedGuild, EconomyAccount, EconomyTransaction,
-    EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry,
-    GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
-    InfrastructureHealth, MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery,
-    NewEmbedTemplate, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion,
+    AfkStatus, AuditEvent, CommandVolumeBucket, ConnectedGuild, CounterRun, EconomyAccount,
+    EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway,
+    GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
+    Infrastructure, InfrastructureHealth, InviteAttribution, InviteLeaderboardEntry,
+    MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate,
+    NewGiveaway, NewModerationCase, NewTicketPanel, Poll, Reminder, Suggestion,
     TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
-    UserGuildContext,
+    UserGuildContext, VerificationAttempt, VoiceLinkEvent,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
     RolePanelComponents, RolePanelOption, TwilightDiscord,
 };
+use bot_observability::ServiceMetrics;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::auth::{Actor, AuthState};
@@ -36,6 +47,25 @@ struct AppState {
     infrastructure: Infrastructure,
     auth: AuthState,
     discord_token: Option<String>,
+    metrics: ServiceMetrics,
+}
+
+#[derive(Clone)]
+struct MiddlewareState {
+    metrics: ServiceMetrics,
+    limiter: RateLimiter,
+    frontend_origin: Arc<str>,
+}
+
+#[derive(Clone, Default)]
+struct RateLimiter {
+    windows: Arc<Mutex<HashMap<u64, RateWindow>>>,
+}
+
+struct RateWindow {
+    started: Instant,
+    reads: u32,
+    mutations: u32,
 }
 
 #[derive(Debug)]
@@ -55,6 +85,22 @@ struct CommandSyncResponse {
 struct GlobalUserDetail {
     user: GlobalUser,
     contexts: Vec<UserGuildContext>,
+}
+
+#[derive(Serialize)]
+struct ResourceIssue {
+    path: String,
+    kind: &'static str,
+    id: Option<String>,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ResourceDiagnostics {
+    status: &'static str,
+    channels_available: bool,
+    roles_available: bool,
+    issues: Vec<ResourceIssue>,
 }
 
 #[derive(Deserialize)]
@@ -168,19 +214,30 @@ async fn main() -> Result<()> {
     let cors_origin: HeaderValue = frontend_origin
         .parse()
         .context("API_CORS_ORIGIN must be a valid HTTP header value")?;
+    let metrics = ServiceMetrics::new("api");
+    let middleware = MiddlewareState {
+        metrics: metrics.clone(),
+        limiter: RateLimiter::default(),
+        frontend_origin: Arc::from(frontend_origin.as_str()),
+    };
     let state = AppState {
         infrastructure: Infrastructure::connect(&database_url, &redis_url).await?,
         auth: AuthState::new(&database_url, &frontend_origin).await?,
         discord_token: env::var("DISCORD_TOKEN").ok(),
+        metrics: metrics.clone(),
     };
     let auth_router = lucid_auth::axum::router(state.auth.service.clone());
     let app = Router::new()
         .route("/health", get(health))
+        .route("/health/live", get(liveness))
+        .route("/health/ready", get(health))
+        .route("/metrics", get(prometheus_metrics))
         .route("/v1/audit", get(get_global_audit))
         .route("/v1/health", get(get_health_report))
         .route("/v1/servers", get(get_servers))
         .route("/v1/users", get(get_users))
         .route("/v1/users/{user_id}", get(get_user))
+        .route("/v1/me/privacy-export", get(get_privacy_export))
         .route("/v1/analytics/commands", get(get_global_command_volume))
         .route("/v1/audit/{event_id}", get(get_global_audit_event))
         .route("/v1/commands/sync", axum::routing::post(sync_commands))
@@ -199,6 +256,43 @@ async fn main() -> Result<()> {
         )
         .route("/v1/guilds/{guild_id}/channels", get(get_guild_channels))
         .route("/v1/guilds/{guild_id}/roles", get(get_guild_roles))
+        .route(
+            "/v1/guilds/{guild_id}/resources/diagnostics",
+            get(get_resource_diagnostics),
+        )
+        .route("/v1/guilds/{guild_id}/appeals", get(get_appeals))
+        .route(
+            "/v1/guilds/{guild_id}/appeals/{appeal_id}",
+            get(get_appeal).patch(review_appeal),
+        )
+        .route("/v1/guilds/{guild_id}/polls", get(get_polls))
+        .route("/v1/guilds/{guild_id}/polls/{poll_id}", get(get_poll))
+        .route(
+            "/v1/guilds/{guild_id}/polls/{poll_id}/close",
+            axum::routing::post(close_poll_dashboard),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/invites/attributions",
+            get(get_invite_attributions),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/invites/leaderboard",
+            get(get_invite_leaderboard),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/verification/attempts",
+            get(get_verification_attempts),
+        )
+        .route("/v1/guilds/{guild_id}/afk", get(get_afk_statuses))
+        .route(
+            "/v1/guilds/{guild_id}/afk/{user_id}",
+            axum::routing::delete(clear_afk_status_dashboard),
+        )
+        .route("/v1/guilds/{guild_id}/counters/runs", get(get_counter_runs))
+        .route(
+            "/v1/guilds/{guild_id}/voice-links/events",
+            get(get_voice_link_events),
+        )
         .route(
             "/v1/guilds/{guild_id}/temporary-voice",
             get(get_temporary_voice_channels),
@@ -369,17 +463,202 @@ async fn main() -> Result<()> {
                 .allow_headers([CONTENT_TYPE, HeaderName::from_static("x-request-id")]),
         )
         .layer(TraceLayer::new_for_http())
+        .layer(from_fn_with_state(middleware, instrument_request))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
+    metrics.set_ready(true);
     tracing::info!(%bind, "API listening");
-    axum::serve(
+    let result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    .await;
+    metrics.set_ready(false);
+    result?;
     Ok(())
+}
+
+async fn instrument_request(
+    State(state): State<MiddlewareState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(response) = reject_cross_site_mutation(&request, &state.frontend_origin) {
+        return response;
+    }
+    if let Some(retry_after) = state.limiter.retry_after(&request) {
+        let mut response = (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Too many dashboard requests. Wait briefly and retry."
+            })),
+        )
+            .into_response();
+        response.headers_mut().insert(
+            "retry-after",
+            HeaderValue::from_str(&retry_after.to_string())
+                .unwrap_or_else(|_| HeaderValue::from_static("60")),
+        );
+        return response;
+    }
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .map(str::to_owned)
+        .unwrap_or_else(|| state.metrics.request_id());
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert("x-request-id", value);
+    }
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let started = Instant::now();
+    let mut response = next.run(request).await;
+    let status = response.status();
+    state
+        .metrics
+        .record_request(status.is_server_error(), started.elapsed());
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", value);
+    }
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+        .headers_mut()
+        .insert("x-frame-options", HeaderValue::from_static("DENY"));
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    response.headers_mut().insert(
+        "permissions-policy",
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+    );
+    tracing::info!(
+        %request_id,
+        %method,
+        %path,
+        status = status.as_u16(),
+        latency_ms = started.elapsed().as_millis(),
+        "request completed"
+    );
+    response
+}
+
+impl RateLimiter {
+    fn retry_after(&self, request: &Request) -> Option<u64> {
+        let path = request.uri().path();
+        if !path.starts_with("/v1/") {
+            return None;
+        }
+        let mutation = !matches!(*request.method(), Method::GET | Method::OPTIONS);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        request
+            .headers()
+            .get("cookie")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("anonymous")
+            .hash(&mut hasher);
+        if let Some(connect) = request
+            .extensions()
+            .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        {
+            connect.0.ip().hash(&mut hasher);
+        }
+        let key = hasher.finish();
+        let now = Instant::now();
+        let mut windows = self.windows.lock().expect("rate limiter lock poisoned");
+        if windows.len() > 10_000 {
+            windows
+                .retain(|_, window| now.duration_since(window.started) < Duration::from_secs(60));
+        }
+        let window = windows.entry(key).or_insert(RateWindow {
+            started: now,
+            reads: 0,
+            mutations: 0,
+        });
+        if now.duration_since(window.started) >= Duration::from_secs(60) {
+            *window = RateWindow {
+                started: now,
+                reads: 0,
+                mutations: 0,
+            };
+        }
+        let counter = if mutation {
+            &mut window.mutations
+        } else {
+            &mut window.reads
+        };
+        let limit = if mutation { 120 } else { 600 };
+        if *counter >= limit {
+            return Some(
+                60_u64
+                    .saturating_sub(now.duration_since(window.started).as_secs())
+                    .max(1),
+            );
+        }
+        *counter += 1;
+        None
+    }
+}
+
+fn reject_cross_site_mutation(request: &Request, frontend_origin: &str) -> Option<Response> {
+    if matches!(*request.method(), Method::GET | Method::OPTIONS)
+        || !request.uri().path().starts_with("/v1/")
+    {
+        return None;
+    }
+    let cross_site = request
+        .headers()
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        == Some("cross-site");
+    let wrong_origin = request
+        .headers()
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin != frontend_origin);
+    (cross_site || wrong_origin).then(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Cross-site dashboard mutation rejected" })),
+        )
+            .into_response()
+    })
+}
+
+async fn liveness() -> impl IntoResponse {
+    (StatusCode::OK, Json(HealthResponse { status: "ok" }))
+}
+
+async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let mut output = state.metrics.render_prometheus();
+    if let Ok(runtime) = state.infrastructure.runtime_metrics().await {
+        output.push_str(&format!(
+            concat!(
+                "# HELP orivane_database_pool_connections Database connection pool size.\n",
+                "# TYPE orivane_database_pool_connections gauge\n",
+                "orivane_database_pool_connections{{state=\"total\"}} {}\n",
+                "orivane_database_pool_connections{{state=\"idle\"}} {}\n",
+                "# HELP orivane_due_job_backlog Jobs whose delivery time has passed.\n",
+                "# TYPE orivane_due_job_backlog gauge\n",
+                "orivane_due_job_backlog {}\n"
+            ),
+            runtime.database_pool_size, runtime.database_pool_idle, runtime.due_job_backlog,
+        ));
+    }
+    (
+        [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        output,
+    )
 }
 
 async fn health(State(state): State<AppState>) -> Response {
@@ -458,6 +737,48 @@ async fn get_user(
         .map_err(internal_error)?;
     record_read(&state, None, &actor, &headers, "fleet.user.viewed").await;
     Ok(Json(GlobalUserDetail { user, contexts }))
+}
+
+async fn get_privacy_export(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = state.auth.actor(&headers).await?;
+    let user = state
+        .infrastructure
+        .global_users()
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .find(|user| user.id == actor.discord_user_id);
+    let guild_contexts = if actor.discord_user_id.parse::<u64>().is_ok() {
+        state
+            .infrastructure
+            .user_guild_contexts(&actor.discord_user_id)
+            .await
+            .map_err(internal_error)?
+    } else {
+        Vec::new()
+    };
+    record_read(
+        &state,
+        None,
+        &actor,
+        &headers,
+        "privacy.personal_data.exported",
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "schema_version": 1,
+        "discord_user_id": actor.discord_user_id,
+        "profile": user,
+        "guild_contexts": guild_contexts,
+        "explanation": {
+            "profile": "Identity and fleet-wide aggregate data retained by Orivane.",
+            "guild_contexts": "Per-server command, moderation, XP, and installation context visible to the signed-in Discord account.",
+            "message_content": "Orivane audit logs do not retain deleted or edited message content."
+        }
+    })))
 }
 
 async fn get_global_command_volume(
@@ -667,13 +988,7 @@ async fn get_guild_channels(
     let channels = discord
         .guild_channels(guild_id.parse().expect("validated Discord snowflake"))
         .await
-        .map_err(|error| {
-            tracing::error!(%guild_id, %error, "failed to fetch Discord guild channels");
-            ApiError(
-                StatusCode::BAD_GATEWAY,
-                "Discord channel lookup failed".to_owned(),
-            )
-        })?;
+        .map_err(|error| discord_resource_error(&guild_id, "channels", error))?;
     record_read(
         &state,
         Some(&guild_id),
@@ -710,13 +1025,7 @@ async fn get_guild_roles(
     let mut roles = discord
         .guild_roles(guild_id.parse().expect("validated Discord snowflake"))
         .await
-        .map_err(|error| {
-            tracing::error!(%guild_id, %error, "failed to fetch Discord guild roles");
-            ApiError(
-                StatusCode::BAD_GATEWAY,
-                "Discord role lookup failed".to_owned(),
-            )
-        })?;
+        .map_err(|error| discord_resource_error(&guild_id, "roles", error))?;
     roles.retain(|role| !role.managed && role.id != guild_id);
     roles.sort_by_key(|role| std::cmp::Reverse(role.position));
     record_read(
@@ -728,6 +1037,549 @@ async fn get_guild_roles(
     )
     .await;
     Ok(Json(roles))
+}
+
+async fn get_resource_diagnostics(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<ResourceDiagnostics>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let config = state
+        .infrastructure
+        .guild_config(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    let token = state.discord_token.as_ref().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Discord resource checks are unavailable because the bot token is not configured"
+                .to_owned(),
+        )
+    })?;
+    let discord = TwilightDiscord::connect(token.clone())
+        .await
+        .map_err(internal_error)?;
+    let channels_result = discord
+        .guild_channels(guild_id.parse().expect("validated Discord snowflake"))
+        .await;
+    let roles_result = discord
+        .guild_roles(guild_id.parse().expect("validated Discord snowflake"))
+        .await;
+    let channels_available = channels_result.is_ok();
+    let roles_available = roles_result.is_ok();
+    let channel_ids = channels_result
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let role_ids = roles_result
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut references = Vec::new();
+    collect_resource_references(
+        &serde_json::to_value(&config).map_err(internal_error)?,
+        String::new(),
+        &mut references,
+    );
+    let mut issues = Vec::new();
+    if let Err(error) = channels_result {
+        issues.push(ResourceIssue {
+            path: "Discord channels".to_owned(),
+            kind: "access",
+            id: None,
+            message: discord_resource_message("channels", &error.to_string()),
+        });
+    }
+    if let Err(error) = roles_result {
+        issues.push(ResourceIssue {
+            path: "Discord roles".to_owned(),
+            kind: "access",
+            id: None,
+            message: discord_resource_message("roles", &error.to_string()),
+        });
+    }
+    for (path, kind, id) in references {
+        let missing = match kind {
+            "channel" => channels_available && !channel_ids.contains(id.as_str()),
+            "role" => roles_available && !role_ids.contains(id.as_str()),
+            _ => false,
+        };
+        if missing {
+            issues.push(ResourceIssue {
+                path,
+                kind,
+                id: Some(id),
+                message: format!(
+                    "This configured {kind} no longer exists or is no longer visible to Orivane. Select a replacement and save the module."
+                ),
+            });
+        }
+    }
+    let status = if issues.is_empty() {
+        "healthy"
+    } else {
+        "attention"
+    };
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "guild.resources.diagnosed",
+    )
+    .await;
+    Ok(Json(ResourceDiagnostics {
+        status,
+        channels_available,
+        roles_available,
+        issues,
+    }))
+}
+
+fn collect_resource_references(
+    value: &Value,
+    path: String,
+    output: &mut Vec<(String, &'static str, String)>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                let kind = if key.ends_with("channel_id") || key == "category_id" {
+                    Some("channel")
+                } else if key.ends_with("role_id") {
+                    Some("role")
+                } else {
+                    None
+                };
+                let plural_kind = if key.ends_with("channel_ids") {
+                    Some("channel")
+                } else if key.ends_with("role_ids") {
+                    Some("role")
+                } else {
+                    None
+                };
+                if let (Some(kind), Some(id)) = (kind, child.as_str())
+                    && !id.is_empty()
+                {
+                    output.push((child_path.clone(), kind, id.to_owned()));
+                } else if let (Some(kind), Some(ids)) = (plural_kind, child.as_array()) {
+                    for (index, id) in ids.iter().filter_map(Value::as_str).enumerate() {
+                        if !id.is_empty() {
+                            output.push((format!("{child_path}[{index}]"), kind, id.to_owned()));
+                        }
+                    }
+                }
+                collect_resource_references(child, child_path, output);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                collect_resource_references(child, format!("{path}[{index}]"), output);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn discord_resource_error(
+    guild_id: &str,
+    resource: &'static str,
+    error: impl std::fmt::Display,
+) -> ApiError {
+    let error = error.to_string();
+    tracing::error!(%guild_id, %error, resource, "failed to fetch Discord guild resources");
+    let status = if error.contains("429") {
+        StatusCode::TOO_MANY_REQUESTS
+    } else if error.contains("403") || error.contains("Missing Access") {
+        StatusCode::FORBIDDEN
+    } else if error.contains("404") {
+        StatusCode::NOT_FOUND
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+    ApiError(status, discord_resource_message(resource, &error))
+}
+
+fn discord_resource_message(resource: &str, error: &str) -> String {
+    if error.contains("429") {
+        format!("Discord is rate-limiting {resource} checks. Wait a moment and retry.")
+    } else if error.contains("403") || error.contains("Missing Access") {
+        format!(
+            "Orivane cannot read this server's {resource}. Confirm the bot is still installed and has View Channels and Manage Roles where required."
+        )
+    } else if error.contains("404") {
+        "Discord reports that this server is unavailable to Orivane. The bot may have been removed."
+            .to_owned()
+    } else {
+        format!("Discord's {resource} service could not be reached. Retry shortly.")
+    }
+}
+
+async fn get_appeals(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<FormSubmission>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .form_submissions(&guild_id, "moderation-appeals", params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "moderation_appeals.list.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+
+async fn get_appeal(
+    State(state): State<AppState>,
+    Path((guild_id, appeal_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<FormSubmission>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .form_submission(&guild_id, "moderation-appeals", appeal_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "moderation_appeal.viewed",
+    )
+    .await;
+    Ok(Json(item))
+}
+
+async fn review_appeal(
+    State(state): State<AppState>,
+    Path((guild_id, appeal_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<ReviewFormSubmission>,
+) -> Result<Json<FormSubmission>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    if appeal_id <= 0
+        || !matches!(input.status.as_str(), "approved" | "rejected" | "closed")
+        || input
+            .note
+            .as_ref()
+            .is_some_and(|note| note.chars().count() > 1000)
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid appeal decision".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .form_submission(&guild_id, "moderation-appeals", appeal_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    let mut event = NewAuditEvent::guild(
+        &guild_id,
+        &actor.discord_user_id,
+        "moderation_appeal.reviewed",
+    );
+    event.source = "dashboard_api".into();
+    event.target_type = "moderation_appeal".into();
+    event.target_id = Some(appeal_id.to_string());
+    event.before_state = Some(serde_json::json!({"status":before.status}));
+    event.after_state = Some(serde_json::json!({"status":input.status,"note":input.note}));
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    let item = state
+        .infrastructure
+        .review_form_submission_audited(
+            &guild_id,
+            "moderation-appeals",
+            appeal_id,
+            &input.status,
+            &actor.discord_user_id,
+            input.note.as_deref(),
+            &event,
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appeal not found".into()))?;
+    Ok(Json(item))
+}
+
+async fn get_polls(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<Poll>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .polls(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "polls.list.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_poll(
+    State(state): State<AppState>,
+    Path((guild_id, poll_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Poll>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let item = state
+        .infrastructure
+        .poll(&guild_id, poll_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "poll not found".into()))?;
+    record_read(&state, Some(&guild_id), &actor, &headers, "poll.viewed").await;
+    Ok(Json(item))
+}
+async fn close_poll_dashboard(
+    State(state): State<AppState>,
+    Path((guild_id, poll_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .poll(&guild_id, poll_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "poll not found".into()))?;
+    if !state
+        .infrastructure
+        .close_poll(&guild_id, poll_id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "poll is already closed".into(),
+        ));
+    }
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "poll.closed");
+    event.source = "dashboard_api".into();
+    event.target_type = "poll".into();
+    event.target_id = Some(poll_id.to_string());
+    event.before_state = serde_json::to_value(before).ok();
+    event.after_state = Some(serde_json::json!({"status":"closed"}));
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_invite_attributions(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<InviteAttribution>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .invite_attributions(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "invites.attributions.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_invite_leaderboard(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<InviteLeaderboardEntry>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .invite_leaderboard(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "invites.leaderboard.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_verification_attempts(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<VerificationAttempt>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .verification_attempts(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "verification.attempts.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_afk_statuses(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<AfkStatus>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .afk_statuses(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "afk.statuses.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn clear_afk_status_dashboard(
+    State(state): State<AppState>,
+    Path((guild_id, user_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_snowflake(&user_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    if !state
+        .infrastructure
+        .clear_afk_status(&guild_id, &user_id)
+        .await
+        .map_err(internal_error)?
+    {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "AFK status not found".into(),
+        ));
+    }
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "afk.status.cleared");
+    event.source = "dashboard_api".into();
+    event.target_type = "member".into();
+    event.target_id = Some(user_id);
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn get_counter_runs(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<CounterRun>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .counter_runs(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "counters.runs.viewed",
+    )
+    .await;
+    Ok(Json(items))
+}
+async fn get_voice_link_events(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<AuditParams>,
+) -> Result<Json<Vec<VoiceLinkEvent>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let items = state
+        .infrastructure
+        .voice_link_events(&guild_id, params.limit.unwrap_or(200))
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "voice_links.events.viewed",
+    )
+    .await;
+    Ok(Json(items))
 }
 
 async fn get_temporary_voice_channels(
@@ -3307,5 +4159,105 @@ fn init_tracing() {
 }
 
 async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
+    tracing::info!("shutdown requested; draining API requests");
+}
+
+#[cfg(test)]
+mod resource_diagnostic_tests {
+    use super::*;
+    use axum::body::Body;
+
+    #[test]
+    fn collects_nested_channel_and_role_references() {
+        let value = serde_json::json!({
+            "guild_id": "1",
+            "modules": {
+                "welcome": { "channel_id": "10" },
+                "automod": { "ignored_channel_ids": ["11"], "ignored_role_ids": ["20"] },
+                "tickets": { "panels": [{ "category_id": "12", "support_role_ids": ["21"] }] }
+            }
+        });
+        let mut output = Vec::new();
+        collect_resource_references(&value, String::new(), &mut output);
+        assert!(
+            output
+                .iter()
+                .any(|(_, kind, id)| *kind == "channel" && id == "10")
+        );
+        assert!(
+            output
+                .iter()
+                .any(|(_, kind, id)| *kind == "channel" && id == "12")
+        );
+        assert!(
+            output
+                .iter()
+                .any(|(_, kind, id)| *kind == "role" && id == "21")
+        );
+        assert!(!output.iter().any(|(_, _, id)| id == "1"));
+    }
+
+    #[test]
+    fn classifies_common_discord_failures() {
+        assert!(discord_resource_message("roles", "403 Missing Access").contains("cannot read"));
+        assert!(discord_resource_message("channels", "429").contains("rate-limiting"));
+        assert!(discord_resource_message("channels", "404").contains("removed"));
+    }
+
+    #[test]
+    fn rejects_cross_site_mutations_but_allows_reads() {
+        let mutation = Request::builder()
+            .method(Method::PUT)
+            .uri("/v1/guilds/1/config")
+            .header("origin", "https://evil.example")
+            .body(Body::empty())
+            .unwrap();
+        assert!(reject_cross_site_mutation(&mutation, "https://orivane.example").is_some());
+        let read = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/guilds/1/config")
+            .header("origin", "https://evil.example")
+            .body(Body::empty())
+            .unwrap();
+        assert!(reject_cross_site_mutation(&read, "https://orivane.example").is_none());
+    }
+
+    #[test]
+    fn rate_limits_mutations_independently_from_reads() {
+        let limiter = RateLimiter::default();
+        for _ in 0..120 {
+            let request = Request::builder()
+                .method(Method::POST)
+                .uri("/v1/activity")
+                .header("cookie", "session=test")
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(limiter.retry_after(&request), None);
+        }
+        let limited = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/activity")
+            .header("cookie", "session=test")
+            .body(Body::empty())
+            .unwrap();
+        assert!(limiter.retry_after(&limited).is_some());
+        let read = Request::builder()
+            .method(Method::GET)
+            .uri("/v1/health")
+            .header("cookie", "session=test")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(limiter.retry_after(&read), None);
+    }
 }
