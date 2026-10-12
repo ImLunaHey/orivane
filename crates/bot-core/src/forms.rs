@@ -8,6 +8,8 @@ pub struct FormSubmission {
     pub guild_id: String,
     pub form_id: String,
     pub submitter_id: Option<String>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
     pub answers: serde_json::Value,
     pub created_at: DateTime<Utc>,
 }

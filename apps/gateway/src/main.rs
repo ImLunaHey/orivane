@@ -666,6 +666,32 @@ async fn main() -> Result<()> {
                 }
             }
             Event::InteractionCreate(interaction) => {
+                if let Some(author) = interaction.author() {
+                    let display_name = interaction
+                        .member
+                        .as_ref()
+                        .and_then(|member| member.nick.as_deref())
+                        .or(author.global_name.as_deref());
+                    let avatar_url = author.avatar.as_ref().map(|hash| {
+                        let hash = hash.to_string();
+                        let extension = if hash.starts_with("a_") { "gif" } else { "png" };
+                        format!(
+                            "https://cdn.discordapp.com/avatars/{}/{}.{}?size=128",
+                            author.id, hash, extension
+                        )
+                    });
+                    if let Err(error) = infrastructure
+                        .upsert_discord_identity(
+                            &author.id.to_string(),
+                            &author.name,
+                            display_name,
+                            avatar_url.as_deref(),
+                        )
+                        .await
+                    {
+                        tracing::warn!(user_id = %author.id, %error, "could not refresh interaction identity");
+                    }
+                }
                 if let Some(InteractionData::ModalSubmit(modal)) = interaction.data.as_ref() {
                     let Some(guild_id) = interaction.guild_id else {
                         continue;

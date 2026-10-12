@@ -39,9 +39,13 @@ impl Infrastructure {
         input: &NewFormSubmission,
     ) -> Result<FormSubmission, StoreError> {
         sqlx::query_as::<_, FormSubmission>(
-            "INSERT INTO form_submissions (guild_id, form_id, submitter_id, answers) \
-             VALUES ($1, $2, $3, $4) \
-             RETURNING id, guild_id, form_id, submitter_id, answers, created_at",
+            "WITH inserted AS ( \
+               INSERT INTO form_submissions (guild_id, form_id, submitter_id, answers) \
+               VALUES ($1, $2, $3, $4) \
+               RETURNING id, guild_id, form_id, submitter_id, answers, created_at \
+             ) SELECT i.id, i.guild_id, i.form_id, i.submitter_id, d.username, d.display_name, \
+                      i.answers, i.created_at FROM inserted i \
+               LEFT JOIN discord_identities d ON d.user_id = i.submitter_id",
         )
         .bind(&input.guild_id)
         .bind(&input.form_id)
@@ -59,9 +63,10 @@ impl Infrastructure {
         limit: i64,
     ) -> Result<Vec<FormSubmission>, StoreError> {
         sqlx::query_as::<_, FormSubmission>(
-            "SELECT id, guild_id, form_id, submitter_id, answers, created_at \
-             FROM form_submissions WHERE guild_id = $1 AND form_id = $2 \
-             ORDER BY id DESC LIMIT $3",
+            "SELECT s.id, s.guild_id, s.form_id, s.submitter_id, d.username, d.display_name, \
+                    s.answers, s.created_at FROM form_submissions s \
+             LEFT JOIN discord_identities d ON d.user_id = s.submitter_id \
+             WHERE s.guild_id = $1 AND s.form_id = $2 ORDER BY s.id DESC LIMIT $3",
         )
         .bind(guild_id)
         .bind(form_id)
@@ -78,8 +83,10 @@ impl Infrastructure {
         submission_id: i64,
     ) -> Result<Option<FormSubmission>, StoreError> {
         sqlx::query_as::<_, FormSubmission>(
-            "SELECT id, guild_id, form_id, submitter_id, answers, created_at \
-             FROM form_submissions WHERE guild_id = $1 AND form_id = $2 AND id = $3",
+            "SELECT s.id, s.guild_id, s.form_id, s.submitter_id, d.username, d.display_name, \
+                    s.answers, s.created_at FROM form_submissions s \
+             LEFT JOIN discord_identities d ON d.user_id = s.submitter_id \
+             WHERE s.guild_id = $1 AND s.form_id = $2 AND s.id = $3",
         )
         .bind(guild_id)
         .bind(form_id)
@@ -635,6 +642,28 @@ impl Infrastructure {
         Ok(())
     }
 
+    pub async fn upsert_discord_identity(
+        &self,
+        user_id: &str,
+        username: &str,
+        display_name: Option<&str>,
+        avatar_url: Option<&str>,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO discord_identities (user_id, username, display_name, avatar_url) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, \
+             display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url, updated_at = now()",
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(display_name)
+        .bind(avatar_url)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn mark_guild_disconnected(&self, guild_id: &str) -> Result<(), StoreError> {
         sqlx::query(
             "UPDATE connected_guilds SET connected = false, removed_at = now(), updated_at = now() WHERE guild_id = $1",
@@ -746,12 +775,13 @@ impl Infrastructure {
                SELECT actor_id AS user_id FROM audit_events WHERE guild_id = $1 AND actor_kind = 'user' AND actor_id ~ '^[1-9][0-9]{0,19}$' \
                UNION SELECT member_id FROM moderation_cases WHERE guild_id = $1 \
              ) \
-             SELECT i.user_id AS id, \
+             SELECT i.user_id AS id, d.username, d.display_name, \
                     count(a.id) FILTER (WHERE a.action LIKE 'slash_command.%' AND a.occurred_at >= now() - interval '30 days') AS commands_30d, \
                     (SELECT count(*) FROM moderation_cases c WHERE c.guild_id = $1 AND c.member_id = i.user_id) AS cases, \
                     max(a.occurred_at) AS last_seen \
-             FROM identities i LEFT JOIN audit_events a ON a.guild_id = $1 AND a.actor_id = i.user_id \
-             GROUP BY i.user_id ORDER BY last_seen DESC NULLS LAST",
+             FROM identities i LEFT JOIN discord_identities d ON d.user_id = i.user_id \
+             LEFT JOIN audit_events a ON a.guild_id = $1 AND a.actor_id = i.user_id \
+             GROUP BY i.user_id, d.username, d.display_name ORDER BY last_seen DESC NULLS LAST",
         )
         .bind(guild_id)
         .fetch_all(&self.pool)

@@ -70,6 +70,8 @@ pub struct InfrastructureHealth {
 #[derive(Clone, Debug, Serialize, FromRow)]
 pub struct GuildMemberSummary {
     pub id: String,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
     pub commands_30d: i64,
     pub cases: i64,
     pub last_seen: Option<DateTime<Utc>>,
