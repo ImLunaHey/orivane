@@ -106,8 +106,6 @@ pub struct InviteTrackingConfig {
     pub enabled: bool,
     pub log_channel_id: Option<String>,
     #[serde(default)]
-    pub reward_role_ids: Vec<String>,
-    #[serde(default)]
     pub rewards: Vec<InviteRewardConfig>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1657,7 +1655,6 @@ impl GuildConfig {
                 .log_channel_id
                 .as_deref()
                 .is_some_and(|id| !valid_snowflake(id))
-            || invalid_snowflake_list(&invite.reward_role_ids, 100)
             || invite.rewards.len() > 100
             || invite.rewards.iter().enumerate().any(|(index, reward)| {
                 reward.invites == 0

@@ -557,6 +557,11 @@ pub trait DiscordApi: Send + Sync {
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError>;
 
     async fn guild_roles(&self, guild_id: u64) -> Result<Vec<GuildRole>, DiscordError>;
+    async fn guild_member_role_ids(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+    ) -> Result<Vec<u64>, DiscordError>;
     async fn guild_invites(&self, _guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
         Err(DiscordError::Request("invite access unavailable".into()))
     }
@@ -1338,6 +1343,24 @@ impl DiscordApi for TwilightDiscord {
                 managed: role.managed,
             })
             .collect())
+    }
+    async fn guild_member_role_ids(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+    ) -> Result<Vec<u64>, DiscordError> {
+        let member = self
+            .http
+            .guild_member(
+                Id::<GuildMarker>::new(guild_id),
+                Id::<UserMarker>::new(user_id),
+            )
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(member.roles.into_iter().map(Id::get).collect())
     }
     async fn guild_invites(&self, guild_id: u64) -> Result<Vec<GuildInvite>, DiscordError> {
         let invites = self

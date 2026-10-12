@@ -218,6 +218,75 @@ impl AuthState {
         }
     }
 
+    pub async fn require_guild_member(
+        &self,
+        headers: &HeaderMap,
+        guild_id: &str,
+    ) -> Result<Actor, ApiError> {
+        let (actor, guilds) = self.guild_actor_and_guilds(headers).await?;
+        if actor.is_owner || guilds.iter().any(|guild| guild.id == guild_id) {
+            Ok(actor)
+        } else {
+            Err(ApiError::forbidden("server membership is required"))
+        }
+    }
+
+    async fn guild_actor_and_guilds(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<(Actor, Vec<DiscordGuild>), ApiError> {
+        let session = self.session(headers).await?;
+        let account = self
+            .service
+            .list_linked_accounts(&session)
+            .await
+            .map_err(auth_internal)?
+            .into_iter()
+            .find(|account| account.provider_id == "discord");
+        let Some(account) = account else {
+            if self.development_bypass {
+                return Ok((
+                    Actor {
+                        discord_user_id: "local-development".to_owned(),
+                        is_owner: true,
+                    },
+                    vec![],
+                ));
+            }
+            return Err(ApiError::unauthorized(
+                "a linked Discord account is required",
+            ));
+        };
+        let actor = Actor {
+            is_owner: self.owners.contains(&account.account_id),
+            discord_user_id: account.account_id.clone(),
+        };
+        self.refresh_discord_identity(&session, &account.id).await;
+        if actor.is_owner {
+            return Ok((actor, vec![]));
+        }
+        let token = self
+            .service
+            .get_provider_access_token(&session, &account.id)
+            .await
+            .map_err(auth_internal)?;
+        let response = self
+            .http
+            .get("https://discord.com/api/v10/users/@me/guilds")
+            .bearer_auth(token.access_token)
+            .send()
+            .await
+            .map_err(auth_internal)?;
+        if !response.status().is_success() {
+            tracing::warn!(status = %response.status(), "Discord guild authorization lookup failed");
+            return Err(ApiError::unauthorized(
+                "Discord authorization could not be verified",
+            ));
+        }
+        let guilds = response.json().await.map_err(auth_internal)?;
+        Ok((actor, guilds))
+    }
+
     async fn session(&self, headers: &HeaderMap) -> Result<SessionWithUser, ApiError> {
         if let Some(token) = lucid_auth::axum::session_token(&self.service, headers) {
             return self

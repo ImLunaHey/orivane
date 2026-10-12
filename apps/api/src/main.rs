@@ -1232,6 +1232,58 @@ fn discord_resource_message(resource: &str, error: &str) -> String {
     }
 }
 
+async fn require_appeal_reviewer(
+    state: &AppState,
+    headers: &HeaderMap,
+    guild_id: &str,
+) -> Result<Actor, ApiError> {
+    let config = state
+        .infrastructure
+        .guild_config(guild_id)
+        .await
+        .map_err(internal_error)?;
+    let allowed_roles = &config.modules.moderation_appeals.reviewer_role_ids;
+    if allowed_roles.is_empty() {
+        return state.auth.require_guild(headers, guild_id).await;
+    }
+
+    let actor = state.auth.require_guild_member(headers, guild_id).await?;
+    if actor.is_owner {
+        return Ok(actor);
+    }
+    if let (Some(token), Ok(guild_id), Ok(user_id)) = (
+        state.discord_token.clone(),
+        guild_id.parse::<u64>(),
+        actor.discord_user_id.parse::<u64>(),
+    ) {
+        match TwilightDiscord::connect(token).await {
+            Ok(discord) => match discord.guild_member_role_ids(guild_id, user_id).await {
+                Ok(member_roles)
+                    if member_roles.iter().any(|role_id| {
+                        allowed_roles
+                            .iter()
+                            .any(|allowed| allowed == &role_id.to_string())
+                    }) =>
+                {
+                    return Ok(actor);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(%guild_id, %user_id, %error, "could not resolve appeal reviewer roles")
+                }
+            },
+            Err(error) => {
+                tracing::warn!(%guild_id, %error, "could not connect Discord client for appeal authorization")
+            }
+        }
+    }
+
+    state
+        .auth
+        .require_guild(headers, &guild_id.to_string())
+        .await
+}
+
 async fn get_appeals(
     State(state): State<AppState>,
     Path(guild_id): Path<String>,
@@ -1239,7 +1291,7 @@ async fn get_appeals(
     Query(params): Query<AuditParams>,
 ) -> Result<Json<Vec<FormSubmission>>, ApiError> {
     validate_snowflake(&guild_id)?;
-    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let actor = require_appeal_reviewer(&state, &headers, &guild_id).await?;
     let items = state
         .infrastructure
         .form_submissions(&guild_id, "moderation-appeals", params.limit.unwrap_or(200))
@@ -1262,7 +1314,7 @@ async fn get_appeal(
     headers: HeaderMap,
 ) -> Result<Json<FormSubmission>, ApiError> {
     validate_snowflake(&guild_id)?;
-    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let actor = require_appeal_reviewer(&state, &headers, &guild_id).await?;
     let item = state
         .infrastructure
         .form_submission(&guild_id, "moderation-appeals", appeal_id)
@@ -1299,7 +1351,7 @@ async fn review_appeal(
             "invalid appeal decision".into(),
         ));
     }
-    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let actor = require_appeal_reviewer(&state, &headers, &guild_id).await?;
     let before = state
         .infrastructure
         .form_submission(&guild_id, "moderation-appeals", appeal_id)
@@ -3911,7 +3963,11 @@ async fn get_form_submission(
 ) -> Result<Json<FormSubmission>, ApiError> {
     validate_snowflake(&guild_id)?;
     validate_form_id(&form_id)?;
-    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let actor = if form_id == "moderation-appeals" {
+        require_appeal_reviewer(&state, &headers, &guild_id).await?
+    } else {
+        state.auth.require_guild(&headers, &guild_id).await?
+    };
     let submission = state
         .infrastructure
         .form_submission(&guild_id, &form_id, submission_id)
@@ -3960,7 +4016,7 @@ async fn review_form_submission(
             "invalid appeal decision".into(),
         ));
     }
-    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let actor = require_appeal_reviewer(&state, &headers, &guild_id).await?;
     let before = state
         .infrastructure
         .form_submission(&guild_id, &form_id, submission_id)

@@ -174,6 +174,10 @@ pub enum DiscordCall {
     GuildRoles {
         guild_id: u64,
     },
+    GuildMemberRoleIds {
+        guild_id: u64,
+        user_id: u64,
+    },
     UserProfile {
         user_id: u64,
     },
@@ -1878,6 +1882,7 @@ struct FakeState {
     failures: VecDeque<DiscordError>,
     guild_channels: Vec<GuildChannel>,
     guild_roles: Vec<GuildRole>,
+    guild_member_role_ids: Vec<u64>,
     next_channel_id: u64,
     next_message_id: u64,
     message_reaction_summary: MessageReactionSummary,
@@ -1914,6 +1919,13 @@ impl FakeDiscord {
 
     pub fn set_guild_roles(&self, roles: Vec<GuildRole>) {
         self.state.lock().expect("fake lock poisoned").guild_roles = roles;
+    }
+
+    pub fn set_guild_member_role_ids(&self, role_ids: Vec<u64>) {
+        self.state
+            .lock()
+            .expect("fake lock poisoned")
+            .guild_member_role_ids = role_ids;
     }
 
     pub fn set_next_channel_id(&self, channel_id: u64) {
@@ -2360,6 +2372,20 @@ impl DiscordApi for FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .guild_roles
+            .clone())
+    }
+
+    async fn guild_member_role_ids(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+    ) -> Result<Vec<u64>, DiscordError> {
+        self.record(DiscordCall::GuildMemberRoleIds { guild_id, user_id })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .guild_member_role_ids
             .clone())
     }
 
