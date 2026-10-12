@@ -26,6 +26,8 @@ const giveawayCreateRoute = createRoute({ getParentRoute: () => rootRoute, path:
 const giveawayDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/giveaways/$giveawayId', component: lazyRouteComponent(() => import('./pages/giveaways'), 'GiveawayDetailPage') })
 const remindersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/reminders', component: lazyRouteComponent(() => import('./pages/reminders'), 'RemindersPage') })
 const reminderDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/reminders/$reminderId', component: lazyRouteComponent(() => import('./pages/reminders'), 'ReminderDetailPage') })
+const autoDeleteRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/auto_delete', component: lazyRouteComponent(() => import('./pages/auto-delete'), 'AutoDeletePage') })
+const autoDeleteJobRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/auto_delete/$channelId/$messageId', component: lazyRouteComponent(() => import('./pages/auto-delete'), 'AutoDeleteJobPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -60,6 +62,8 @@ const routeTree = rootRoute.addChildren([
   giveawayDetailRoute,
   remindersRoute,
   reminderDetailRoute,
+  autoDeleteRoute,
+  autoDeleteJobRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

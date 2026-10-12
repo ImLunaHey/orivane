@@ -24,6 +24,7 @@ members = [
     "modules/suggestions",
     "modules/giveaways",
     "modules/reminders",
+    "modules/auto-delete",
 ]
 resolver = "3"
 
@@ -58,6 +59,7 @@ bot-module-forms = { path = "modules/forms" }
 bot-module-suggestions = { path = "modules/suggestions" }
 bot-module-giveaways = { path = "modules/giveaways" }
 bot-module-reminders = { path = "modules/reminders" }
+bot-module-auto-delete = { path = "modules/auto-delete" }
 chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }

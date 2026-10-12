@@ -13,8 +13,8 @@ use axum::{
 use bot_core::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, Giveaway, GiveawayEntry,
     GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary, Infrastructure,
-    InfrastructureHealth, ModerationCase, NewAuditEvent, NewGiveaway, NewModerationCase, Reminder,
-    Suggestion, UserGuildContext,
+    InfrastructureHealth, MessageDeletionJob, ModerationCase, NewAuditEvent, NewGiveaway,
+    NewModerationCase, Reminder, Suggestion, UserGuildContext,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -176,6 +176,14 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/reminders/{reminder_id}/cancel",
             axum::routing::post(cancel_reminder),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/message-deletions",
+            get(get_message_deletions),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/message-deletions/{channel_id}/{message_id}",
+            get(get_message_deletion),
         )
         .route(
             "/v1/guilds/{guild_id}/forms/{form_id}/submissions",
@@ -433,6 +441,7 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_suggestions::COMMANDS,
         bot_module_giveaways::COMMANDS,
         bot_module_reminders::COMMANDS,
+        bot_module_auto_delete::COMMANDS,
     ];
     groups
         .iter()
@@ -1312,6 +1321,55 @@ async fn cancel_reminder(
         .map_err(internal_error)?;
     Ok(Json(reminder))
 }
+async fn get_message_deletions(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<MessageDeletionJob>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let jobs = state
+        .infrastructure
+        .message_deletion_jobs(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "auto_delete.jobs.viewed",
+    )
+    .await;
+    Ok(Json(jobs))
+}
+
+async fn get_message_deletion(
+    State(state): State<AppState>,
+    Path((guild_id, channel_id, message_id)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<MessageDeletionJob>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_snowflake(&channel_id)?;
+    validate_snowflake(&message_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let job = state
+        .infrastructure
+        .message_deletion_job(&guild_id, &channel_id, &message_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "deletion job not found".into()))?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "auto_delete.job.viewed",
+    )
+    .await;
+    Ok(Json(job))
+}
+
 async fn api_discord(state: &AppState) -> Result<TwilightDiscord, ApiError> {
     let token = state.discord_token.clone().ok_or_else(|| {
         ApiError(

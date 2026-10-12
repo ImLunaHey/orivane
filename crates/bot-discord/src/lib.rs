@@ -320,6 +320,13 @@ pub trait DiscordApi: Send + Sync {
         message_id: u64,
         reason: &str,
     ) -> Result<(), DiscordError>;
+    async fn recent_message_ids(
+        &self,
+        _channel_id: u64,
+        _limit: u16,
+    ) -> Result<Vec<u64>, DiscordError> {
+        Err(DiscordError::Request("message history unavailable".into()))
+    }
 
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError>;
 
@@ -690,6 +697,26 @@ impl DiscordApi for TwilightDiscord {
             .await
             .map_err(request_error)?;
         Ok(())
+    }
+
+    async fn recent_message_ids(
+        &self,
+        channel_id: u64,
+        limit: u16,
+    ) -> Result<Vec<u64>, DiscordError> {
+        let messages = self
+            .http
+            .channel_messages(Id::<ChannelMarker>::new(channel_id))
+            .limit(limit.clamp(1, 100))
+            .await
+            .map_err(request_error)?
+            .models()
+            .await
+            .map_err(request_error)?;
+        Ok(messages
+            .into_iter()
+            .map(|message| message.id.get())
+            .collect())
     }
 
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError> {

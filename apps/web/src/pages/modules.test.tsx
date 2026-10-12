@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(18)
+    expect(screen.getAllByText('Live')).toHaveLength(19)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -268,6 +268,21 @@ describe('module configuration pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel reminder' }))
     await screen.findByText('Cancelled')
     expect(screen.queryByRole('button', { name: 'Cancel reminder' })).not.toBeInTheDocument()
+  })
+
+  it('creates an auto-delete rule and shows its content-safe queue', async () => {
+    renderDashboard(); await navigateTo(`/servers/${serverId}/modules/auto_delete`)
+    expect(await screen.findByRole('heading',{name:'Recent deletion jobs'})).toBeVisible()
+    expect(screen.getByLabelText('Message deletion jobs grouped by status')).toBeVisible()
+    fireEvent.click(screen.getByRole('button',{name:'Add rule'}))
+    fireEvent.change(screen.getByLabelText(/^Rule ID/),{target:{value:'Media cleanup!'}})
+    fireEvent.change(screen.getByLabelText(/^Delete after/),{target:{value:'120'}})
+    expect(screen.getByLabelText(/^Rule ID/)).toHaveValue('mediacleanup')
+    fireEvent.click(screen.getByRole('switch',{name:'Enable Auto-delete'}))
+    expect(screen.getByRole('button',{name:'Save changes'})).toBeEnabled()
+    await navigateTo(`/servers/${serverId}/modules/auto_delete/100000000000000005/300000000000000009`)
+    expect(await screen.findByRole('heading',{name:'Message 300000000000000009'})).toBeVisible()
+    expect(screen.getByRole('heading',{name:'Job details'})).toBeVisible()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

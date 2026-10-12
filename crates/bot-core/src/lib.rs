@@ -1,4 +1,5 @@
 mod audit;
+mod auto_delete;
 mod cases;
 mod config;
 mod fleet;
@@ -9,14 +10,15 @@ mod store;
 mod suggestions;
 
 pub use audit::{AuditEvent, NewAuditEvent};
+pub use auto_delete::MessageDeletionJob;
 pub use cases::{ModerationCase, NewModerationCase};
 pub use config::{
-    AntiRaidConfig, AutomodConfig, AutoresponderConfig, AutoresponseConfig, AutoroleConfig,
-    CustomCommandConfig, CustomCommandsConfig, FormConfig, FormQuestionConfig, FormsConfig,
-    GiveawaysConfig, GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig,
-    ReactionRoleBinding, ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig,
-    ScheduledMessagesConfig, StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig,
-    WelcomeConfig,
+    AntiRaidConfig, AutoDeleteConfig, AutoDeleteRule, AutomodConfig, AutoresponderConfig,
+    AutoresponseConfig, AutoroleConfig, CustomCommandConfig, CustomCommandsConfig, FormConfig,
+    FormQuestionConfig, FormsConfig, GiveawaysConfig, GuildConfig, LevelingConfig, LoggingConfig,
+    ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRolesConfig, RemindersConfig,
+    ScheduledMessageConfig, ScheduledMessagesConfig, StarboardConfig, SuggestionsConfig,
+    TicketsConfig, UtilityConfig, WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,

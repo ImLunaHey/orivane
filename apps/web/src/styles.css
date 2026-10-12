@@ -482,6 +482,8 @@ small { font-size: 14px !important; line-height: 1.45; }
 .giveaways-page .metric-chart { padding: 6px 18px 18px; }
 .reminders-page .analytics-chart-panel { padding: 0; }
 .reminders-page .metric-chart { padding: 6px 18px 18px; }
+.auto-delete-page .analytics-chart-panel { padding: 0; }
+.auto-delete-page .metric-chart { padding: 6px 18px 18px; }
 .giveaway-title-cell { display: flex; align-items: center; gap: 10px; min-width: 250px; }
 .giveaway-title-cell > svg { flex: none; color: #fbbf24; }
 .giveaway-title-cell span, .giveaway-title-cell a, .giveaway-title-cell small { display: block; }

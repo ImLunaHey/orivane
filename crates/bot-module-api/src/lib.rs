@@ -141,6 +141,13 @@ pub struct ReminderResult {
     pub attempts: u8,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageDeletionJobResult {
+    pub channel_id: u64,
+    pub message_id: u64,
+    pub attempts: u8,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
@@ -262,6 +269,35 @@ pub trait ModuleServices: Send + Sync {
         reminder_id: i64,
         next_attempt_unix: u64,
     ) -> Result<bool>;
+    async fn schedule_message_deletion(
+        &self,
+        _guild_id: u64,
+        _channel_id: u64,
+        _message_id: u64,
+        _rule_id: &str,
+        _author_id: u64,
+        _due_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("message deletion service unavailable")
+    }
+    async fn claim_due_message_deletions(
+        &self,
+        _guild_id: u64,
+        _now_unix: u64,
+        _limit: u8,
+    ) -> Result<Vec<MessageDeletionJobResult>> {
+        anyhow::bail!("message deletion service unavailable")
+    }
+    async fn finish_message_deletion(
+        &self,
+        _guild_id: u64,
+        _channel_id: u64,
+        _message_id: u64,
+        _deleted: bool,
+        _retry_unix: u64,
+    ) -> Result<bool> {
+        anyhow::bail!("message deletion service unavailable")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -76,6 +76,7 @@ export const defaultConfig: GuildConfig = {
     suggestions: { enabled: false, channel_id: '100000000000000003', staff_role_ids: [], allow_anonymous: true, cooldown_seconds: 300 },
     giveaways: { enabled: false, default_channel_id: '100000000000000005', manager_role_ids: [], default_duration_minutes: 1440, default_winner_count: 1, minimum_account_age_days: 7, required_role_ids: [], bonus_role_id: null, bonus_entries: 1 },
     reminders: { enabled: false, allow_direct_messages: true, max_active_per_user: 10, minimum_delay_minutes: 1, maximum_delay_days: 365 },
+    auto_delete: { enabled: false, rules: [] },
   },
 }
 

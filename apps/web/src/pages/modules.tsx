@@ -32,6 +32,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   suggestions: { title: 'Suggestions', description: 'Collect ideas, let members vote, and manage an audited staff decision workflow.', icon: Lightbulb, tone: 'amber', runtime: 'Live' },
   giveaways: { title: 'Giveaways', description: 'Run scheduled button-entry prize draws with eligibility rules and accountable rerolls.', icon: Gift, tone: 'amber', runtime: 'Live' },
   reminders: { title: 'Reminders', description: 'Deliver durable personal reminders in channels or direct messages.', icon: Bell, tone: 'blue', runtime: 'Live' },
+  auto_delete: { title: 'Auto-delete', description: 'Delete channel messages on durable timers and run permission-gated manual purges.', icon: Trash2, tone: 'red', runtime: 'Live' },
 }
 
 export function ModulesPage() {
@@ -124,6 +125,7 @@ function ModuleSettings({ moduleKey, config, update, channels, channelsPending, 
     case 'suggestions': return null
     case 'giveaways': return null
     case 'reminders': return null
+    case 'auto_delete': return null
   }
 }
 

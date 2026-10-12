@@ -18,10 +18,11 @@ use bot_discord::{
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
     AuditNotice, BotModule, FormSubmissionInput, GiveawayInput, GiveawayResult, MemberJoin,
-    MemberLeave, MessageCreate, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
-    ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
-    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    MemberLeave, MessageCreate, MessageDeletionJobResult, ModerationCaseInput, ModuleContext,
+    ModuleServices, ReactionAdd, ReminderInput, ReminderResult, ScheduledTick, SuggestionInput,
+    SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
+use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
 use bot_module_autorole::AutoroleModule;
@@ -55,6 +56,58 @@ struct GatewayModuleServices {
 
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn schedule_message_deletion(
+        &self,
+        g: u64,
+        c: u64,
+        m: u64,
+        r: &str,
+        a: u64,
+        d: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .schedule_message_deletion(
+                &g.to_string(),
+                &c.to_string(),
+                &m.to_string(),
+                r,
+                &a.to_string(),
+                d,
+            )
+            .await?)
+    }
+    async fn claim_due_message_deletions(
+        &self,
+        g: u64,
+        n: u64,
+        l: u8,
+    ) -> Result<Vec<MessageDeletionJobResult>> {
+        Ok(self
+            .infrastructure
+            .claim_due_message_deletions(&g.to_string(), n, i64::from(l))
+            .await?
+            .into_iter()
+            .map(|j| MessageDeletionJobResult {
+                channel_id: j.channel_id.parse().unwrap_or_default(),
+                message_id: j.message_id.parse().unwrap_or_default(),
+                attempts: u8::try_from(j.attempts).unwrap_or_default(),
+            })
+            .collect())
+    }
+    async fn finish_message_deletion(
+        &self,
+        g: u64,
+        c: u64,
+        m: u64,
+        d: bool,
+        r: u64,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .finish_message_deletion(&g.to_string(), &c.to_string(), &m.to_string(), d, r)
+            .await?)
+    }
     async fn create_giveaway(&self, input: GiveawayInput) -> Result<GiveawayResult> {
         let ends_at = chrono::DateTime::from_timestamp(
             i64::try_from(input.ends_at_unix).unwrap_or(i64::MAX),
@@ -664,6 +717,7 @@ async fn main() -> Result<()> {
         Arc::new(SuggestionsModule),
         Arc::new(GiveawaysModule),
         Arc::new(RemindersModule),
+        Arc::new(AutoDeleteModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;

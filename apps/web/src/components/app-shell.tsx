@@ -171,6 +171,8 @@ function pageTitle(pathname: string) {
   if (pathname.endsWith('/modules/giveaways')) return 'Giveaways'
   if (/\/modules\/reminders\/[^/]+$/.test(pathname)) return 'Reminder details'
   if (pathname.endsWith('/modules/reminders')) return 'Reminders'
+  if (/\/modules\/auto_delete\/[^/]+\/[^/]+$/.test(pathname)) return 'Deletion job details'
+  if (pathname.endsWith('/modules/auto_delete')) return 'Auto-delete'
   if (/\/moderation\/[^/]+$/.test(pathname)) return 'Moderation case details'
   if (pathname.includes('/members/')) return 'Member details'
   if (pathname.includes('/analytics/')) return 'Analytics report'

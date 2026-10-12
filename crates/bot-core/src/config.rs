@@ -46,6 +46,8 @@ pub struct ModulesConfig {
     pub giveaways: GiveawaysConfig,
     #[serde(default)]
     pub reminders: RemindersConfig,
+    #[serde(default)]
+    pub auto_delete: AutoDeleteConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -398,6 +400,27 @@ pub struct RemindersConfig {
     pub maximum_delay_days: u16,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AutoDeleteConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rules: Vec<AutoDeleteRule>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AutoDeleteRule {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub id: String,
+    pub channel_id: String,
+    pub delay_seconds: u32,
+    #[serde(default)]
+    pub ignore_bot_messages: bool,
+    #[serde(default)]
+    pub excluded_role_ids: Vec<String>,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -446,6 +469,8 @@ pub enum ConfigValidationError {
     InvalidGiveaways,
     #[error("reminder limits or delay bounds are invalid")]
     InvalidReminders,
+    #[error("auto-delete rules contain invalid IDs, channels, delays, or exclusions")]
+    InvalidAutoDelete,
 }
 
 impl GuildConfig {
@@ -778,6 +803,24 @@ impl GuildConfig {
                 > u32::from(reminders.maximum_delay_days) * 1_440
         {
             return Err(ConfigValidationError::InvalidReminders);
+        }
+        let auto_delete = &self.modules.auto_delete;
+        let mut auto_delete_ids = std::collections::HashSet::new();
+        if auto_delete.rules.len() > 100
+            || auto_delete.rules.iter().any(|rule| {
+                rule.id.is_empty()
+                    || rule.id.len() > 64
+                    || !rule
+                        .id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    || !auto_delete_ids.insert(rule.id.clone())
+                    || !valid_snowflake(&rule.channel_id)
+                    || !(5..=2_592_000).contains(&rule.delay_seconds)
+                    || invalid_snowflake_list(&rule.excluded_role_ids, 25)
+            })
+        {
+            return Err(ConfigValidationError::InvalidAutoDelete);
         }
 
         Ok(())
@@ -1164,6 +1207,25 @@ mod tests {
         assert_eq!(
             config.validate(),
             Err(ConfigValidationError::InvalidReminders)
+        );
+    }
+
+    #[test]
+    fn auto_delete_rules_require_safe_delays() {
+        let mut config = GuildConfig::for_guild("123");
+        config.modules.auto_delete.rules.push(AutoDeleteRule {
+            enabled: true,
+            id: "media".into(),
+            channel_id: "456".into(),
+            delay_seconds: 60,
+            ignore_bot_messages: true,
+            excluded_role_ids: vec![],
+        });
+        assert_eq!(config.validate(), Ok(()));
+        config.modules.auto_delete.rules[0].delay_seconds = 1;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidAutoDelete)
         );
     }
 }

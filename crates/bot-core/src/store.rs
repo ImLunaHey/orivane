@@ -7,9 +7,9 @@ use thiserror::Error;
 use crate::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, Giveaway,
     GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats, GuildMemberSummary,
-    InfrastructureHealth, MemberXpAward, MemberXpProfile, ModerationCase, NewAuditEvent,
-    NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, Reminder,
-    Suggestion, UserGuildContext, config::ConfigValidationError,
+    InfrastructureHealth, MemberXpAward, MemberXpProfile, MessageDeletionJob, ModerationCase,
+    NewAuditEvent, NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion,
+    Reminder, Suggestion, UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -37,6 +37,58 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn schedule_message_deletion(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        message_id: &str,
+        rule_id: &str,
+        author_id: &str,
+        due_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let due = chrono::DateTime::from_timestamp(i64::try_from(due_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        let result = sqlx::query("INSERT INTO message_deletion_jobs (guild_id,channel_id,message_id,rule_id,author_id,source,due_at) VALUES ($1,$2,$3,$4,$5,'rule',$6) ON CONFLICT DO NOTHING")
+            .bind(guild_id).bind(channel_id).bind(message_id).bind(rule_id).bind(author_id).bind(due).execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn claim_due_message_deletions(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+        limit: i64,
+    ) -> Result<Vec<MessageDeletionJob>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query("UPDATE message_deletion_jobs SET status='failed',updated_at=now() WHERE guild_id=$1 AND status='delivering' AND attempts>=5 AND updated_at < $2 - interval '5 minutes'").bind(guild_id).bind(now).execute(&self.pool).await?;
+        sqlx::query_as::<_, MessageDeletionJob>("WITH due AS (SELECT guild_id,channel_id,message_id FROM message_deletion_jobs WHERE guild_id=$1 AND ((status='scheduled' AND due_at <= $2) OR (status='delivering' AND attempts<5 AND updated_at < $2 - interval '5 minutes')) ORDER BY due_at LIMIT $3 FOR UPDATE SKIP LOCKED) UPDATE message_deletion_jobs j SET status='delivering',attempts=attempts+1,updated_at=now() FROM due WHERE j.guild_id=due.guild_id AND j.channel_id=due.channel_id AND j.message_id=due.message_id RETURNING j.*")
+            .bind(guild_id).bind(now).bind(limit.clamp(1,100)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn finish_message_deletion(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        message_id: &str,
+        deleted: bool,
+        retry_unix: u64,
+    ) -> Result<bool, StoreError> {
+        let retry =
+            chrono::DateTime::from_timestamp(i64::try_from(retry_unix).unwrap_or(i64::MAX), 0)
+                .unwrap_or_else(chrono::Utc::now);
+        let terminal: Option<bool> = sqlx::query_scalar("UPDATE message_deletion_jobs SET status=CASE WHEN $4 THEN 'deleted' WHEN attempts>=5 THEN 'failed' ELSE 'scheduled' END,deleted_at=CASE WHEN $4 THEN now() ELSE NULL END,due_at=CASE WHEN NOT $4 AND attempts<5 THEN $5 ELSE due_at END,updated_at=now() WHERE guild_id=$1 AND channel_id=$2 AND message_id=$3 AND status='delivering' RETURNING status='failed'")
+            .bind(guild_id).bind(channel_id).bind(message_id).bind(deleted).bind(retry).fetch_optional(&self.pool).await?;
+        Ok(terminal.unwrap_or(false))
+    }
+
+    pub async fn message_deletion_jobs(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<MessageDeletionJob>, StoreError> {
+        sqlx::query_as::<_, MessageDeletionJob>("SELECT * FROM message_deletion_jobs WHERE guild_id=$1 ORDER BY created_at DESC LIMIT $2").bind(guild_id).bind(limit.clamp(1,500)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
     pub async fn create_reminder(
         &self,
         input: &NewReminder,
@@ -69,6 +121,16 @@ impl Infrastructure {
             .fetch_all(&self.pool)
             .await
             .map_err(StoreError::from)
+    }
+
+    pub async fn message_deletion_job(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        message_id: &str,
+    ) -> Result<Option<MessageDeletionJob>, StoreError> {
+        sqlx::query_as::<_, MessageDeletionJob>("SELECT * FROM message_deletion_jobs WHERE guild_id=$1 AND channel_id=$2 AND message_id=$3")
+            .bind(guild_id).bind(channel_id).bind(message_id).fetch_optional(&self.pool).await.map_err(StoreError::from)
     }
 
     pub async fn reminder(
@@ -565,7 +627,7 @@ impl Infrastructure {
 
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;

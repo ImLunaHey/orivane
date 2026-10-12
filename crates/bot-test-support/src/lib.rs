@@ -10,9 +10,9 @@ use bot_discord::{
     ModalSubmitInteraction,
 };
 use bot_module_api::{
-    FormSubmissionInput, GiveawayInput, GiveawayResult, ModerationCaseInput, ModuleServices,
-    ReminderInput, ReminderResult, SuggestionInput, SuggestionResult, TicketRecordInput,
-    XpAwardInput, XpAwardResult, XpProfile,
+    FormSubmissionInput, GiveawayInput, GiveawayResult, MessageDeletionJobResult,
+    ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult, SuggestionInput,
+    SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -272,6 +272,39 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn schedule_message_deletion(
+        &self,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: &str,
+        _: u64,
+        _: u64,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+    async fn claim_due_message_deletions(
+        &self,
+        _: u64,
+        n: u64,
+        _: u8,
+    ) -> anyhow::Result<Vec<MessageDeletionJobResult>> {
+        Ok(vec![MessageDeletionJobResult {
+            channel_id: 20,
+            message_id: 40,
+            attempts: u8::try_from(n.min(1)).unwrap_or(1),
+        }])
+    }
+    async fn finish_message_deletion(
+        &self,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: bool,
+        _: u64,
+    ) -> anyhow::Result<bool> {
+        Ok(false)
+    }
     async fn claim_suggestion_cooldown(
         &self,
         guild_id: u64,
@@ -976,6 +1009,9 @@ impl FakeDiscord {
 
 #[async_trait]
 impl DiscordApi for FakeDiscord {
+    async fn recent_message_ids(&self, _: u64, limit: u16) -> Result<Vec<u64>, DiscordError> {
+        Ok((1..=u64::from(limit)).collect())
+    }
     async fn register_commands(&self, commands: &[CommandDefinition]) -> Result<(), DiscordError> {
         self.record(DiscordCall::RegisterCommands {
             commands: commands.to_vec(),

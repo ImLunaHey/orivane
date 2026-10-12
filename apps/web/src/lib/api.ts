@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewGiveaway, NewModerationCase, Reminder, Suggestion, SuggestionStatus } from '../types'
+import type { AuditEvent, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, Reminder, Suggestion, SuggestionStatus } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -194,6 +194,8 @@ export async function cancelReminder(input: { guildId: string; reminderId: strin
   if (isDemoMode) { const items = demoReminders(input.guildId); const before = items.find((item) => String(item.id) === input.reminderId); if (!before || before.status !== 'scheduled') throw new Error('Reminder is not active'); const updated = { ...before, status: 'cancelled' as const, updated_at: new Date().toISOString() }; localStorage.setItem(reminderKey(input.guildId), JSON.stringify(items.map((item) => item.id === updated.id ? updated : item))); return updated }
   return request<Reminder>(`/v1/guilds/${input.guildId}/reminders/${input.reminderId}/cancel`, { method: 'POST' })
 }
+export async function getMessageDeletions(guildId:string):Promise<MessageDeletionJob[]>{if(isDemoMode)return [{guild_id:guildId,channel_id:'100000000000000005',message_id:'300000000000000009',rule_id:'media-cleanup',author_id:'118742006320914432',source:'rule',status:'scheduled',due_at:new Date(Date.now()+60000).toISOString(),attempts:0,deleted_at:null,created_at:new Date().toISOString(),updated_at:new Date().toISOString()}];return request<MessageDeletionJob[]>(`/v1/guilds/${guildId}/message-deletions`)}
+export async function getMessageDeletion(guildId:string,channelId:string,messageId:string):Promise<MessageDeletionJob>{if(isDemoMode){const item=(await getMessageDeletions(guildId)).find(x=>x.channel_id===channelId&&x.message_id===messageId);if(!item)throw new Error('Deletion job not found');return item}return request<MessageDeletionJob>(`/v1/guilds/${guildId}/message-deletions/${channelId}/${messageId}`)}
 
 export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {
   if (isDemoMode) {
