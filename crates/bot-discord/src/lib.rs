@@ -169,6 +169,7 @@ pub struct ModalSubmitInteraction {
     pub id: u64,
     pub token: String,
     pub guild_id: u64,
+    pub channel_id: Option<u64>,
     pub actor_id: u64,
     pub actor_role_ids: Vec<u64>,
     pub custom_id: String,
@@ -180,6 +181,7 @@ pub struct ComponentInteraction {
     pub id: u64,
     pub token: String,
     pub guild_id: u64,
+    pub channel_id: Option<u64>,
     pub actor_id: u64,
     pub actor_role_ids: Vec<u64>,
     pub custom_id: String,
@@ -373,6 +375,13 @@ pub trait DiscordApi: Send + Sync {
         content: &str,
         buttons: &[MessageButton],
     ) -> Result<u64, DiscordError>;
+    async fn edit_message_with_buttons(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+        buttons: &[MessageButton],
+    ) -> Result<(), DiscordError>;
 
     async fn send_rich_embed(
         &self,
@@ -743,6 +752,45 @@ impl DiscordApi for TwilightDiscord {
         Ok(message.id.get())
     }
 
+    async fn edit_message_with_buttons(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+        buttons: &[MessageButton],
+    ) -> Result<(), DiscordError> {
+        let components = vec![Component::ActionRow(ActionRow {
+            id: None,
+            components: buttons
+                .iter()
+                .map(|button| {
+                    Component::Button(Button {
+                        id: None,
+                        custom_id: Some(button.custom_id.clone()),
+                        disabled: false,
+                        emoji: None,
+                        label: Some(button.label.clone()),
+                        style: match button.style {
+                            MessageButtonStyle::Primary => ButtonStyle::Primary,
+                            MessageButtonStyle::Secondary => ButtonStyle::Secondary,
+                            MessageButtonStyle::Success => ButtonStyle::Success,
+                            MessageButtonStyle::Danger => ButtonStyle::Danger,
+                        },
+                        url: None,
+                        sku_id: None,
+                    })
+                })
+                .collect(),
+        })];
+        self.http
+            .update_message(Id::new(channel_id), Id::new(message_id))
+            .content(Some(content))
+            .components(Some(&components))
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
     async fn send_rich_embed(
         &self,
         channel_id: u64,
@@ -1044,15 +1092,32 @@ impl DiscordApi for TwilightDiscord {
     }
 
     async fn channel_transcript(&self, channel_id: u64) -> Result<String, DiscordError> {
-        let mut messages = self
-            .http
-            .channel_messages(Id::<ChannelMarker>::new(channel_id))
-            .limit(100)
-            .await
+        let mut messages = Vec::new();
+        let mut before = None;
+        loop {
+            let request = self
+                .http
+                .channel_messages(Id::<ChannelMarker>::new(channel_id));
+            let page = match before {
+                Some(id) => {
+                    request
+                        .before(Id::<MessageMarker>::new(id))
+                        .limit(100)
+                        .await
+                }
+                None => request.limit(100).await,
+            }
             .map_err(request_error)?
             .models()
             .await
             .map_err(request_error)?;
+            let count = page.len();
+            before = page.last().map(|message| message.id.get());
+            messages.extend(page);
+            if count < 100 || messages.len() >= 10_000 {
+                break;
+            }
+        }
         messages.reverse();
         Ok(messages
             .into_iter()

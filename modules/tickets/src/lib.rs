@@ -14,6 +14,8 @@ pub struct TicketsModule;
 const OPEN_PREFIX: &str = "orivane:ticket:open:";
 const INTAKE_PREFIX: &str = "orivane:ticket:intake:";
 const CLAIM_PREFIX: &str = "orivane:ticket:claim:";
+const CLOSE_PREFIX: &str = "orivane:ticket:close:";
+const CLOSE_MODAL_PREFIX: &str = "orivane:ticket:close-modal:";
 
 const REASON_OPTION: &[CommandOptionDefinition] = &[CommandOptionDefinition {
     name: "reason",
@@ -57,10 +59,12 @@ impl BotModule for TicketsModule {
         COMMANDS
     }
     fn handles_component(&self, custom_id: &str) -> bool {
-        custom_id.starts_with(OPEN_PREFIX) || custom_id.starts_with(CLAIM_PREFIX)
+        custom_id.starts_with(OPEN_PREFIX)
+            || custom_id.starts_with(CLAIM_PREFIX)
+            || custom_id.starts_with(CLOSE_PREFIX)
     }
     fn handles_modal_submit(&self, custom_id: &str) -> bool {
-        custom_id.starts_with(INTAKE_PREFIX)
+        custom_id.starts_with(INTAKE_PREFIX) || custom_id.starts_with(CLOSE_MODAL_PREFIX)
     }
 
     async fn on_command(
@@ -79,7 +83,7 @@ impl BotModule for TicketsModule {
     async fn on_component(
         &self,
         context: &ModuleContext,
-        _: &GuildConfig,
+        config: &GuildConfig,
         interaction: &ComponentInteraction,
     ) -> Result<Option<ModuleEventOutcome>> {
         if let Some(id) = interaction.custom_id.strip_prefix(OPEN_PREFIX) {
@@ -202,15 +206,144 @@ impl BotModule for TicketsModule {
                 target_id: Some(ticket_id.to_string()),
             }));
         }
+        if let Some(id) = interaction.custom_id.strip_prefix(CLOSE_PREFIX) {
+            let ticket_id = id.parse::<i64>().context("invalid ticket ID")?;
+            let ticket = context
+                .services
+                .ticket(interaction.guild_id, ticket_id)
+                .await?
+                .context("ticket no longer exists")?;
+            if ticket.status != "open" {
+                context
+                    .discord
+                    .respond_to_component(
+                        interaction,
+                        CommandResponse::ephemeral("This ticket is already closed."),
+                    )
+                    .await?;
+                return Ok(None);
+            }
+            if !can_manage_ticket(
+                context,
+                config,
+                interaction.guild_id,
+                ticket.panel_id,
+                ticket.opener_id,
+                interaction.actor_id,
+                &interaction.actor_role_ids,
+            )
+            .await?
+            {
+                context.discord.respond_to_component(interaction,CommandResponse::ephemeral("Only the ticket opener or a configured support role can close this ticket.")).await?;
+                return Ok(None);
+            }
+            context
+                .discord
+                .open_component_modal(
+                    interaction,
+                    ModalDefinition {
+                        custom_id: format!("{CLOSE_MODAL_PREFIX}{ticket_id}"),
+                        title: "Close support ticket".into(),
+                        fields: vec![ModalFieldDefinition {
+                            custom_id: "reason".into(),
+                            label: "Closure reason".into(),
+                            style: ModalFieldStyle::Paragraph,
+                            required: true,
+                            min_length: 1,
+                            max_length: 500,
+                            placeholder: "Explain why this ticket is being closed.".into(),
+                        }],
+                    },
+                )
+                .await?;
+            return Ok(None);
+        }
         Ok(None)
     }
 
     async fn on_modal_submit(
         &self,
         context: &ModuleContext,
-        _: &GuildConfig,
+        config: &GuildConfig,
         interaction: &ModalSubmitInteraction,
     ) -> Result<Option<ModuleEventOutcome>> {
+        if let Some(id) = interaction.custom_id.strip_prefix(CLOSE_MODAL_PREFIX) {
+            let ticket_id = id.parse::<i64>().context("invalid ticket ID")?;
+            let ticket = context
+                .services
+                .ticket(interaction.guild_id, ticket_id)
+                .await?
+                .context("ticket no longer exists")?;
+            if !can_manage_ticket(
+                context,
+                config,
+                interaction.guild_id,
+                ticket.panel_id,
+                ticket.opener_id,
+                interaction.actor_id,
+                &interaction.actor_role_ids,
+            )
+            .await?
+            {
+                anyhow::bail!("member is not allowed to close this ticket")
+            }
+            let reason = interaction
+                .values
+                .get("reason")
+                .map(String::as_str)
+                .unwrap_or("Closed from Discord");
+            let transcript = context
+                .discord
+                .channel_transcript(ticket.channel_id)
+                .await?;
+            if !context
+                .services
+                .close_ticket(
+                    interaction.guild_id,
+                    ticket.id,
+                    interaction.actor_id,
+                    reason,
+                    &transcript,
+                )
+                .await?
+            {
+                context
+                    .discord
+                    .respond_to_modal(
+                        interaction,
+                        CommandResponse::ephemeral("This ticket is no longer open."),
+                    )
+                    .await?;
+                return Ok(None);
+            }
+            context
+                .discord
+                .set_ticket_member_writable(
+                    ticket.channel_id,
+                    ticket.opener_id,
+                    false,
+                    &format!("Ticket closed by {}", interaction.actor_id),
+                )
+                .await?;
+            if let Some(channel) = config.modules.tickets.transcript_channel_id.as_deref() {
+                context
+                    .discord
+                    .send_message(
+                        channel.parse().context("transcript channel is invalid")?,
+                        &format!(
+                            "Ticket #{} (<#{}>) closed by <@{}>. Reason: {}",
+                            ticket.id, ticket.channel_id, interaction.actor_id, reason
+                        ),
+                    )
+                    .await?
+            }
+            context.discord.respond_to_modal(interaction,CommandResponse::ephemeral("Ticket closed. The channel is now read-only and its transcript was retained.")).await?;
+            return Ok(Some(ModuleEventOutcome {
+                action: "ticket.closed".into(),
+                target_type: "ticket".into(),
+                target_id: Some(ticket.id.to_string()),
+            }));
+        }
         let panel_id = interaction
             .custom_id
             .strip_prefix(INTAKE_PREFIX)
@@ -330,14 +463,52 @@ async fn open_from_panel(
         .send_message_with_buttons(
             channel,
             &welcome,
-            &[MessageButton {
-                custom_id: format!("{CLAIM_PREFIX}{}:{}", panel.id, ticket.id),
-                label: "Claim ticket".into(),
-                style: MessageButtonStyle::Primary,
-            }],
+            &[
+                MessageButton {
+                    custom_id: format!("{CLAIM_PREFIX}{}:{}", panel.id, ticket.id),
+                    label: "Claim ticket".into(),
+                    style: MessageButtonStyle::Primary,
+                },
+                MessageButton {
+                    custom_id: format!("{CLOSE_PREFIX}{}", ticket.id),
+                    label: "Close ticket".into(),
+                    style: MessageButtonStyle::Danger,
+                },
+            ],
         )
         .await?;
     Ok(channel)
+}
+
+async fn can_manage_ticket(
+    context: &ModuleContext,
+    config: &GuildConfig,
+    guild_id: u64,
+    panel_id: Option<i64>,
+    opener_id: u64,
+    actor_id: u64,
+    actor_roles: &[u64],
+) -> Result<bool> {
+    if actor_id == opener_id {
+        return Ok(true);
+    }
+    let roles = if let Some(panel_id) = panel_id {
+        context
+            .services
+            .ticket_panel(guild_id, panel_id)
+            .await?
+            .map(|panel| panel.support_role_ids)
+            .unwrap_or_default()
+    } else {
+        config
+            .modules
+            .tickets
+            .support_role_ids
+            .iter()
+            .filter_map(|id| id.parse().ok())
+            .collect()
+    };
+    Ok(actor_roles.iter().any(|role| roles.contains(role)))
 }
 
 async fn open_ticket(
@@ -609,5 +780,63 @@ mod tests {
             discord.calls().last(),
             Some(DiscordCall::RespondToCommand { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn opens_a_close_modal_and_retains_the_transcript() {
+        let discord = FakeDiscord::new();
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(discord.clone()),
+            services: Arc::new(services),
+        };
+        let mut config = GuildConfig::for_guild("10");
+        config.modules.tickets.enabled = true;
+        let button = ComponentInteraction {
+            id: 2,
+            token: "button".into(),
+            guild_id: 10,
+            channel_id: Some(90),
+            actor_id: 40,
+            actor_role_ids: vec![],
+            custom_id: format!("{CLOSE_PREFIX}7"),
+        };
+        TicketsModule
+            .on_component(&context, &config, &button)
+            .await
+            .unwrap();
+        assert!(matches!(
+            discord.calls().last(),
+            Some(DiscordCall::OpenComponentModal { .. })
+        ));
+        let submit = ModalSubmitInteraction {
+            id: 3,
+            token: "modal".into(),
+            guild_id: 10,
+            channel_id: Some(90),
+            actor_id: 40,
+            actor_role_ids: vec![],
+            custom_id: format!("{CLOSE_MODAL_PREFIX}7"),
+            values: BTreeMap::from([("reason".into(), "Resolved".into())]),
+        };
+        TicketsModule
+            .on_modal_submit(&context, &config, &submit)
+            .await
+            .unwrap();
+        assert!(
+            discord
+                .calls()
+                .iter()
+                .any(|call| matches!(call, DiscordCall::ChannelTranscript { channel_id: 90 }))
+        );
+        assert!(discord.calls().iter().any(|call| matches!(
+            call,
+            DiscordCall::SetTicketMemberWritable {
+                channel_id: 90,
+                member_id: 40,
+                writable: false,
+                ..
+            }
+        )));
     }
 }

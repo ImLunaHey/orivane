@@ -656,6 +656,7 @@ mod tests {
             id: 1,
             token: "x".into(),
             guild_id: 10,
+            channel_id: Some(20),
             channel_id: Some(11),
             actor_id: 40,
             actor_role_ids: vec![30],

@@ -12,7 +12,8 @@ use bot_discord::{
 use bot_module_api::{
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedResult,
     MessageDeletionJobResult, ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult,
-    SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    SuggestionInput, SuggestionResult, TicketPanelResult, TicketRecordInput, TicketResult,
+    XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +47,12 @@ pub enum DiscordCall {
     },
     SendMessageWithButtons {
         channel_id: u64,
+        content: String,
+        buttons: Vec<MessageButton>,
+    },
+    EditMessageWithButtons {
+        channel_id: u64,
+        message_id: u64,
         content: String,
         buttons: Vec<MessageButton>,
     },
@@ -116,6 +123,15 @@ pub enum DiscordCall {
     },
     DeleteChannel {
         channel_id: u64,
+        reason: String,
+    },
+    ChannelTranscript {
+        channel_id: u64,
+    },
+    SetTicketMemberWritable {
+        channel_id: u64,
+        member_id: u64,
+        writable: bool,
         reason: String,
     },
     MessageReactionSummary {
@@ -285,6 +301,54 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn ticket_panel(
+        &self,
+        _: u64,
+        panel_id: i64,
+    ) -> anyhow::Result<Option<TicketPanelResult>> {
+        Ok(Some(TicketPanelResult {
+            id: panel_id,
+            category_id: 20,
+            support_role_ids: vec![30],
+            welcome_message: "Welcome {user} {support_roles}".into(),
+            channel_name: "ticket-{user_id}".into(),
+            intake_enabled: true,
+            intake_label: "How can we help?".into(),
+            max_open_per_user: 1,
+            enabled: true,
+        }))
+    }
+    async fn open_ticket_count(&self, _: u64, _: Option<i64>, _: u64) -> anyhow::Result<u8> {
+        Ok(0)
+    }
+    async fn ticket_by_channel(
+        &self,
+        _: u64,
+        channel_id: u64,
+    ) -> anyhow::Result<Option<TicketResult>> {
+        Ok(Some(TicketResult {
+            id: 7,
+            panel_id: Some(1),
+            opener_id: 40,
+            channel_id,
+            status: "open".into(),
+        }))
+    }
+    async fn ticket(&self, _: u64, ticket_id: i64) -> anyhow::Result<Option<TicketResult>> {
+        Ok(Some(TicketResult {
+            id: ticket_id,
+            panel_id: Some(1),
+            opener_id: 40,
+            channel_id: 90,
+            status: "open".into(),
+        }))
+    }
+    async fn claim_ticket(&self, _: u64, _: i64, _: u64) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+    async fn close_ticket(&self, _: u64, _: i64, _: u64, _: &str, _: &str) -> anyhow::Result<bool> {
+        Ok(true)
+    }
     async fn managed_embed(
         &self,
         _guild_id: u64,
@@ -1126,6 +1190,21 @@ impl DiscordApi for FakeDiscord {
             .next_message_id)
     }
 
+    async fn edit_message_with_buttons(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+        buttons: &[MessageButton],
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::EditMessageWithButtons {
+            channel_id,
+            message_id,
+            content: content.into(),
+            buttons: buttons.to_vec(),
+        })
+    }
+
     async fn send_rich_embed(
         &self,
         channel_id: u64,
@@ -1307,6 +1386,24 @@ impl DiscordApi for FakeDiscord {
         self.record(DiscordCall::DeleteChannel {
             channel_id,
             reason: reason.to_owned(),
+        })
+    }
+    async fn channel_transcript(&self, channel_id: u64) -> Result<String, DiscordError> {
+        self.record(DiscordCall::ChannelTranscript { channel_id })?;
+        Ok("[1] member: hello".into())
+    }
+    async fn set_ticket_member_writable(
+        &self,
+        channel_id: u64,
+        member_id: u64,
+        writable: bool,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::SetTicketMemberWritable {
+            channel_id,
+            member_id,
+            writable,
+            reason: reason.into(),
         })
     }
 

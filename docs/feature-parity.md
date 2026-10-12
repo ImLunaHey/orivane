@@ -21,7 +21,7 @@ Reference feature sets:
 | Logging | Live | Category routing for commands, content-safe message edits/deletes, member lifecycle and updates, voice transitions, and attributed Discord audit-log actions for moderation/roles/channels; durable global/guild audit records and analytics | Cached before/after diffs, webhook/integration events, and configurable retention |
 | Leveling | Live | Durable XP, cooldown, exclusions, `/rank`, `/leaderboard`, announcements | Role rewards, XP administration, cards, voice XP, anti-farming policy |
 | Starboard | Live | Threshold, emoji, ignored channels, self-star policy, deduplication | Rich source embeds, attachments, edits/deletes, per-channel thresholds |
-| Tickets | Live | Private ticket channels, duplicate protection, support roles, close command, closure log | Panel/buttons, claims, transcripts, intake forms, per-user limits, reopen/transfer |
+| Tickets | Live | Configurable panels and buttons, native intake modals, private channels, per-panel limits, claims and assignment, retained transcripts, read-only close and reopen, dashboard inbox/details, lifecycle audit events | Close buttons, staff transfer picker, transcript export/retention, panel synchronization, priority/tags/notes, inactivity automation and SLA analytics |
 | Custom commands | Live | Slash responses, variables, per-channel restriction, public/ephemeral response | Dynamic command registration, embeds, role permissions, cooldowns, multiple/random responses |
 | Utility | Live | `/ping`, `/help`, `/serverinfo` | User/server/avatar info variants, polls and richer diagnostics |
 | Autoresponder | Live | Exact, contains and starts-with triggers; case handling; channel and role controls; variables | Reactions as responses, cooldowns, regex and rich embeds |
@@ -40,10 +40,11 @@ These are not represented as fake or configuration-only cards in the dashboard.
 
 | Capability family | Seen in | Orivane status |
 | --- | --- | --- |
-| Social feeds | Dyno and MEE6-class bots | Not built |
 | Economy, points, games and tags | Dyno and MEE6-class bots | Not built |
 | AFK and keyword highlights | Dyno | Not built |
 | Voice/text linking and temporary voice channels | Dyno and similar bots | Not built |
+
+Social-feed integrations are intentionally out of scope for Orivane and are not part of the parity backlog.
 
 ## Definition of done for future modules
 

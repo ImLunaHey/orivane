@@ -653,6 +653,22 @@ impl ModuleServices for GatewayModuleServices {
             .transpose()
     }
 
+    async fn ticket(&self, guild_id: u64, ticket_id: i64) -> Result<Option<TicketResult>> {
+        self.infrastructure
+            .ticket(&guild_id.to_string(), ticket_id)
+            .await?
+            .map(|ticket| {
+                Ok(TicketResult {
+                    id: ticket.id,
+                    panel_id: ticket.panel_id,
+                    opener_id: ticket.opener_id.parse()?,
+                    channel_id: ticket.channel_id.parse()?,
+                    status: ticket.status,
+                })
+            })
+            .transpose()
+    }
+
     async fn claim_ticket(&self, guild_id: u64, ticket_id: i64, actor_id: u64) -> Result<bool> {
         Ok(self
             .infrastructure
@@ -1637,6 +1653,7 @@ async fn main() -> Result<()> {
                         id: interaction.id.get(),
                         token: interaction.token.clone(),
                         guild_id: guild_id.get(),
+                        channel_id: interaction.channel.as_ref().map(|channel| channel.id.get()),
                         actor_id,
                         actor_role_ids: interaction
                             .member
@@ -1729,6 +1746,7 @@ async fn main() -> Result<()> {
                         id: interaction.id.get(),
                         token: interaction.token.clone(),
                         guild_id: guild_id.get(),
+                        channel_id: interaction.channel.as_ref().map(|channel| channel.id.get()),
                         actor_id,
                         actor_role_ids: interaction
                             .member

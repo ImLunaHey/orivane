@@ -234,6 +234,9 @@ pub trait ModuleServices: Send + Sync {
     ) -> Result<Option<TicketResult>> {
         Ok(None)
     }
+    async fn ticket(&self, _guild_id: u64, _ticket_id: i64) -> Result<Option<TicketResult>> {
+        Ok(None)
+    }
     async fn claim_ticket(&self, _guild_id: u64, _ticket_id: i64, _actor_id: u64) -> Result<bool> {
         Ok(false)
     }

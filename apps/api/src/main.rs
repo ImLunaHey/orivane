@@ -1712,23 +1712,39 @@ async fn deploy_ticket_panel(
     })?)
     .await
     .map_err(internal_error)?;
-    let message_id = discord
-        .send_message_with_buttons(
-            channel_id.parse().map_err(|_| {
-                ApiError(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "invalid panel channel".into(),
-                )
-            })?,
-            &format!("**{}**\n{}", panel.title, panel.description),
-            &[MessageButton {
-                custom_id: format!("orivane:ticket:open:{id}"),
-                label: panel.button_label.clone(),
-                style: MessageButtonStyle::Primary,
-            }],
+    let discord_channel_id = channel_id.parse().map_err(|_| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid panel channel".into(),
         )
-        .await
-        .map_err(internal_error)?;
+    })?;
+    let content = format!("**{}**\n{}", panel.title, panel.description);
+    let buttons = [MessageButton {
+        custom_id: format!("orivane:ticket:open:{id}"),
+        label: panel.button_label.clone(),
+        style: MessageButtonStyle::Primary,
+    }];
+    let (message_id, synchronized) = if let Some(existing) = panel.panel_message_id.as_deref() {
+        let message_id = existing.parse::<u64>().map_err(|_| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stored panel message is invalid".into(),
+            )
+        })?;
+        discord
+            .edit_message_with_buttons(discord_channel_id, message_id, &content, &buttons)
+            .await
+            .map_err(internal_error)?;
+        (message_id, true)
+    } else {
+        (
+            discord
+                .send_message_with_buttons(discord_channel_id, &content, &buttons)
+                .await
+                .map_err(internal_error)?,
+            false,
+        )
+    };
     let item = state
         .infrastructure
         .mark_ticket_panel_deployed(&guild_id, id, &channel_id, &message_id.to_string())
@@ -1740,7 +1756,11 @@ async fn deploy_ticket_panel(
         &guild_id,
         &actor,
         &headers,
-        "ticket.panel.deployed",
+        if synchronized {
+            "ticket.panel.synchronized"
+        } else {
+            "ticket.panel.deployed"
+        },
         id,
         serde_json::json!({"channel_id":channel_id,"message_id":message_id}),
     )
