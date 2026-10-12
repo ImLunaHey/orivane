@@ -79,6 +79,26 @@ pub struct AutomodConfig {
     pub log_channel_id: Option<String>,
     #[serde(default = "default_automod_response")]
     pub response: String,
+    #[serde(default)]
+    pub rules: Vec<AutomodRuleConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AutomodRuleConfig {
+    pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub kind: String,
+    #[serde(default = "default_automod_action")]
+    pub action: String,
+    #[serde(default = "default_automod_timeout")]
+    pub timeout_seconds: u32,
+    #[serde(default)]
+    pub threshold: u16,
+    #[serde(default)]
+    pub window_seconds: u16,
+    #[serde(default)]
+    pub patterns: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -625,6 +645,54 @@ impl GuildConfig {
                 .log_channel_id
                 .as_deref()
                 .is_some_and(|id| !valid_snowflake(id))
+            || automod.rules.len() > 50
+            || automod.rules.iter().enumerate().any(|(index, rule)| {
+                rule.id.is_empty()
+                    || rule.id.len() > 32
+                    || !rule.id.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || character == '-' || character == '_'
+                    })
+                    || automod.rules[..index]
+                        .iter()
+                        .any(|other| other.id == rule.id)
+                    || !matches!(rule.action.as_str(), "delete" | "warn" | "timeout" | "ban")
+                    || (rule.action == "timeout"
+                        && !(60..=2_419_200).contains(&rule.timeout_seconds))
+                    || !matches!(
+                        rule.kind.as_str(),
+                        "blocked_terms"
+                            | "mention_spam"
+                            | "invite_links"
+                            | "external_links"
+                            | "caps"
+                            | "lines"
+                            | "duplicate_spam"
+                            | "rapid_spam"
+                            | "attachments"
+                            | "stickers"
+                            | "emoji_spam"
+                            | "zalgo"
+                            | "phishing"
+                    )
+                    || rule.patterns.len() > 100
+                    || rule
+                        .patterns
+                        .iter()
+                        .any(|pattern| pattern.is_empty() || pattern.chars().count() > 128)
+                    || matches!(
+                        rule.kind.as_str(),
+                        "mention_spam"
+                            | "lines"
+                            | "attachments"
+                            | "stickers"
+                            | "emoji_spam"
+                            | "zalgo"
+                    ) && !(1..=100).contains(&rule.threshold)
+                    || rule.kind == "caps" && !(20..=100).contains(&rule.threshold)
+                    || matches!(rule.kind.as_str(), "duplicate_spam" | "rapid_spam")
+                        && (!(2..=100).contains(&rule.threshold)
+                            || !(2..=3600).contains(&rule.window_seconds))
+            })
         {
             return Err(ConfigValidationError::InvalidAutomod);
         }
@@ -1159,6 +1227,7 @@ impl Default for AutomodConfig {
             ignored_role_ids: Vec::new(),
             log_channel_id: None,
             response: default_automod_response(),
+            rules: Vec::new(),
         }
     }
 }

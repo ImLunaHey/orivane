@@ -14,7 +14,7 @@ Reference feature sets:
 | Area | Status | Implemented now | Remaining depth |
 | --- | --- | --- | --- |
 | Moderation | Live | Note, warn, timeout, kick, ban, unban; durable cases; reasons; optional DMs; configurable moderator roles; exact-count warning escalation to timeout/kick/ban; bulk purge; channel lock/unlock; slowmode | Timed bans and case evidence attachments |
-| AutoMod | Live | Blocked terms, invites, links, caps, lines, mention limit, ignored roles/channels, delete/warn/timeout/ban, responses and logs | Per-rule objects, duplicate/rapid spam, phishing reputation, attachment/sticker/emoji/Zalgo filters |
+| AutoMod | Live | Ordered per-rule actions for blocked terms, mentions, invites, links, caps, lines, distributed duplicate/rapid spam, phishing heuristics and domain reputation lists, attachments/extensions, stickers, emoji and Zalgo; ignored roles/channels; delete/warn/timeout/ban; content-safe responses, logs and analytics | External threat-intelligence provider integrations |
 | Welcome | Live | Public welcome, optional DM, goodbye, variables and preview | Images, embeds, multiple randomized messages, join/leave/ban announcements |
 | Autorole | Live | Delayed join roles, delayed removals, `/role` self-service roles, exclusive self-service mode | Persistent delayed-job recovery and role-hierarchy preflight diagnostics |
 | Reaction roles | Live | Existing-message emoji mappings, Unicode/custom emoji, managed bot messages, synchronized button and dropdown panels, toggle/add-only/remove-only modes, exclusive groups, required/blocked role policy, dashboard list/editor/preview, and audited component actions | Timed role expiry is optional future depth rather than core parity |

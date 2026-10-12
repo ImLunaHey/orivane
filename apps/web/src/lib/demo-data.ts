@@ -19,6 +19,7 @@ export const defaultConfig: GuildConfig = {
       ignored_role_ids: [],
       log_channel_id: null,
       response: '{user}, that message was removed by AutoMod ({rule}).',
+      rules: [],
     },
     leveling: {
       enabled: true,

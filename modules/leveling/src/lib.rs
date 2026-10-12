@@ -199,6 +199,8 @@ mod tests {
             role_ids: vec![],
             mention_count: 0,
             content: "A useful message".to_owned(),
+            attachment_filenames: vec![],
+            sticker_count: 0,
         };
         assert!(
             LevelingModule

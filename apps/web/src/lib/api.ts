@@ -19,7 +19,8 @@ function demoConfig(guildId: string): GuildConfig {
   if (!saved) return { ...structuredClone(defaultConfig), guild_id: guildId }
   const parsed = JSON.parse(saved) as Partial<GuildConfig>
   const defaults = structuredClone(defaultConfig)
-  return { ...defaults, ...parsed, guild_id: guildId, modules: { ...defaults.modules, ...parsed.modules } }
+  const modules = Object.fromEntries(Object.entries(defaults.modules).map(([key, value]) => [key, { ...value, ...(parsed.modules?.[key as keyof GuildConfig['modules']] ?? {}) }])) as GuildConfig['modules']
+  return { ...defaults, ...parsed, guild_id: guildId, modules }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

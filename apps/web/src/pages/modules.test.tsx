@@ -42,7 +42,7 @@ describe('module configuration pages', () => {
       ['welcome', 'Welcome settings', 'Welcome channel', null, null],
       ['autorole', 'Autorole settings', 'Roles to assign', null, null],
       ['moderation', 'Moderation settings', 'Default reason', 'text', 'Be kind'],
-      ['automod', 'Automod settings', 'Maximum mentions', 'number', '8'],
+      ['automod', 'Automod settings', 'Enable Automod', 'switch', true],
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
       ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
@@ -99,6 +99,24 @@ describe('module configuration pages', () => {
     const moderation = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.moderation
     expect(moderation.moderator_role_ids).toEqual(['100000000000000101'])
     expect(moderation.warning_thresholds).toEqual([{ warnings: 3, action: 'ban', timeout_minutes: 60 }])
+  })
+
+  it('creates an advanced automod rule with an independent action', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/automod`)
+    await screen.findByRole('heading', { name: 'Automod settings' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+    fireEvent.change(screen.getByLabelText(/^Rule ID/), { target: { value: 'Rapid Spam!' } })
+    fireEvent.change(screen.getByLabelText(/^Filter/), { target: { value: 'rapid_spam' } })
+    fireEvent.change(screen.getByLabelText(/^Action/), { target: { value: 'timeout' } })
+    fireEvent.change(screen.getByLabelText(/^Message count/), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText(/^Detection window/), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+
+    const rule = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.automod.rules[0]
+    expect(rule).toMatchObject({ id: 'rapidspam', kind: 'rapid_spam', action: 'timeout', threshold: 6, window_seconds: 12 })
   })
 
   it('uses dedicated ticket inbox, panel editor, and ticket detail pages', async () => {

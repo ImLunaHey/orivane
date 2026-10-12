@@ -799,6 +799,49 @@ impl Infrastructure {
         Ok(count)
     }
 
+    pub async fn automod_rate_count(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        rule_id: &str,
+        fingerprint: Option<&str>,
+        message_id: &str,
+        window_seconds: u16,
+    ) -> Result<u64, StoreError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let key = format!(
+            "automod:rate:{guild_id}:{user_id}:{rule_id}:{}",
+            fingerprint.unwrap_or("all")
+        );
+        let cutoff = now.saturating_sub(u64::from(window_seconds) * 1_000);
+        let mut cache = self.redis.clone();
+        let _: () = redis::cmd("ZADD")
+            .arg(&key)
+            .arg(now)
+            .arg(message_id)
+            .query_async(&mut cache)
+            .await?;
+        let _: () = redis::cmd("ZREMRANGEBYSCORE")
+            .arg(&key)
+            .arg("-inf")
+            .arg(cutoff)
+            .query_async(&mut cache)
+            .await?;
+        let count: u64 = redis::cmd("ZCARD")
+            .arg(&key)
+            .query_async(&mut cache)
+            .await?;
+        let _: () = redis::cmd("EXPIRE")
+            .arg(&key)
+            .arg(u64::from(window_seconds) + 5)
+            .query_async(&mut cache)
+            .await?;
+        Ok(count)
+    }
+
     pub async fn set_raid_lockdown(
         &self,
         guild_id: &str,

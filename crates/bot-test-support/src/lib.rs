@@ -175,6 +175,14 @@ pub enum ServiceCall {
         guild_id: u64,
         member_id: u64,
     },
+    AutomodRateCount {
+        guild_id: u64,
+        user_id: u64,
+        rule_id: String,
+        fingerprint: Option<String>,
+        message_id: u64,
+        window_seconds: u16,
+    },
     AwardXp(XpAwardInput),
     XpProfile {
         guild_id: u64,
@@ -332,6 +340,7 @@ pub struct FakeModuleServices {
     lockdowns: Arc<Mutex<HashSet<u64>>>,
     scheduled_claims: Arc<Mutex<HashSet<(u64, String, u64)>>>,
     due_tickets: Arc<Mutex<Vec<TicketResult>>>,
+    automod_counts: Arc<Mutex<HashMap<(u64, u64, String, Option<String>), u64>>>,
 }
 
 impl FakeModuleServices {
@@ -346,6 +355,34 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn automod_rate_count(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        rule_id: &str,
+        fingerprint: Option<&str>,
+        message_id: u64,
+        window_seconds: u16,
+    ) -> anyhow::Result<u64> {
+        let fingerprint = fingerprint.map(str::to_owned);
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::AutomodRateCount {
+                guild_id,
+                user_id,
+                rule_id: rule_id.to_owned(),
+                fingerprint: fingerprint.clone(),
+                message_id,
+                window_seconds,
+            });
+        let mut counts = self.automod_counts.lock().expect("fake lock poisoned");
+        let count = counts
+            .entry((guild_id, user_id, rule_id.to_owned(), fingerprint))
+            .or_default();
+        *count += 1;
+        Ok(*count)
+    }
     async fn moderation_warning_count(&self, guild_id: u64, member_id: u64) -> anyhow::Result<u64> {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
         let count = calls

@@ -210,6 +210,17 @@ pub trait ModuleServices: Send + Sync {
     async fn moderation_warning_count(&self, _guild_id: u64, _member_id: u64) -> Result<u64> {
         Ok(0)
     }
+    async fn automod_rate_count(
+        &self,
+        _guild_id: u64,
+        _user_id: u64,
+        _rule_id: &str,
+        _fingerprint: Option<&str>,
+        _message_id: u64,
+        _window_seconds: u16,
+    ) -> Result<u64> {
+        Ok(1)
+    }
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult>;
     async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;
     async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>>;
@@ -459,6 +470,8 @@ pub struct MessageCreate {
     pub role_ids: Vec<u64>,
     pub mention_count: usize,
     pub content: String,
+    pub attachment_filenames: Vec<String>,
+    pub sticker_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

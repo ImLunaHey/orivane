@@ -229,6 +229,8 @@ mod tests {
                     role_ids: vec![],
                     mention_count: 0,
                     content: "private text".into(),
+                    attachment_filenames: vec![],
+                    sticker_count: 0,
                 },
             )
             .await

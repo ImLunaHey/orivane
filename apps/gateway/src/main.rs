@@ -515,6 +515,28 @@ impl ModuleServices for GatewayModuleServices {
             .await?)
     }
 
+    async fn automod_rate_count(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        rule_id: &str,
+        fingerprint: Option<&str>,
+        message_id: u64,
+        window_seconds: u16,
+    ) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .automod_rate_count(
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                rule_id,
+                fingerprint,
+                &message_id.to_string(),
+                window_seconds,
+            )
+            .await?)
+    }
+
     async fn award_xp(&self, input: XpAwardInput) -> Result<XpAwardResult> {
         let result = self
             .infrastructure
@@ -1398,6 +1420,12 @@ async fn main() -> Result<()> {
                         .unwrap_or_default(),
                     mention_count: message.mentions.len() + message.mention_roles.len(),
                     content: message.content.clone(),
+                    attachment_filenames: message
+                        .attachments
+                        .iter()
+                        .map(|attachment| attachment.filename.clone())
+                        .collect(),
+                    sticker_count: message.sticker_items.len(),
                 };
                 for module in modules
                     .iter()

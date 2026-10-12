@@ -15,6 +15,7 @@ export type GuildConfig = {
       ignored_role_ids: string[]
       log_channel_id: string | null
       response: string
+      rules: AutomodRule[]
     }
     leveling: {
       enabled: boolean
@@ -79,6 +80,7 @@ export type LoggingConfig = {
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }
 export type WarningThreshold = { warnings:number;action:'timeout'|'kick'|'ban';timeout_minutes:number }
+export type AutomodRule = { id:string;enabled:boolean;kind:'blocked_terms'|'mention_spam'|'invite_links'|'external_links'|'caps'|'lines'|'duplicate_spam'|'rapid_spam'|'attachments'|'stickers'|'emoji_spam'|'zalgo'|'phishing';action:'delete'|'warn'|'timeout'|'ban';timeout_seconds:number;threshold:number;window_seconds:number;patterns:string[] }
 export type ReactionRoleOption = { id:string;label:string;description:string;emoji:string;role_id:string }
 export type ReactionRolePanel = { id:string;enabled:boolean;name:string;title:string;description:string;channel_id:string;message_id:string|null;component_type:'buttons'|'select';mode:'toggle'|'add_only'|'remove_only';exclusive:boolean;required_role_ids:string[];blocked_role_ids:string[];options:ReactionRoleOption[] }
 export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[] }
