@@ -8,6 +8,7 @@ use bot_discord::{
 };
 use bot_module_api::{
     BotModule, FormAnswerInput, FormSubmissionInput, ModuleContext, ModuleEventOutcome,
+    ScheduledTick,
 };
 
 pub struct FormsModule;
@@ -44,6 +45,9 @@ impl BotModule for FormsModule {
     }
     fn handles_modal_submit(&self, custom_id: &str) -> bool {
         custom_id.starts_with(MODAL_PREFIX)
+    }
+    fn handles_scheduled_tick(&self) -> bool {
+        true
     }
 
     async fn on_command(
@@ -188,6 +192,27 @@ impl BotModule for FormsModule {
             target_id: Some(submission_id.to_string()),
         }))
     }
+
+    async fn on_scheduled_tick(
+        &self,
+        context: &ModuleContext,
+        config: &GuildConfig,
+        _event: &ScheduledTick,
+    ) -> Result<Vec<ModuleEventOutcome>> {
+        let guild_id = config.guild_id.parse::<u64>().context("invalid guild ID")?;
+        let purged = context
+            .services
+            .purge_form_submissions(guild_id, config.modules.forms.retention_days)
+            .await?;
+        Ok((purged > 0)
+            .then(|| ModuleEventOutcome {
+                action: "forms.retention.purged".into(),
+                target_type: "form_submission".into(),
+                target_id: None,
+            })
+            .into_iter()
+            .collect())
+    }
 }
 
 fn allowed(form: &FormConfig, actor_roles: &[u64]) -> bool {
@@ -258,6 +283,7 @@ mod tests {
         let mut config = GuildConfig::for_guild("10");
         config.modules.forms = FormsConfig {
             enabled: true,
+            retention_days: 365,
             forms: vec![FormConfig {
                 enabled: true,
                 id: "apply".into(),
@@ -370,5 +396,26 @@ mod tests {
         assert!(
             matches!(&discord.calls()[0], DiscordCall::RespondToCommand { response, .. } if response.ephemeral)
         );
+    }
+
+    #[tokio::test]
+    async fn purges_submissions_after_the_configured_retention_window() {
+        let services = FakeModuleServices::default();
+        let context = ModuleContext {
+            discord: Arc::new(FakeDiscord::new()),
+            services: Arc::new(services.clone()),
+        };
+        let outcomes = FormsModule
+            .on_scheduled_tick(&context, &config(), &ScheduledTick { now_unix: 1_000 })
+            .await
+            .unwrap();
+        assert_eq!(outcomes[0].action, "forms.retention.purged");
+        assert!(matches!(
+            services.calls().first(),
+            Some(ServiceCall::PurgeFormSubmissions {
+                guild_id: 10,
+                retention_days: 365
+            })
+        ));
     }
 }

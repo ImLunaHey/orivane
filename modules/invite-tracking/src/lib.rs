@@ -33,7 +33,10 @@ impl BotModule for InviteTrackingModule {
                 uses: i.uses,
             })
             .collect::<Vec<_>>();
-        let attribution = ctx.services.attribute_invite(e.guild_id, &usages).await?;
+        let attribution = ctx
+            .services
+            .attribute_invite(e.guild_id, e.user_id, &usages)
+            .await?;
         if let (Some(channel), Some(a)) = (
             c.modules
                 .invite_tracking

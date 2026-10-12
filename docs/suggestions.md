@@ -4,6 +4,7 @@ The Suggestions module collects server feedback through `/suggest`, publishes ea
 
 - Servers can permit anonymous proposals, select staff roles, and configure a per-member cooldown.
 - `/suggestion-status` lets authorized staff mark a proposal pending, approved, rejected, implemented, or duplicate and attach an internal note.
+- Vote totals and staff decisions update the original Discord post in place. Closed suggestions no longer expose voting buttons.
 - Votes are unique per member and may be changed without inflating totals.
 - The dashboard provides status and vote summaries, a searchable TanStack table, and a dedicated review page for each suggestion.
 - Reads, configuration changes, votes, submissions, and staff decisions have content-safe audit paths. Suggestion text and staff notes are not copied into audit metadata.
