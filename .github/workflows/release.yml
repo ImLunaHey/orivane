@@ -42,7 +42,7 @@ jobs:
             echo 'package=discord-bot-gateway' >> "$GITHUB_OUTPUT"
             echo 'binary=discord-bot-gateway' >> "$GITHUB_OUTPUT"
           fi
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.service == 'web' && 'apps/web' || '.' }}
           file: ${{ matrix.service == 'web' && 'apps/web/Dockerfile' || 'Dockerfile.rust' }}
