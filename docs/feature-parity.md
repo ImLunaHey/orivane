@@ -25,6 +25,7 @@ Reference feature sets:
 | Custom commands | Live | Slash responses, variables, per-channel restriction, public/ephemeral response | Dynamic command registration, embeds, role permissions, cooldowns, multiple/random responses |
 | Utility | Live | `/ping`, `/help`, `/serverinfo` | User/server/avatar info variants, polls and richer diagnostics |
 | Autoresponder | Live | Exact, contains and starts-with triggers; case handling; channel and role controls; variables | Reactions as responses, cooldowns, regex and rich embeds |
+| Anti-raid | Live | Sliding join-burst detection, account-age and avatar risk signals, alert-only/quarantine/timeout/kick/ban actions, optional all-join containment, staff alerts | Discord CAPTCHA remains native-only; persistent cross-worker windows and invite-pattern analysis are future depth |
 
 ## Popular-bot areas not yet implemented
 
@@ -43,7 +44,6 @@ These are not represented as fake or configuration-only cards in the dashboard.
 | Economy, points, games and tags | Dyno and MEE6-class bots | Not built |
 | AFK and keyword highlights | Dyno | Not built |
 | Voice/text linking and temporary voice channels | Dyno and similar bots | Not built |
-| Anti-raid onboarding and new-account policy | Common specialist/moderation bots | Not built |
 
 ## Definition of done for future modules
 

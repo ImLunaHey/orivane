@@ -34,6 +34,8 @@ pub struct ModulesConfig {
     pub reaction_roles: ReactionRolesConfig,
     #[serde(default)]
     pub autoresponder: AutoresponderConfig,
+    #[serde(default)]
+    pub anti_raid: AntiRaidConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -239,6 +241,45 @@ pub struct AutoresponseConfig {
     pub ignored_role_ids: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AntiRaidConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_join_threshold")]
+    pub join_threshold: u16,
+    #[serde(default = "default_join_window")]
+    pub join_window_seconds: u16,
+    #[serde(default = "default_account_age")]
+    pub minimum_account_age_days: u16,
+    #[serde(default)]
+    pub require_avatar: bool,
+    #[serde(default)]
+    pub punish_all_during_raid: bool,
+    #[serde(default = "default_raid_action")]
+    pub action: String,
+    #[serde(default = "default_raid_timeout")]
+    pub timeout_seconds: u32,
+    pub quarantine_role_id: Option<String>,
+    pub alert_channel_id: Option<String>,
+}
+
+impl Default for AntiRaidConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            join_threshold: default_join_threshold(),
+            join_window_seconds: default_join_window(),
+            minimum_account_age_days: default_account_age(),
+            require_avatar: false,
+            punish_all_during_raid: false,
+            action: default_raid_action(),
+            timeout_seconds: default_raid_timeout(),
+            quarantine_role_id: None,
+            alert_channel_id: None,
+        }
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -275,6 +316,8 @@ pub enum ConfigValidationError {
     InvalidReactionRoles,
     #[error("autoresponses contain an invalid trigger, response, matching mode, or restriction")]
     InvalidAutoresponder,
+    #[error("anti-raid thresholds, action, timeout, role, or alert channel are invalid")]
+    InvalidAntiRaid,
 }
 
 impl GuildConfig {
@@ -479,6 +522,29 @@ impl GuildConfig {
         {
             return Err(ConfigValidationError::InvalidAutoresponder);
         }
+        let anti_raid = &self.modules.anti_raid;
+        if !(2..=500).contains(&anti_raid.join_threshold)
+            || !(5..=3600).contains(&anti_raid.join_window_seconds)
+            || anti_raid.minimum_account_age_days > 3650
+            || !matches!(
+                anti_raid.action.as_str(),
+                "log" | "quarantine" | "timeout" | "kick" | "ban"
+            )
+            || (anti_raid.action == "timeout"
+                && !(60..=2_419_200).contains(&anti_raid.timeout_seconds))
+            || (anti_raid.enabled
+                && anti_raid.action == "quarantine"
+                && anti_raid
+                    .quarantine_role_id
+                    .as_deref()
+                    .is_none_or(|id| !valid_snowflake(id)))
+            || anti_raid
+                .alert_channel_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+        {
+            return Err(ConfigValidationError::InvalidAntiRaid);
+        }
 
         Ok(())
     }
@@ -635,6 +701,21 @@ const fn default_true() -> bool {
 
 fn default_match_mode() -> String {
     "contains".to_owned()
+}
+const fn default_join_threshold() -> u16 {
+    10
+}
+const fn default_join_window() -> u16 {
+    60
+}
+const fn default_account_age() -> u16 {
+    7
+}
+fn default_raid_action() -> String {
+    "quarantine".to_owned()
+}
+const fn default_raid_timeout() -> u32 {
+    3600
 }
 const fn default_starboard_threshold() -> u16 {
     3

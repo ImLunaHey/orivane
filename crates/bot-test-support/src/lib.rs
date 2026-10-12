@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -119,11 +119,28 @@ pub enum ServiceCall {
         source_message_id: u64,
         starboard_channel_id: u64,
     },
+    RecordRaidJoin {
+        guild_id: u64,
+        user_id: u64,
+        window_seconds: u16,
+    },
+    SetRaidLockdown {
+        guild_id: u64,
+        duration_seconds: u64,
+    },
+    ClearRaidLockdown {
+        guild_id: u64,
+    },
+    RaidLockdownActive {
+        guild_id: u64,
+    },
 }
 
 #[derive(Clone, Default)]
 pub struct FakeModuleServices {
     calls: Arc<Mutex<Vec<ServiceCall>>>,
+    raid_counts: Arc<Mutex<HashMap<u64, u64>>>,
+    lockdowns: Arc<Mutex<HashSet<u64>>>,
 }
 
 impl FakeModuleServices {
@@ -236,6 +253,65 @@ impl ModuleServices for FakeModuleServices {
                 starboard_channel_id,
             });
         Ok(true)
+    }
+
+    async fn record_raid_join(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        window_seconds: u16,
+    ) -> anyhow::Result<u64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RecordRaidJoin {
+                guild_id,
+                user_id,
+                window_seconds,
+            });
+        let mut counts = self.raid_counts.lock().expect("fake lock poisoned");
+        let count = counts.entry(guild_id).or_default();
+        *count += 1;
+        Ok(*count)
+    }
+
+    async fn set_raid_lockdown(&self, guild_id: u64, duration_seconds: u64) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::SetRaidLockdown {
+                guild_id,
+                duration_seconds,
+            });
+        self.lockdowns
+            .lock()
+            .expect("fake lock poisoned")
+            .insert(guild_id);
+        Ok(())
+    }
+
+    async fn clear_raid_lockdown(&self, guild_id: u64) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClearRaidLockdown { guild_id });
+        self.lockdowns
+            .lock()
+            .expect("fake lock poisoned")
+            .remove(&guild_id);
+        Ok(())
+    }
+
+    async fn raid_lockdown_active(&self, guild_id: u64) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RaidLockdownActive { guild_id });
+        Ok(self
+            .lockdowns
+            .lock()
+            .expect("fake lock poisoned")
+            .contains(&guild_id))
     }
 }
 

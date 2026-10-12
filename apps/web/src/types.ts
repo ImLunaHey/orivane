@@ -49,6 +49,7 @@ export type GuildConfig = {
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
     reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[] }
     autoresponder: { enabled: boolean; responses: Autoresponse[] }
+    anti_raid: { enabled: boolean; join_threshold: number; join_window_seconds: number; minimum_account_age_days: number; require_avatar: boolean; punish_all_during_raid: boolean; action: 'log' | 'quarantine' | 'timeout' | 'kick' | 'ban'; timeout_seconds: number; quarantine_role_id: string | null; alert_channel_id: string | null }
   }
 }
 

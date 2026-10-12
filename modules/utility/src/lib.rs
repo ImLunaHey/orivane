@@ -61,6 +61,7 @@ impl BotModule for UtilityModule {
             config.modules.custom_commands.enabled,
             config.modules.reaction_roles.enabled,
             config.modules.autoresponder.enabled,
+            config.modules.anti_raid.enabled,
         ]
         .into_iter()
         .filter(|enabled| *enabled)

@@ -72,6 +72,15 @@ pub trait ModuleServices: Send + Sync {
         source_message_id: u64,
         starboard_channel_id: u64,
     ) -> Result<bool>;
+    async fn record_raid_join(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        window_seconds: u16,
+    ) -> Result<u64>;
+    async fn set_raid_lockdown(&self, guild_id: u64, duration_seconds: u64) -> Result<()>;
+    async fn clear_raid_lockdown(&self, guild_id: u64) -> Result<()>;
+    async fn raid_lockdown_active(&self, guild_id: u64) -> Result<bool>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,6 +90,9 @@ pub struct MemberJoin {
     pub user_id: u64,
     pub username: String,
     pub display_name: String,
+    pub account_age_seconds: u64,
+    pub has_avatar: bool,
+    pub is_bot: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

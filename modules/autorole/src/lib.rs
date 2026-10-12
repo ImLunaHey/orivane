@@ -196,6 +196,9 @@ mod tests {
                     user_id: 30,
                     username: "member".to_owned(),
                     display_name: "Member".to_owned(),
+                    account_age_seconds: 86_400 * 30,
+                    has_avatar: true,
+                    is_bot: false,
                 },
             )
             .await

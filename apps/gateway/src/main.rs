@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, env, sync::Arc, time::Instant};
+use std::{
+    collections::BTreeMap,
+    env,
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -6,6 +11,7 @@ use bot_core::{Infrastructure, NewAuditEvent, NewModerationCase, level_for_xp};
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
 };
+use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
     AuditNotice, BotModule, MemberJoin, MemberLeave, MessageCreate, ModerationCaseInput,
     ModuleContext, ModuleServices, ReactionAdd, TicketRecordInput, XpAwardInput, XpAwardResult,
@@ -173,6 +179,39 @@ impl ModuleServices for GatewayModuleServices {
             )
             .await?)
     }
+
+    async fn record_raid_join(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        window_seconds: u16,
+    ) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .record_raid_join(&guild_id.to_string(), &user_id.to_string(), window_seconds)
+            .await?)
+    }
+
+    async fn set_raid_lockdown(&self, guild_id: u64, duration_seconds: u64) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .set_raid_lockdown(&guild_id.to_string(), duration_seconds)
+            .await?)
+    }
+
+    async fn clear_raid_lockdown(&self, guild_id: u64) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .clear_raid_lockdown(&guild_id.to_string())
+            .await?)
+    }
+
+    async fn raid_lockdown_active(&self, guild_id: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .raid_lockdown_active(&guild_id.to_string())
+            .await?)
+    }
 }
 
 #[tokio::main]
@@ -195,6 +234,7 @@ async fn main() -> Result<()> {
         Arc::new(CustomCommandsModule),
         Arc::new(ReactionRolesModule),
         Arc::new(AutoresponderModule),
+        Arc::new(AntiRaidModule::default()),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -274,6 +314,9 @@ async fn main() -> Result<()> {
                     user_id: member.user.id.get(),
                     username,
                     display_name,
+                    account_age_seconds: account_age_seconds(member.user.id.get()),
+                    has_avatar: member.user.avatar.is_some(),
+                    is_bot: member.user.bot,
                 };
                 for module in modules
                     .iter()
@@ -697,6 +740,16 @@ fn command_options(options: &[CommandDataOption]) -> BTreeMap<String, CommandVal
 
 fn required_env(name: &str) -> Result<String> {
     env::var(name).with_context(|| format!("{name} is required"))
+}
+
+fn account_age_seconds(user_id: u64) -> u64 {
+    const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
+    let created_ms = (user_id >> 22).saturating_add(DISCORD_EPOCH_MS);
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    now_ms.saturating_sub(created_ms) / 1_000
 }
 
 fn init_tracing() {

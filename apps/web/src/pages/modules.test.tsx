@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(12)
+    expect(screen.getAllByText('Live')).toHaveLength(13)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -50,6 +50,7 @@ describe('module configuration pages', () => {
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
       ['reaction_roles', 'Reaction roles settings', 'Enable Reaction roles', 'switch', true],
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
+      ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
     ] as const
 
     for (const [moduleId, heading, control, kind, value] of cases) {
@@ -132,6 +133,19 @@ describe('module configuration pages', () => {
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No automatic responses yet')).toBeVisible()
+  })
+
+  it('configures anti-raid containment and timeout policy', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/anti_raid`)
+    await screen.findByRole('heading', { name: 'Anti-raid settings' })
+    fireEvent.change(screen.getByLabelText(/^Detection window/), { target: { value: '120' } })
+    fireEvent.change(screen.getByLabelText(/^Minimum account age/), { target: { value: '14' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Require profile avatar' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Contain every raid join' }))
+    fireEvent.change(screen.getByLabelText(/^Raid action/), { target: { value: 'timeout' } })
+    fireEvent.change(screen.getByLabelText(/^Timeout duration/), { target: { value: '7200' } })
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

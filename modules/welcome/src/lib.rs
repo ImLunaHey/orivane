@@ -137,6 +137,9 @@ mod tests {
                     user_id: 30,
                     username: "imlunahey".to_owned(),
                     display_name: "luna".to_owned(),
+                    account_age_seconds: 86_400 * 30,
+                    has_avatar: true,
+                    is_bot: false,
                 },
             )
             .await
@@ -170,6 +173,9 @@ mod tests {
             user_id: 30,
             username: "luna".to_owned(),
             display_name: "Luna".to_owned(),
+            account_age_seconds: 86_400 * 30,
+            has_avatar: true,
+            is_bot: false,
         };
         WelcomeModule
             .on_member_join(&context, &config, &joined)

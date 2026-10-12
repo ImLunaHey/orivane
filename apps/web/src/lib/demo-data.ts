@@ -50,6 +50,7 @@ export const defaultConfig: GuildConfig = {
     custom_commands: { enabled: false, max_commands: 25, commands: [] },
     reaction_roles: { enabled: false, bindings: [] },
     autoresponder: { enabled: false, responses: [] },
+    anti_raid: { enabled: false, join_threshold: 10, join_window_seconds: 60, minimum_account_age_days: 7, require_avatar: false, punish_all_during_raid: false, action: 'quarantine', timeout_seconds: 3600, quarantine_role_id: null, alert_channel_id: null },
   },
 }
 

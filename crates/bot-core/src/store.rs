@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use redis::{AsyncCommands as _, aio::ConnectionManager};
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -34,6 +34,74 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn record_raid_join(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        window_seconds: u16,
+    ) -> Result<u64, StoreError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let key = format!("anti-raid:joins:{guild_id}");
+        let member = format!("{now}:{user_id}");
+        let cutoff = now.saturating_sub(u64::from(window_seconds) * 1_000);
+        let mut cache = self.redis.clone();
+        let _: () = redis::cmd("ZADD")
+            .arg(&key)
+            .arg(now)
+            .arg(member)
+            .query_async(&mut cache)
+            .await?;
+        let _: () = redis::cmd("ZREMRANGEBYSCORE")
+            .arg(&key)
+            .arg("-inf")
+            .arg(cutoff)
+            .query_async(&mut cache)
+            .await?;
+        let count: u64 = redis::cmd("ZCARD")
+            .arg(&key)
+            .query_async(&mut cache)
+            .await?;
+        let _: () = redis::cmd("EXPIRE")
+            .arg(&key)
+            .arg(u64::from(window_seconds) + 5)
+            .query_async(&mut cache)
+            .await?;
+        Ok(count)
+    }
+
+    pub async fn set_raid_lockdown(
+        &self,
+        guild_id: &str,
+        duration_seconds: u64,
+    ) -> Result<(), StoreError> {
+        let mut cache = self.redis.clone();
+        let _: () = redis::cmd("SET")
+            .arg(format!("anti-raid:lockdown:{guild_id}"))
+            .arg(1)
+            .arg("EX")
+            .arg(duration_seconds)
+            .query_async(&mut cache)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn clear_raid_lockdown(&self, guild_id: &str) -> Result<(), StoreError> {
+        let mut cache = self.redis.clone();
+        let _: () = cache.del(format!("anti-raid:lockdown:{guild_id}")).await?;
+        Ok(())
+    }
+
+    pub async fn raid_lockdown_active(&self, guild_id: &str) -> Result<bool, StoreError> {
+        let mut cache = self.redis.clone();
+        cache
+            .exists(format!("anti-raid:lockdown:{guild_id}"))
+            .await
+            .map_err(StoreError::from)
+    }
+
     pub async fn connect(database_url: &str, redis_url: &str) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new()
             .max_connections(20)

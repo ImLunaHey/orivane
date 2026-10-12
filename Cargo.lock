@@ -715,6 +715,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-anti-raid"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-api"
 version = "0.1.0"
 dependencies = [
@@ -1547,6 +1560,7 @@ dependencies = [
  "async-trait",
  "bot-core",
  "bot-discord",
+ "bot-module-anti-raid",
  "bot-module-api",
  "bot-module-automod",
  "bot-module-autoresponder",
