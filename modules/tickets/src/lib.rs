@@ -244,6 +244,7 @@ mod tests {
             channel_id: Some(50),
             actor_id: 40,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: "ticket".to_owned(),
             options: BTreeMap::from([(
                 "reason".to_owned(),

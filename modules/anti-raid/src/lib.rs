@@ -206,7 +206,7 @@ mod tests {
         config.modules.anti_raid.minimum_account_age_days = 7;
         config.modules.anti_raid.quarantine_role_id = Some("90".into());
         config.modules.anti_raid.alert_channel_id = Some("80".into());
-        let module = AntiRaidModule::default();
+        let module = AntiRaidModule;
         for user_id in [40, 41] {
             module
                 .on_member_join(
@@ -247,6 +247,7 @@ mod tests {
             channel_id: Some(20),
             actor_id: 30,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: "raid-lockdown".into(),
             options: BTreeMap::from([("minutes".into(), CommandValue::Integer(15))]),
         };

@@ -877,6 +877,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-suggestions"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-tickets"
 version = "0.1.0"
 dependencies = [
@@ -1598,6 +1611,7 @@ dependencies = [
  "bot-module-reaction-roles",
  "bot-module-scheduled-messages",
  "bot-module-starboard",
+ "bot-module-suggestions",
  "bot-module-tickets",
  "bot-module-utility",
  "bot-module-welcome",

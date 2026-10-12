@@ -40,6 +40,8 @@ pub struct ModulesConfig {
     pub scheduled_messages: ScheduledMessagesConfig,
     #[serde(default)]
     pub forms: FormsConfig,
+    #[serde(default)]
+    pub suggestions: SuggestionsConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -345,6 +347,19 @@ pub struct FormQuestionConfig {
     pub placeholder: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SuggestionsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub channel_id: Option<String>,
+    #[serde(default)]
+    pub staff_role_ids: Vec<String>,
+    #[serde(default)]
+    pub allow_anonymous: bool,
+    #[serde(default = "default_suggestion_cooldown")]
+    pub cooldown_seconds: u32,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigValidationError {
     #[error("guild_id must be a non-zero Discord snowflake")]
@@ -387,6 +402,8 @@ pub enum ConfigValidationError {
     InvalidScheduledMessages,
     #[error("forms contain invalid IDs, destinations, roles, questions, or field limits")]
     InvalidForms,
+    #[error("suggestions channel, staff roles, or cooldown are invalid")]
+    InvalidSuggestions,
 }
 
 impl GuildConfig {
@@ -679,6 +696,18 @@ impl GuildConfig {
             return Err(ConfigValidationError::InvalidForms);
         }
 
+        let suggestions = &self.modules.suggestions;
+        if (suggestions.enabled
+            && suggestions
+                .channel_id
+                .as_deref()
+                .is_none_or(|id| !valid_snowflake(id)))
+            || invalid_snowflake_list(&suggestions.staff_role_ids, 25)
+            || suggestions.cooldown_seconds > 86_400
+        {
+            return Err(ConfigValidationError::InvalidSuggestions);
+        }
+
         Ok(())
     }
 }
@@ -688,6 +717,21 @@ fn default_form_question_style() -> String {
 }
 fn default_form_max_length() -> u16 {
     300
+}
+const fn default_suggestion_cooldown() -> u32 {
+    300
+}
+
+impl Default for SuggestionsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            channel_id: None,
+            staff_role_ids: Vec::new(),
+            allow_anonymous: false,
+            cooldown_seconds: default_suggestion_cooldown(),
+        }
+    }
 }
 
 impl Default for UtilityConfig {
@@ -957,5 +1001,22 @@ mod tests {
         let duplicate = config.modules.forms.forms[0].questions[0].clone();
         config.modules.forms.forms[0].questions.push(duplicate);
         assert_eq!(config.validate(), Err(ConfigValidationError::InvalidForms));
+    }
+
+    #[test]
+    fn enabled_suggestions_require_a_channel_and_bounded_cooldown() {
+        let mut config = GuildConfig::for_guild("123");
+        config.modules.suggestions.enabled = true;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidSuggestions)
+        );
+        config.modules.suggestions.channel_id = Some("456".into());
+        assert_eq!(config.validate(), Ok(()));
+        config.modules.suggestions.cooldown_seconds = 86_401;
+        assert_eq!(
+            config.validate(),
+            Err(ConfigValidationError::InvalidSuggestions)
+        );
     }
 }

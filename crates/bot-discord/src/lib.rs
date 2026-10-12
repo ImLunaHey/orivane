@@ -16,7 +16,9 @@ use twilight_model::{
     application::interaction::InteractionContextType,
     channel::{
         message::MessageFlags,
-        message::component::{Component, Label, TextInput, TextInputStyle},
+        message::component::{
+            ActionRow, Button, ButtonStyle, Component, Label, TextInput, TextInputStyle,
+        },
         permission_overwrite::{PermissionOverwrite, PermissionOverwriteType},
     },
     guild::Permissions,
@@ -82,6 +84,7 @@ pub struct CommandInteraction {
     pub channel_id: Option<u64>,
     pub actor_id: u64,
     pub actor_role_ids: Vec<u64>,
+    pub actor_permissions: u64,
     pub command_name: String,
     pub options: BTreeMap<String, CommandValue>,
 }
@@ -157,6 +160,31 @@ pub struct ModalSubmitInteraction {
     pub values: BTreeMap<String, String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentInteraction {
+    pub id: u64,
+    pub token: String,
+    pub guild_id: u64,
+    pub actor_id: u64,
+    pub actor_role_ids: Vec<u64>,
+    pub custom_id: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageButtonStyle {
+    Primary,
+    Secondary,
+    Success,
+    Danger,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageButton {
+    pub custom_id: String,
+    pub label: String,
+    pub style: MessageButtonStyle,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct GuildChannel {
     pub id: String,
@@ -224,7 +252,20 @@ pub trait DiscordApi: Send + Sync {
         response: CommandResponse,
     ) -> Result<(), DiscordError>;
 
+    async fn respond_to_component(
+        &self,
+        interaction: &ComponentInteraction,
+        response: CommandResponse,
+    ) -> Result<(), DiscordError>;
+
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError>;
+
+    async fn send_message_with_buttons(
+        &self,
+        channel_id: u64,
+        content: &str,
+        buttons: &[MessageButton],
+    ) -> Result<u64, DiscordError>;
 
     async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError>;
 
@@ -442,6 +483,27 @@ impl DiscordApi for TwilightDiscord {
         Ok(())
     }
 
+    async fn respond_to_component(
+        &self,
+        interaction: &ComponentInteraction,
+        response: CommandResponse,
+    ) -> Result<(), DiscordError> {
+        let mut data = InteractionResponseDataBuilder::new().content(response.content);
+        if response.ephemeral {
+            data = data.flags(MessageFlags::EPHEMERAL);
+        }
+        let response = TwilightInteractionResponse {
+            kind: InteractionResponseType::ChannelMessageWithSource,
+            data: Some(data.build()),
+        };
+        self.http
+            .interaction(self.application_id)
+            .create_response(Id::new(interaction.id), &interaction.token, &response)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError> {
         self.http
             .create_message(Id::<ChannelMarker>::new(channel_id))
@@ -449,6 +511,48 @@ impl DiscordApi for TwilightDiscord {
             .await
             .map_err(request_error)?;
         Ok(())
+    }
+
+    async fn send_message_with_buttons(
+        &self,
+        channel_id: u64,
+        content: &str,
+        buttons: &[MessageButton],
+    ) -> Result<u64, DiscordError> {
+        let components = vec![Component::ActionRow(ActionRow {
+            id: None,
+            components: buttons
+                .iter()
+                .map(|button| {
+                    Component::Button(Button {
+                        id: None,
+                        custom_id: Some(button.custom_id.clone()),
+                        disabled: false,
+                        emoji: None,
+                        label: Some(button.label.clone()),
+                        style: match button.style {
+                            MessageButtonStyle::Primary => ButtonStyle::Primary,
+                            MessageButtonStyle::Secondary => ButtonStyle::Secondary,
+                            MessageButtonStyle::Success => ButtonStyle::Success,
+                            MessageButtonStyle::Danger => ButtonStyle::Danger,
+                        },
+                        url: None,
+                        sku_id: None,
+                    })
+                })
+                .collect(),
+        })];
+        let message = self
+            .http
+            .create_message(Id::<ChannelMarker>::new(channel_id))
+            .content(content)
+            .components(&components)
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(message.id.get())
     }
 
     async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError> {

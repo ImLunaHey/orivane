@@ -19,6 +19,8 @@ const formsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/server
 const formDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId', component: lazyRouteComponent(() => import('./pages/forms'), 'FormDetailPage') })
 const formSubmissionsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId/submissions', component: lazyRouteComponent(() => import('./pages/forms'), 'FormSubmissionsPage') })
 const formSubmissionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/forms/$formId/submissions/$submissionId', component: lazyRouteComponent(() => import('./pages/forms'), 'FormSubmissionPage') })
+const suggestionsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/suggestions', component: lazyRouteComponent(() => import('./pages/suggestions'), 'SuggestionsPage') })
+const suggestionDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/suggestions/$suggestionId', component: lazyRouteComponent(() => import('./pages/suggestions'), 'SuggestionDetailPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -46,6 +48,8 @@ const routeTree = rootRoute.addChildren([
   formDetailRoute,
   formSubmissionsRoute,
   formSubmissionRoute,
+  suggestionsRoute,
+  suggestionDetailRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

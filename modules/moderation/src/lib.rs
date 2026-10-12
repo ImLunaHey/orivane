@@ -269,6 +269,7 @@ mod tests {
             channel_id: Some(30),
             actor_id: 40,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: command.to_owned(),
             options,
         }

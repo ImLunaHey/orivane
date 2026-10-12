@@ -3,7 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use bot_core::GuildConfig;
-use bot_discord::{CommandDefinition, CommandInteraction, DiscordApi, ModalSubmitInteraction};
+use bot_discord::{
+    CommandDefinition, CommandInteraction, ComponentInteraction, DiscordApi, ModalSubmitInteraction,
+};
 
 #[derive(Clone)]
 pub struct ModuleContext {
@@ -67,6 +69,22 @@ pub struct FormSubmissionInput {
     pub answers: Vec<FormAnswerInput>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SuggestionInput {
+    pub guild_id: u64,
+    pub channel_id: u64,
+    pub author_id: Option<u64>,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SuggestionResult {
+    pub id: i64,
+    pub status: String,
+    pub upvotes: u64,
+    pub downvotes: u64,
+}
+
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> Result<i64>;
@@ -109,6 +127,34 @@ pub trait ModuleServices: Send + Sync {
         occurrence_unix: u64,
     ) -> Result<()>;
     async fn create_form_submission(&self, input: FormSubmissionInput) -> Result<i64>;
+    async fn create_suggestion(&self, input: SuggestionInput) -> Result<SuggestionResult>;
+    async fn claim_suggestion_cooldown(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> Result<bool>;
+    async fn set_suggestion_message_id(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        message_id: u64,
+    ) -> Result<()>;
+    async fn vote_suggestion(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        user_id: u64,
+        direction: i8,
+    ) -> Result<Option<SuggestionResult>>;
+    async fn update_suggestion_status(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        actor_id: u64,
+        status: &str,
+        staff_note: Option<&str>,
+    ) -> Result<Option<SuggestionResult>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,6 +261,9 @@ pub trait BotModule: Send + Sync {
     fn handles_modal_submit(&self, _custom_id: &str) -> bool {
         false
     }
+    fn handles_component(&self, _custom_id: &str) -> bool {
+        false
+    }
 
     async fn on_command(
         &self,
@@ -293,6 +342,15 @@ pub trait BotModule: Send + Sync {
         _context: &ModuleContext,
         _config: &GuildConfig,
         _interaction: &ModalSubmitInteraction,
+    ) -> Result<Option<ModuleEventOutcome>> {
+        Ok(None)
+    }
+
+    async fn on_component(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _interaction: &ComponentInteraction,
     ) -> Result<Option<ModuleEventOutcome>> {
         Ok(None)
     }

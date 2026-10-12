@@ -402,6 +402,7 @@ small { font-size: 14px !important; line-height: 1.45; }
 .custom-command-card { padding: 16px; border: 1px solid #34333b; background: #131316; }
 .custom-command-card-head { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #2b2a31; }
 .forms-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.suggestions-page .forms-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .forms-summary .panel { min-height: 100px; padding: 18px; }
 .forms-summary small, .forms-summary strong { display: block; }
 .forms-summary small { color: #9999a3; }
@@ -455,9 +456,30 @@ small { font-size: 14px !important; line-height: 1.45; }
 .page-error details { margin-top: 15px; color: #bdaeb1; }
 .page-error summary { cursor: pointer; font-weight: 700; }
 .page-error code { display: block; margin-top: 8px; overflow-wrap: anywhere; }
+.suggestion-content-cell { min-width: 280px; max-width: 540px; }
+.suggestion-content-cell > strong, .suggestion-content-cell > small { display: block; }
+.suggestion-content-cell > strong { overflow: hidden; color: #eeeef1; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-content-cell > small { margin-top: 7px; color: #aaaab3; font-size: 14px; }
+.suggestion-content-cell .discord-member-link { min-width: 0; }
+.vote-total { display: inline-flex; align-items: center; gap: 7px; color: #d7d7dc; font-size: 15px; }
+.vote-total svg:first-child { color: #75d6aa; }
+.vote-total svg:last-of-type { margin-left: 5px; color: #ef8f99; }
+.suggestion-detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.suggestion-detail-summary .panel { min-height: 98px; padding: 18px; }
+.suggestion-detail-summary small { display: block; color: #aaaab3; font-size: 14px; }
+.suggestion-detail-summary strong { display: flex; align-items: center; gap: 8px; margin-top: 9px; color: #f0f0f2; font-size: 25px; }
+.suggestion-copy { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+.suggestion-copy svg { color: #a78bfa; }
+.suggestion-copy p { margin: 0; color: #e0e0e5; font-size: 17px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.suggestion-metadata dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.suggestion-metadata dl div { min-width: 0; }
+.suggestion-metadata dt { color: #9999a3; font-size: 14px; }
+.suggestion-metadata dd { margin: 5px 0 0; overflow-wrap: anywhere; color: #e0e0e5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+.suggestions-page .analytics-chart-panel { padding: 0; }
+.suggestions-page .metric-chart { padding: 6px 18px 18px; }
 
 @media (max-width: 760px) {
-  .forms-summary { grid-template-columns: 1fr; }
+  .forms-summary, .suggestions-page .forms-summary, .suggestion-detail-summary, .suggestion-metadata dl { grid-template-columns: 1fr; }
   .bottom-save-bar, .question-editor-row > header { align-items: stretch; flex-direction: column; }
   .save-row, .bottom-save-bar .button { width: 100%; }
   .save-row .button { justify-content: center; }

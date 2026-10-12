@@ -108,6 +108,7 @@ mod tests {
             channel_id: Some(300),
             actor_id: 400,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: "ping".into(),
             options: Default::default(),
         };

@@ -13,7 +13,7 @@ use axum::{
 use bot_core::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, FormSubmission, GlobalUser, GuildConfig,
     GuildDashboardStats, GuildMemberSummary, Infrastructure, InfrastructureHealth, ModerationCase,
-    NewAuditEvent, NewModerationCase, UserGuildContext,
+    NewAuditEvent, NewModerationCase, Suggestion, UserGuildContext,
 };
 use bot_discord::{CommandDefinition, DiscordApi, GuildChannel, GuildRole, TwilightDiscord};
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,12 @@ struct DashboardActivity {
     guild_id: Option<String>,
     path: Option<String>,
     export: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateSuggestionStatus {
+    status: String,
+    staff_note: Option<String>,
 }
 
 #[tokio::main]
@@ -118,6 +124,11 @@ async fn main() -> Result<()> {
             get(get_cases).post(create_case),
         )
         .route("/v1/guilds/{guild_id}/cases/{case_id}", get(get_case))
+        .route("/v1/guilds/{guild_id}/suggestions", get(get_suggestions))
+        .route(
+            "/v1/guilds/{guild_id}/suggestions/{suggestion_id}",
+            get(get_suggestion).patch(update_suggestion_status),
+        )
         .route(
             "/v1/guilds/{guild_id}/forms/{form_id}/submissions",
             get(get_form_submissions),
@@ -460,7 +471,7 @@ async fn get_guild_roles(
             )
         })?;
     roles.retain(|role| !role.managed && role.id != guild_id);
-    roles.sort_by(|left, right| right.position.cmp(&left.position));
+    roles.sort_by_key(|role| std::cmp::Reverse(role.position));
     record_read(
         &state,
         Some(&guild_id),
@@ -761,6 +772,115 @@ async fn get_form_submissions(
     Ok(Json(submissions))
 }
 
+async fn get_suggestions(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Suggestion>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let suggestions = state
+        .infrastructure
+        .suggestions(&guild_id, 500)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "suggestions.viewed",
+    )
+    .await;
+    Ok(Json(suggestions))
+}
+
+async fn get_suggestion(
+    State(state): State<AppState>,
+    Path((guild_id, suggestion_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<Json<Suggestion>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    if suggestion_id <= 0 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid suggestion ID".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let suggestion = state
+        .infrastructure
+        .suggestion(&guild_id, suggestion_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "suggestion not found".into()))?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "suggestion.viewed",
+    )
+    .await;
+    Ok(Json(suggestion))
+}
+
+async fn update_suggestion_status(
+    State(state): State<AppState>,
+    Path((guild_id, suggestion_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Json(input): Json<UpdateSuggestionStatus>,
+) -> Result<Json<Suggestion>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    if suggestion_id <= 0
+        || !matches!(
+            input.status.as_str(),
+            "pending" | "approved" | "rejected" | "implemented" | "duplicate"
+        )
+        || input
+            .staff_note
+            .as_ref()
+            .is_some_and(|note| note.chars().count() > 500)
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid suggestion status or staff note".into(),
+        ));
+    }
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let before = state
+        .infrastructure
+        .suggestion(&guild_id, suggestion_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "suggestion not found".into()))?;
+    let mut event = NewAuditEvent::guild(
+        &guild_id,
+        &actor.discord_user_id,
+        "suggestion.status.updated",
+    );
+    event.source = "dashboard_api".into();
+    event.target_type = "suggestion".into();
+    event.target_id = Some(suggestion_id.to_string());
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    event.before_state = Some(serde_json::json!({ "status": before.status }));
+    event.after_state = Some(serde_json::json!({ "status": input.status }));
+    event.metadata = serde_json::json!({ "status": input.status });
+    let suggestion = state
+        .infrastructure
+        .update_suggestion_status_audited(
+            &guild_id,
+            suggestion_id,
+            &input.status,
+            input.staff_note.as_deref(),
+            &event,
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "suggestion not found".into()))?;
+    Ok(Json(suggestion))
+}
+
 async fn get_form_submission(
     State(state): State<AppState>,
     Path((guild_id, form_id, submission_id)): Path<(String, String, i64)>,
@@ -835,6 +955,8 @@ async fn record_read(
         "moderation_case"
     } else if action.starts_with("forms.") {
         "form_submission"
+    } else if action.starts_with("suggestion") {
+        "suggestion"
     } else if action.starts_with("fleet") {
         "guild_fleet"
     } else if action.starts_with("analytics") {

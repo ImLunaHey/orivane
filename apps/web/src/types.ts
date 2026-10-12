@@ -52,6 +52,7 @@ export type GuildConfig = {
     anti_raid: { enabled: boolean; join_threshold: number; join_window_seconds: number; minimum_account_age_days: number; require_avatar: boolean; punish_all_during_raid: boolean; action: 'log' | 'quarantine' | 'timeout' | 'kick' | 'ban'; timeout_seconds: number; quarantine_role_id: string | null; alert_channel_id: string | null }
     scheduled_messages: { enabled: boolean; schedules: ScheduledMessage[] }
     forms: { enabled: boolean; forms: ServerForm[] }
+    suggestions: { enabled: boolean; channel_id: string | null; staff_role_ids: string[]; allow_anonymous: boolean; cooldown_seconds: number }
   }
 }
 
@@ -62,6 +63,8 @@ export type FormQuestion = { id: string; label: string; style: 'short' | 'paragr
 export type ServerForm = { enabled: boolean; id: string; name: string; description: string; destination_channel_id: string; allowed_role_ids: string[]; anonymous: boolean; questions: FormQuestion[] }
 export type FormSubmissionAnswer = { question_id: string; label: string; answer: string }
 export type FormSubmission = { id: number; guild_id: string; form_id: string; submitter_id: string | null; username: string | null; display_name: string | null; answers: FormSubmissionAnswer[]; created_at: string }
+export type SuggestionStatus = 'pending' | 'approved' | 'rejected' | 'implemented' | 'duplicate'
+export type Suggestion = { id: number; guild_id: string; channel_id: string; message_id: string | null; author_id: string | null; username: string | null; display_name: string | null; content: string; status: SuggestionStatus; staff_note: string | null; upvotes: number; downvotes: number; created_at: string; updated_at: string }
 
 export type CustomCommand = {
   enabled: boolean

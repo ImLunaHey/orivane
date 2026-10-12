@@ -4,6 +4,7 @@ mod config;
 mod fleet;
 mod forms;
 mod store;
+mod suggestions;
 
 pub use audit::{AuditEvent, NewAuditEvent};
 pub use cases::{ModerationCase, NewModerationCase};
@@ -12,7 +13,7 @@ pub use config::{
     CustomCommandConfig, CustomCommandsConfig, FormConfig, FormQuestionConfig, FormsConfig,
     GuildConfig, LevelingConfig, LoggingConfig, ModerationConfig, ModulesConfig,
     ReactionRoleBinding, ReactionRolesConfig, ScheduledMessageConfig, ScheduledMessagesConfig,
-    StarboardConfig, TicketsConfig, UtilityConfig, WelcomeConfig,
+    StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig, WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
@@ -20,3 +21,4 @@ pub use fleet::{
 };
 pub use forms::{FormSubmission, NewFormSubmission};
 pub use store::{Infrastructure, StoreError, level_for_xp};
+pub use suggestions::{NewSuggestion, Suggestion};

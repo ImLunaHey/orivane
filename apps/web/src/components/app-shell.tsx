@@ -164,6 +164,8 @@ function pageTitle(pathname: string) {
   if (pathname.endsWith('/submissions')) return 'Form submissions'
   if (/\/modules\/forms\/[^/]+$/.test(pathname)) return 'Form settings'
   if (pathname.endsWith('/modules/forms')) return 'Forms'
+  if (/\/modules\/suggestions\/[^/]+$/.test(pathname)) return 'Suggestion details'
+  if (pathname.endsWith('/modules/suggestions')) return 'Suggestions'
   if (/\/moderation\/[^/]+$/.test(pathname)) return 'Moderation case details'
   if (pathname.includes('/members/')) return 'Member details'
   if (pathname.includes('/analytics/')) return 'Analytics report'

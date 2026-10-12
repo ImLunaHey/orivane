@@ -295,6 +295,7 @@ mod tests {
             channel_id: Some(11),
             actor_id: 40,
             actor_role_ids: vec![30],
+            actor_permissions: u64::MAX,
             command_name: "form".into(),
             options: BTreeMap::from([("name".into(), CommandValue::String("apply".into()))]),
         };
@@ -357,6 +358,7 @@ mod tests {
             channel_id: None,
             actor_id: 40,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: "form".into(),
             options: BTreeMap::from([("name".into(), CommandValue::String("apply".into()))]),
         };

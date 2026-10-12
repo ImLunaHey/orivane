@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, FormSubmission, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewModerationCase } from '../types'
+import type { AuditEvent, FormSubmission, GuildChannel, GuildConfig, GuildRole, ModerationCase, NewModerationCase, Suggestion, SuggestionStatus } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -105,6 +105,45 @@ export async function getFormSubmission(guildId: string, formId: string, submiss
     return submission
   }
   return request<FormSubmission>(`/v1/guilds/${guildId}/forms/${encodeURIComponent(formId)}/submissions/${submissionId}`)
+}
+
+const starterSuggestions: Suggestion[] = [
+  { id: 3, guild_id: demoGuildId, channel_id: '100000000000000003', message_id: '200000000000000003', author_id: '118742006320914432', username: 'silver.arc', display_name: 'Silver', content: 'Add a monthly community showcase for member projects.', status: 'pending', staff_note: null, upvotes: 18, downvotes: 2, created_at: '2026-10-12T14:42:00Z', updated_at: '2026-10-12T14:42:00Z' },
+  { id: 2, guild_id: demoGuildId, channel_id: '100000000000000003', message_id: '200000000000000002', author_id: null, username: null, display_name: null, content: 'Create a read-only channel for release notes.', status: 'approved', staff_note: 'Staff will include this in the next channel cleanup.', upvotes: 31, downvotes: 1, created_at: '2026-10-11T09:16:00Z', updated_at: '2026-10-12T10:05:00Z' },
+  { id: 1, guild_id: demoGuildId, channel_id: '100000000000000003', message_id: '200000000000000001', author_id: '227843117431025543', username: 'northstar', display_name: 'Northstar', content: 'Run a weekly game night poll.', status: 'implemented', staff_note: 'Added to the events calendar.', upvotes: 24, downvotes: 4, created_at: '2026-10-08T18:30:00Z', updated_at: '2026-10-10T12:00:00Z' },
+]
+
+const suggestionKey = (guildId: string) => `orivane:suggestions:${guildId}`
+function demoSuggestions(guildId: string): Suggestion[] {
+  const saved = localStorage.getItem(suggestionKey(guildId))
+  return saved ? JSON.parse(saved) as Suggestion[] : starterSuggestions.map((item) => ({ ...item, guild_id: guildId }))
+}
+
+export async function getSuggestions(guildId: string): Promise<Suggestion[]> {
+  if (isDemoMode) return demoSuggestions(guildId)
+  return request<Suggestion[]>(`/v1/guilds/${guildId}/suggestions`)
+}
+
+export async function getSuggestion(guildId: string, suggestionId: string): Promise<Suggestion> {
+  if (isDemoMode) {
+    const item = demoSuggestions(guildId).find((suggestion) => String(suggestion.id) === suggestionId)
+    if (!item) throw new Error('Suggestion not found')
+    return item
+  }
+  return request<Suggestion>(`/v1/guilds/${guildId}/suggestions/${suggestionId}`)
+}
+
+export async function updateSuggestionStatus(input: { guildId: string; suggestionId: string; status: SuggestionStatus; staff_note: string | null }): Promise<Suggestion> {
+  if (isDemoMode) {
+    const suggestions = demoSuggestions(input.guildId)
+    const before = suggestions.find((item) => String(item.id) === input.suggestionId)
+    if (!before) throw new Error('Suggestion not found')
+    const updated = { ...before, status: input.status, staff_note: input.staff_note, updated_at: new Date().toISOString() }
+    localStorage.setItem(suggestionKey(input.guildId), JSON.stringify(suggestions.map((item) => item.id === updated.id ? updated : item)))
+    appendDemoAuditEvent({ id: Date.now(), occurred_at: updated.updated_at, scope: 'guild', guild_id: input.guildId, actor_id: demoActorId, actor_kind: 'user', action: 'suggestion.status.updated', target_type: 'suggestion', target_id: input.suggestionId, outcome: 'success', source: 'dashboard_api', request_id: `demo_${Date.now()}`, reason: null, metadata: { status: input.status, has_staff_note: Boolean(input.staff_note) }, before_state: { status: before.status }, after_state: { status: updated.status } })
+    return updated
+  }
+  return request<Suggestion>(`/v1/guilds/${input.guildId}/suggestions/${input.suggestionId}`, { method: 'PATCH', body: JSON.stringify({ status: input.status, staff_note: input.staff_note }) })
 }
 
 export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {

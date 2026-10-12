@@ -73,6 +73,7 @@ export const defaultConfig: GuildConfig = {
         }],
       }],
     },
+    suggestions: { enabled: false, channel_id: '100000000000000003', staff_role_ids: [], allow_anonymous: true, cooldown_seconds: 300 },
   },
 }
 

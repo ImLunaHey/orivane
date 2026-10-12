@@ -238,6 +238,7 @@ mod tests {
             channel_id: Some(20),
             actor_id: 30,
             actor_role_ids: vec![40],
+            actor_permissions: u64::MAX,
             command_name: "role".into(),
             options: BTreeMap::from([("role".into(), CommandValue::Role(41))]),
         };

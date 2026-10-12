@@ -26,6 +26,7 @@ bot-module-autoresponder.workspace = true
 bot-module-anti-raid.workspace = true
 bot-module-scheduled-messages.workspace = true
 bot-module-forms.workspace = true
+bot-module-suggestions.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

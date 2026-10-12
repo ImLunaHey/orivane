@@ -28,6 +28,7 @@ Reference feature sets:
 | Anti-raid | Live | Sliding join-burst detection, account-age and avatar risk signals, alert-only/quarantine/timeout/kick/ban actions, optional all-join containment, staff alerts | Discord CAPTCHA remains native-only; persistent cross-worker windows and invite-pattern analysis are future depth |
 | Scheduled messages | Live | Recurring channel posts, local-time editor, optional end date, fleet-wide PostgreSQL deduplication, retry after delivery failure and audit records | Calendar/weekday expressions, rich embeds and one-time schedules are future depth |
 | Forms | Live | Native Discord modals, five configurable fields, role access, anonymous mode, Discord delivery, durable submission inbox and answer detail pages | Branching questions, approval workflows, exports and configurable retention |
+| Suggestions | Live | `/suggest`, anonymous mode, durable per-user cooldowns, persistent up/down votes, staff-role workflow, five statuses, notes, list/detail dashboard and vote/status analytics | Discord post status updates, threads and configurable vote emojis |
 
 ## Popular-bot areas not yet implemented
 
@@ -35,7 +36,6 @@ These are not represented as fake or configuration-only cards in the dashboard.
 
 | Capability family | Seen in | Orivane status |
 | --- | --- | --- |
-| Suggestions and voting | Carl-bot and similar community bots | Not built |
 | Giveaways | Dyno and MEE6-class bots | Not built |
 | Reminders | Dyno and similar bots | Not built |
 | Auto-delete and scheduled purge | Dyno | Not built |

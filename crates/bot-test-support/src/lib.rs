@@ -5,12 +5,13 @@ use std::{
 
 use async_trait::async_trait;
 use bot_discord::{
-    CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
-    GuildRole, MessageReactionSummary, ModalDefinition, ModalSubmitInteraction,
+    CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
+    DiscordError, GuildChannel, GuildRole, MessageButton, MessageReactionSummary, ModalDefinition,
+    ModalSubmitInteraction,
 };
 use bot_module_api::{
-    FormSubmissionInput, ModerationCaseInput, ModuleServices, TicketRecordInput, XpAwardInput,
-    XpAwardResult, XpProfile,
+    FormSubmissionInput, ModerationCaseInput, ModuleServices, SuggestionInput, SuggestionResult,
+    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,9 +31,18 @@ pub enum DiscordCall {
         interaction_id: u64,
         response: CommandResponse,
     },
+    RespondToComponent {
+        interaction_id: u64,
+        response: CommandResponse,
+    },
     SendMessage {
         channel_id: u64,
         content: String,
+    },
+    SendMessageWithButtons {
+        channel_id: u64,
+        content: String,
+        buttons: Vec<MessageButton>,
     },
     SendDirectMessage {
         user_id: u64,
@@ -154,6 +164,30 @@ pub enum ServiceCall {
         occurrence_unix: u64,
     },
     CreateFormSubmission(FormSubmissionInput),
+    CreateSuggestion(SuggestionInput),
+    ClaimSuggestionCooldown {
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    },
+    SetSuggestionMessageId {
+        guild_id: u64,
+        suggestion_id: i64,
+        message_id: u64,
+    },
+    VoteSuggestion {
+        guild_id: u64,
+        suggestion_id: i64,
+        user_id: u64,
+        direction: i8,
+    },
+    UpdateSuggestionStatus {
+        guild_id: u64,
+        suggestion_id: i64,
+        actor_id: u64,
+        status: String,
+        staff_note: Option<String>,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -172,6 +206,101 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn claim_suggestion_cooldown(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimSuggestionCooldown {
+                guild_id,
+                user_id,
+                cooldown_seconds,
+            });
+        Ok(true)
+    }
+
+    async fn create_suggestion(&self, input: SuggestionInput) -> anyhow::Result<SuggestionResult> {
+        let mut calls = self.calls.lock().expect("fake lock poisoned");
+        calls.push(ServiceCall::CreateSuggestion(input));
+        Ok(SuggestionResult {
+            id: i64::try_from(calls.len()).unwrap_or(i64::MAX),
+            status: "pending".into(),
+            upvotes: 0,
+            downvotes: 0,
+        })
+    }
+
+    async fn set_suggestion_message_id(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        message_id: u64,
+    ) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::SetSuggestionMessageId {
+                guild_id,
+                suggestion_id,
+                message_id,
+            });
+        Ok(())
+    }
+
+    async fn vote_suggestion(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        user_id: u64,
+        direction: i8,
+    ) -> anyhow::Result<Option<SuggestionResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::VoteSuggestion {
+                guild_id,
+                suggestion_id,
+                user_id,
+                direction,
+            });
+        Ok(Some(SuggestionResult {
+            id: suggestion_id,
+            status: "pending".into(),
+            upvotes: u64::from(direction == 1),
+            downvotes: u64::from(direction == -1),
+        }))
+    }
+
+    async fn update_suggestion_status(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        actor_id: u64,
+        status: &str,
+        staff_note: Option<&str>,
+    ) -> anyhow::Result<Option<SuggestionResult>> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::UpdateSuggestionStatus {
+                guild_id,
+                suggestion_id,
+                actor_id,
+                status: status.into(),
+                staff_note: staff_note.map(str::to_owned),
+            });
+        Ok(Some(SuggestionResult {
+            id: suggestion_id,
+            status: status.into(),
+            upvotes: 0,
+            downvotes: 0,
+        }))
+    }
+
     async fn create_moderation_case(&self, input: ModerationCaseInput) -> anyhow::Result<i64> {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
         calls.push(ServiceCall::CreateModerationCase(input));
@@ -396,6 +525,7 @@ struct FakeState {
     guild_channels: Vec<GuildChannel>,
     guild_roles: Vec<GuildRole>,
     next_channel_id: u64,
+    next_message_id: u64,
     message_reaction_summary: MessageReactionSummary,
 }
 
@@ -436,6 +566,13 @@ impl FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .next_channel_id = channel_id;
+    }
+
+    pub fn set_next_message_id(&self, message_id: u64) {
+        self.state
+            .lock()
+            .expect("fake lock poisoned")
+            .next_message_id = message_id;
     }
 
     pub fn set_message_reaction_summary(&self, summary: MessageReactionSummary) {
@@ -496,11 +633,40 @@ impl DiscordApi for FakeDiscord {
         })
     }
 
+    async fn respond_to_component(
+        &self,
+        interaction: &ComponentInteraction,
+        response: CommandResponse,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::RespondToComponent {
+            interaction_id: interaction.id,
+            response,
+        })
+    }
+
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError> {
         self.record(DiscordCall::SendMessage {
             channel_id,
             content: content.to_owned(),
         })
+    }
+
+    async fn send_message_with_buttons(
+        &self,
+        channel_id: u64,
+        content: &str,
+        buttons: &[MessageButton],
+    ) -> Result<u64, DiscordError> {
+        self.record(DiscordCall::SendMessageWithButtons {
+            channel_id,
+            content: content.to_owned(),
+            buttons: buttons.to_vec(),
+        })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .next_message_id)
     }
 
     async fn send_direct_message(&self, user_id: u64, content: &str) -> Result<(), DiscordError> {
@@ -692,6 +858,7 @@ mod tests {
             channel_id: Some(3),
             actor_id: 4,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: "ping".to_owned(),
             options: Default::default(),
         };

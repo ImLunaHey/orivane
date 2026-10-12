@@ -8,7 +8,7 @@ use crate::{
     AuditEvent, CommandVolumeBucket, ConnectedGuild, DependencyHealth, FormSubmission, GlobalUser,
     GuildConfig, GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward,
     MemberXpProfile, ModerationCase, NewAuditEvent, NewFormSubmission, NewModerationCase,
-    UserGuildContext, config::ConfigValidationError,
+    NewSuggestion, Suggestion, UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -34,6 +34,165 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn create_suggestion(&self, input: &NewSuggestion) -> Result<Suggestion, StoreError> {
+        sqlx::query_as::<_, Suggestion>(
+            "WITH inserted AS ( \
+               INSERT INTO suggestions (guild_id, channel_id, author_id, content) \
+               VALUES ($1, $2, $3, $4) RETURNING * \
+             ) SELECT i.id, i.guild_id, i.channel_id, i.message_id, i.author_id, \
+                      d.username, d.display_name, i.content, i.status, i.staff_note, \
+                      0::bigint AS upvotes, 0::bigint AS downvotes, i.created_at, i.updated_at \
+               FROM inserted i LEFT JOIN discord_identities d ON d.user_id = i.author_id",
+        )
+        .bind(&input.guild_id)
+        .bind(&input.channel_id)
+        .bind(&input.author_id)
+        .bind(input.content.trim())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn claim_suggestion_cooldown(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        cooldown_seconds: u32,
+    ) -> Result<bool, StoreError> {
+        if cooldown_seconds == 0 {
+            return Ok(true);
+        }
+        let mut cache = self.redis.clone();
+        let acquired: Option<String> = redis::cmd("SET")
+            .arg(format!("suggestion-cooldown:{guild_id}:{user_id}"))
+            .arg("1")
+            .arg("EX")
+            .arg(cooldown_seconds)
+            .arg("NX")
+            .query_async(&mut cache)
+            .await?;
+        Ok(acquired.is_some())
+    }
+
+    pub async fn set_suggestion_message_id(
+        &self,
+        guild_id: &str,
+        suggestion_id: i64,
+        message_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE suggestions SET message_id = $3, updated_at = now() WHERE guild_id = $1 AND id = $2",
+        )
+        .bind(guild_id)
+        .bind(suggestion_id)
+        .bind(message_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn vote_suggestion(
+        &self,
+        guild_id: &str,
+        suggestion_id: i64,
+        user_id: &str,
+        direction: i16,
+    ) -> Result<Option<Suggestion>, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let pending: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM suggestions WHERE guild_id = $1 AND id = $2 AND status = 'pending')",
+        )
+        .bind(guild_id)
+        .bind(suggestion_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !pending {
+            transaction.rollback().await?;
+            return Ok(None);
+        }
+        sqlx::query(
+            "INSERT INTO suggestion_votes (suggestion_id, user_id, direction) VALUES ($1, $2, $3) \
+             ON CONFLICT (suggestion_id, user_id) DO UPDATE SET direction = EXCLUDED.direction, updated_at = now()",
+        )
+        .bind(suggestion_id)
+        .bind(user_id)
+        .bind(direction)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        self.suggestion(guild_id, suggestion_id).await
+    }
+
+    pub async fn suggestions(
+        &self,
+        guild_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Suggestion>, StoreError> {
+        sqlx::query_as::<_, Suggestion>(
+            "SELECT s.id, s.guild_id, s.channel_id, s.message_id, s.author_id, d.username, d.display_name, \
+                    s.content, s.status, s.staff_note, \
+                    count(v.user_id) FILTER (WHERE v.direction = 1) AS upvotes, \
+                    count(v.user_id) FILTER (WHERE v.direction = -1) AS downvotes, s.created_at, s.updated_at \
+             FROM suggestions s LEFT JOIN discord_identities d ON d.user_id = s.author_id \
+             LEFT JOIN suggestion_votes v ON v.suggestion_id = s.id WHERE s.guild_id = $1 \
+             GROUP BY s.id, d.username, d.display_name ORDER BY s.id DESC LIMIT $2",
+        )
+        .bind(guild_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn suggestion(
+        &self,
+        guild_id: &str,
+        suggestion_id: i64,
+    ) -> Result<Option<Suggestion>, StoreError> {
+        sqlx::query_as::<_, Suggestion>(
+            "SELECT s.id, s.guild_id, s.channel_id, s.message_id, s.author_id, d.username, d.display_name, \
+                    s.content, s.status, s.staff_note, \
+                    count(v.user_id) FILTER (WHERE v.direction = 1) AS upvotes, \
+                    count(v.user_id) FILTER (WHERE v.direction = -1) AS downvotes, s.created_at, s.updated_at \
+             FROM suggestions s LEFT JOIN discord_identities d ON d.user_id = s.author_id \
+             LEFT JOIN suggestion_votes v ON v.suggestion_id = s.id \
+             WHERE s.guild_id = $1 AND s.id = $2 GROUP BY s.id, d.username, d.display_name",
+        )
+        .bind(guild_id)
+        .bind(suggestion_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    pub async fn update_suggestion_status_audited(
+        &self,
+        guild_id: &str,
+        suggestion_id: i64,
+        status: &str,
+        staff_note: Option<&str>,
+        event: &NewAuditEvent,
+    ) -> Result<Option<Suggestion>, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let updated = sqlx::query_scalar::<_, i64>(
+            "UPDATE suggestions SET status = $3, staff_note = $4, updated_at = now() \
+             WHERE guild_id = $1 AND id = $2 RETURNING id",
+        )
+        .bind(guild_id)
+        .bind(suggestion_id)
+        .bind(status)
+        .bind(staff_note)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if updated.is_none() {
+            transaction.rollback().await?;
+            return Ok(None);
+        }
+        insert_audit_event(&mut transaction, event).await?;
+        transaction.commit().await?;
+        self.suggestion(guild_id, suggestion_id).await
+    }
+
     pub async fn create_form_submission(
         &self,
         input: &NewFormSubmission,

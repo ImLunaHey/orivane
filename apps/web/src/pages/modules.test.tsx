@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(15)
+    expect(screen.getAllByText('Live')).toHaveLength(16)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -204,6 +204,29 @@ describe('module configuration pages', () => {
     await screen.findByRole('heading', { name: 'Submitted answers' })
     expect(screen.getByText('I have moderated community servers for several years.')).toBeVisible()
     expect(screen.getByRole('link', { name: /Silver.*@silver\.arc/ })).toHaveAttribute('href', `/servers/${serverId}/members/118742006320914432`)
+  })
+
+  it('configures suggestions and manages a proposal on its own details page', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/suggestions`)
+    await screen.findByRole('heading', { name: 'Suggestions' })
+    expect(await screen.findByRole('heading', { name: 'Current suggestions' })).toBeVisible()
+    expect(screen.getByLabelText('Number of suggestions grouped by workflow status')).toBeVisible()
+    expect(screen.getAllByRole('link', { name: 'Inspect' })).toHaveLength(3)
+    fireEvent.change(screen.getByLabelText(/^Submission cooldown/), { target: { value: '120' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Suggestions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Saved')
+
+    await navigateTo(`/servers/${serverId}/modules/suggestions/3`)
+    await screen.findByRole('heading', { name: 'Review suggestion' })
+    expect(screen.getByText('Add a monthly community showcase for member projects.')).toBeVisible()
+    expect(screen.getByRole('link', { name: /Silver.*@silver\.arc/ })).toHaveAttribute('href', `/servers/${serverId}/members/118742006320914432`)
+    fireEvent.change(screen.getByLabelText(/^Status/), { target: { value: 'approved' } })
+    fireEvent.change(screen.getByLabelText(/^Staff note/), { target: { value: 'Added to the roadmap.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save decision' }))
+    await screen.findByText('Saved')
+    expect(JSON.parse(localStorage.getItem(`orivane:suggestions:${serverId}`) ?? '[]')[0]).toMatchObject({ status: 'approved', staff_note: 'Added to the roadmap.' })
   })
 
   it('operates the responsive navigation, server menu, account menu, and command palette', async () => {

@@ -234,6 +234,7 @@ mod tests {
             channel_id: Some(20),
             actor_id: 40,
             actor_role_ids: vec![],
+            actor_permissions: u64::MAX,
             command_name: "rank".to_owned(),
             options: Default::default(),
         };

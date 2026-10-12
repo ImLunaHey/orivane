@@ -7,16 +7,19 @@ use std::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use bot_core::{Infrastructure, NewAuditEvent, NewFormSubmission, NewModerationCase, level_for_xp};
+use bot_core::{
+    Infrastructure, NewAuditEvent, NewFormSubmission, NewModerationCase, NewSuggestion, Suggestion,
+    level_for_xp,
+};
 use bot_discord::{
-    CommandDefinition, CommandInteraction, CommandResponse, CommandValue, DiscordApi,
-    ModalSubmitInteraction, TwilightDiscord,
+    CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
+    DiscordApi, ModalSubmitInteraction, TwilightDiscord,
 };
 use bot_module_anti_raid::AntiRaidModule;
 use bot_module_api::{
     AuditNotice, BotModule, FormSubmissionInput, MemberJoin, MemberLeave, MessageCreate,
     ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd, ScheduledTick,
-    TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    SuggestionInput, SuggestionResult, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autoresponder::AutoresponderModule;
@@ -29,6 +32,7 @@ use bot_module_moderation::ModerationModule;
 use bot_module_reaction_roles::ReactionRolesModule;
 use bot_module_scheduled_messages::ScheduledMessagesModule;
 use bot_module_starboard::StarboardModule;
+use bot_module_suggestions::SuggestionsModule;
 use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
 use bot_module_welcome::WelcomeModule;
@@ -48,6 +52,102 @@ struct GatewayModuleServices {
 
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn claim_suggestion_cooldown(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .claim_suggestion_cooldown(
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                cooldown_seconds,
+            )
+            .await?)
+    }
+
+    async fn create_suggestion(&self, input: SuggestionInput) -> Result<SuggestionResult> {
+        let suggestion = self
+            .infrastructure
+            .create_suggestion(&NewSuggestion {
+                guild_id: input.guild_id.to_string(),
+                channel_id: input.channel_id.to_string(),
+                author_id: input.author_id.map(|id| id.to_string()),
+                content: input.content,
+            })
+            .await?;
+        Ok(suggestion_result(&suggestion))
+    }
+
+    async fn set_suggestion_message_id(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        message_id: u64,
+    ) -> Result<()> {
+        self.infrastructure
+            .set_suggestion_message_id(
+                &guild_id.to_string(),
+                suggestion_id,
+                &message_id.to_string(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn vote_suggestion(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        user_id: u64,
+        direction: i8,
+    ) -> Result<Option<SuggestionResult>> {
+        Ok(self
+            .infrastructure
+            .vote_suggestion(
+                &guild_id.to_string(),
+                suggestion_id,
+                &user_id.to_string(),
+                i16::from(direction),
+            )
+            .await?
+            .as_ref()
+            .map(suggestion_result))
+    }
+
+    async fn update_suggestion_status(
+        &self,
+        guild_id: u64,
+        suggestion_id: i64,
+        actor_id: u64,
+        status: &str,
+        staff_note: Option<&str>,
+    ) -> Result<Option<SuggestionResult>> {
+        let mut audit = NewAuditEvent::guild(
+            guild_id.to_string(),
+            actor_id.to_string(),
+            "suggestion.status.updated",
+        );
+        audit.source = "discord_gateway".into();
+        audit.target_type = "suggestion".into();
+        audit.target_id = Some(suggestion_id.to_string());
+        audit.metadata = serde_json::json!({ "status": status });
+        Ok(self
+            .infrastructure
+            .update_suggestion_status_audited(
+                &guild_id.to_string(),
+                suggestion_id,
+                status,
+                staff_note,
+                &audit,
+            )
+            .await?
+            .as_ref()
+            .map(suggestion_result))
+    }
+
     async fn create_form_submission(&self, input: FormSubmissionInput) -> Result<i64> {
         let answers = serde_json::to_value(
             input
@@ -268,6 +368,15 @@ impl ModuleServices for GatewayModuleServices {
     }
 }
 
+fn suggestion_result(suggestion: &Suggestion) -> SuggestionResult {
+    SuggestionResult {
+        id: suggestion.id,
+        status: suggestion.status.clone(),
+        upvotes: u64::try_from(suggestion.upvotes).unwrap_or_default(),
+        downvotes: u64::try_from(suggestion.downvotes).unwrap_or_default(),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
@@ -288,9 +397,10 @@ async fn main() -> Result<()> {
         Arc::new(CustomCommandsModule),
         Arc::new(ReactionRolesModule),
         Arc::new(AutoresponderModule),
-        Arc::new(AntiRaidModule::default()),
+        Arc::new(AntiRaidModule),
         Arc::new(ScheduledMessagesModule),
         Arc::new(FormsModule),
+        Arc::new(SuggestionsModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -692,6 +802,100 @@ async fn main() -> Result<()> {
                         tracing::warn!(user_id = %author.id, %error, "could not refresh interaction identity");
                     }
                 }
+                if let Some(InteractionData::MessageComponent(component)) =
+                    interaction.data.as_ref()
+                {
+                    let Some(guild_id) = interaction.guild_id else {
+                        continue;
+                    };
+                    let config = match infrastructure.guild_config(&guild_id.to_string()).await {
+                        Ok(config) => config,
+                        Err(error) => {
+                            tracing::error!(%guild_id, %error, "could not load guild configuration for component");
+                            continue;
+                        }
+                    };
+                    let actor_id = interaction
+                        .author_id()
+                        .map(|id| id.get())
+                        .unwrap_or_default();
+                    let component_interaction = ComponentInteraction {
+                        id: interaction.id.get(),
+                        token: interaction.token.clone(),
+                        guild_id: guild_id.get(),
+                        actor_id,
+                        actor_role_ids: interaction
+                            .member
+                            .as_ref()
+                            .map(|member| member.roles.iter().map(|role| role.get()).collect())
+                            .unwrap_or_default(),
+                        custom_id: component.custom_id.clone(),
+                    };
+                    for module in modules
+                        .iter()
+                        .filter(|module| module.handles_component(&component.custom_id))
+                    {
+                        let module_enabled = module.enabled(&config);
+                        let result = if module_enabled {
+                            module
+                                .on_component(&context, &config, &component_interaction)
+                                .await
+                        } else {
+                            context
+                                .discord
+                                .respond_to_component(
+                                    &component_interaction,
+                                    CommandResponse::ephemeral(format!(
+                                        "The {} module is disabled in this server.",
+                                        module.name()
+                                    )),
+                                )
+                                .await
+                                .map_err(anyhow::Error::from)
+                                .map(|()| None)
+                        };
+                        if let Err(error) = &result {
+                            tracing::error!(module = module.name(), %error, "component interaction failed");
+                            if let Err(response_error) = context
+                                .discord
+                                .respond_to_component(
+                                    &component_interaction,
+                                    CommandResponse::ephemeral(
+                                        "That action could not be completed. Please try again.",
+                                    ),
+                                )
+                                .await
+                            {
+                                tracing::error!(%response_error, "failed to acknowledge component failure");
+                            }
+                        }
+                        let outcome = result.as_ref().ok().and_then(|value| value.as_ref());
+                        let mut audit = NewAuditEvent::guild(
+                            guild_id.to_string(),
+                            actor_id.to_string(),
+                            outcome.map_or_else(
+                                || format!("module.{}.component", module.name()),
+                                |value| value.action.clone(),
+                            ),
+                        );
+                        audit.source = "discord_gateway".into();
+                        audit.target_type = outcome
+                            .map_or_else(|| "component".into(), |value| value.target_type.clone());
+                        audit.target_id = outcome.and_then(|value| value.target_id.clone());
+                        audit.metadata = serde_json::json!({ "module": module.name(), "interaction_id": component_interaction.id.to_string() });
+                        if !module_enabled {
+                            audit.outcome = "denied".into();
+                        }
+                        if let Err(error) = &result {
+                            audit.outcome = "failure".into();
+                            audit.reason = Some(error.to_string());
+                        }
+                        if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                            tracing::error!(%error, "failed to persist component audit event");
+                        }
+                    }
+                    continue;
+                }
                 if let Some(InteractionData::ModalSubmit(modal)) = interaction.data.as_ref() {
                     let Some(guild_id) = interaction.guild_id else {
                         continue;
@@ -837,6 +1041,12 @@ async fn main() -> Result<()> {
                             .member
                             .as_ref()
                             .map(|member| member.roles.iter().map(|role| role.get()).collect())
+                            .unwrap_or_default(),
+                        actor_permissions: interaction
+                            .member
+                            .as_ref()
+                            .and_then(|member| member.permissions)
+                            .map(|permissions| permissions.bits())
                             .unwrap_or_default(),
                         command_name: command.name.clone(),
                         options: command_options(&command.options),
