@@ -42,11 +42,17 @@ export type GuildConfig = {
       enabled: boolean
       channel_id: string | null
       message: string
+      additional_messages: string[]
+      embed_enabled: boolean
+      embed_title: string
+      embed_color: number
+      image_url: string
       dm_enabled: boolean
       dm_message: string
       goodbye_enabled: boolean
       goodbye_channel_id: string | null
       goodbye_message: string
+      goodbye_additional_messages: string[]
     }
     logging: LoggingConfig
     utility: { enabled: boolean; ephemeral_responses: boolean }

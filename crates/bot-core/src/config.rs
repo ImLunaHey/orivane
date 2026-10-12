@@ -438,6 +438,16 @@ pub struct WelcomeConfig {
     #[serde(default = "default_welcome_message")]
     pub message: String,
     #[serde(default)]
+    pub additional_messages: Vec<String>,
+    #[serde(default)]
+    pub embed_enabled: bool,
+    #[serde(default)]
+    pub embed_title: String,
+    #[serde(default)]
+    pub embed_color: u32,
+    #[serde(default)]
+    pub image_url: String,
+    #[serde(default)]
     pub dm_enabled: bool,
     #[serde(default = "default_welcome_dm_message")]
     pub dm_message: String,
@@ -446,6 +456,8 @@ pub struct WelcomeConfig {
     pub goodbye_channel_id: Option<String>,
     #[serde(default = "default_goodbye_message")]
     pub goodbye_message: String,
+    #[serde(default)]
+    pub goodbye_additional_messages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1212,7 +1224,27 @@ impl GuildConfig {
             return Err(ConfigValidationError::MissingWelcomeChannel);
         }
         if self.modules.welcome.dm_message.chars().count() > 2_000
+            || self.modules.welcome.message.chars().count() > 2_000
+            || self.modules.welcome.additional_messages.len() > 20
+            || self
+                .modules
+                .welcome
+                .additional_messages
+                .iter()
+                .any(|message| message.trim().is_empty() || message.chars().count() > 2_000)
+            || self.modules.welcome.embed_title.chars().count() > 256
+            || self.modules.welcome.embed_color > 0x00ff_ffff
+            || (!self.modules.welcome.image_url.is_empty()
+                && !(self.modules.welcome.image_url.starts_with("https://")
+                    || self.modules.welcome.image_url.starts_with("http://")))
             || self.modules.welcome.goodbye_message.chars().count() > 2_000
+            || self.modules.welcome.goodbye_additional_messages.len() > 20
+            || self
+                .modules
+                .welcome
+                .goodbye_additional_messages
+                .iter()
+                .any(|message| message.trim().is_empty() || message.chars().count() > 2_000)
             || (self.modules.welcome.goodbye_enabled
                 && self
                     .modules
@@ -1849,11 +1881,17 @@ impl Default for WelcomeConfig {
             enabled: false,
             channel_id: None,
             message: default_welcome_message(),
+            additional_messages: Vec::new(),
+            embed_enabled: false,
+            embed_title: String::new(),
+            embed_color: 0,
+            image_url: String::new(),
             dm_enabled: false,
             dm_message: default_welcome_dm_message(),
             goodbye_enabled: false,
             goodbye_channel_id: None,
             goodbye_message: default_goodbye_message(),
+            goodbye_additional_messages: Vec::new(),
         }
     }
 }
