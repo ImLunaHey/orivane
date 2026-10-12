@@ -303,6 +303,7 @@ nav { margin-top: 22px; }
 .member-profile-header { min-height: 104px; padding: 18px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; border: 1px solid var(--border); background: var(--surface); }
 .member-profile-avatar { width: 58px; height: 58px; display: grid; place-items: center; border: 1px solid #4b3a72; color: #d8ceff; background: #2b2240; font-size: 15px; font-weight: 700; }
 .member-profile-header h2 { margin: 4px 0; font-size: 24px; letter-spacing: -.035em; }.member-profile-header p:last-child { margin: 0; color: #a0a0aa; font-size: 12px; }
+.user-audit-heading { padding: 17px 18px; }.user-audit-heading h3 { margin: 3px 0; }.user-audit-heading p:last-child { margin: 0; color: #9999a3; font-size: 12px; }
 .member-detail-grid { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(0, 1.2fr); gap: 12px; }
 .profile-panel { padding: 18px; }.detail-list { margin: 0; }.detail-list > div { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid #242429; font-size: 12px; }.detail-list dt { color: #a0a0aa; }.detail-list dd { margin: 0; color: #d0d0d5; }
 .role-list { padding-top: 16px; border-top: 1px solid #242429; }.role-list .eyebrow { margin-bottom: 9px; }.role-list .badge { margin: 0 6px 6px 0; }

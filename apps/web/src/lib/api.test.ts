@@ -14,6 +14,7 @@ import {
   getModerationCases,
   getServers,
   getUser,
+  getUserAuditEvents,
   getUsers,
   isDemoMode,
   recordDashboardActivity,
@@ -73,6 +74,9 @@ describe('dashboard demo configuration', () => {
     expect(events.some((event) => event.action === 'dashboard.page.viewed')).toBe(true)
     expect(events.some((event) => event.action === 'commands.synchronized')).toBe(true)
     expect((await getAuditEvent('1042')).id).toBe(1042)
+    const userEvents = await getUserAuditEvents('227843117431025543')
+    expect(userEvents.every((event) => event.actor_id === '227843117431025543' || event.target_id === '227843117431025543')).toBe(true)
+    expect(userEvents.some((event) => event.target_id === '227843117431025543')).toBe(true)
     await expect(getAuditEvent('does-not-exist')).rejects.toThrow('Audit event not found')
   })
 })

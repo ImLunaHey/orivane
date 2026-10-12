@@ -1797,6 +1797,7 @@ impl Infrastructure {
     pub async fn audit_events(
         &self,
         guild_id: Option<&str>,
+        user_id: Option<&str>,
         limit: i64,
         before_id: Option<i64>,
     ) -> Result<Vec<AuditEvent>, StoreError> {
@@ -1805,10 +1806,13 @@ impl Infrastructure {
             "SELECT id, occurred_at, scope, guild_id, actor_id, actor_kind, action, target_type, \
                     target_id, outcome, source, request_id, reason, metadata, before_state, after_state \
              FROM audit_events \
-             WHERE ($1::text IS NULL OR guild_id = $1) AND ($2::bigint IS NULL OR id < $2) \
-             ORDER BY id DESC LIMIT $3",
+             WHERE ($1::text IS NULL OR guild_id = $1) \
+               AND ($2::text IS NULL OR actor_id = $2 OR target_id = $2) \
+               AND ($3::bigint IS NULL OR id < $3) \
+             ORDER BY id DESC LIMIT $4",
         )
         .bind(guild_id)
+        .bind(user_id)
         .bind(before_id)
         .bind(limit)
         .fetch_all(&self.pool)

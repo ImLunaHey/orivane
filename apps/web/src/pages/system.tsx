@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Panel } from '../components/ui'
 import { DiscordAvatar } from '../components/discord-avatar'
+import { UserAuditHistory } from '../components/user-audit-history'
 import { downloadCsv } from '../lib/export'
 import { getAuditEvents, getGuildMembers, getGuildStats, getHealthReport, isDemoMode, syncCommands } from '../lib/api'
 import { Metric } from './system/metric'
@@ -78,6 +79,7 @@ export function MemberDetailPage() {
     <Link to="/servers/$serverId/members" params={{ serverId }} className="back-link"><ArrowLeft size={14} />Back to members</Link>
     <section className="member-profile-header"><DiscordAvatar className="member-profile-avatar" avatarUrl={member.avatarUrl} name={member.name} /><div><p className="eyebrow">Discord member · {member.id}</p><h2>{member.displayName}</h2><p>@{member.name} · Last seen {member.lastSeen}</p></div><Badge tone={member.risk === 'Low' ? 'green' : 'amber'}>{member.risk} risk</Badge></section>
     <section className="system-metrics"><Metric icon={MessageSquare} label="Messages (30d)" value={member.messages} note={`${member.activity} activity`} /><Metric icon={Command} label="Commands (30d)" value={member.commands} note="Slash commands only" /><Metric icon={ShieldCheck} label="Moderation cases" value={String(member.cases)} note={member.cases ? 'Review available below' : 'No recorded cases'} /><Metric icon={CalendarDays} label="Account age" value={member.accountAge} note={`Joined ${member.joined}`} /></section>
+    <UserAuditHistory userId={member.id} guildId={serverId} />
     <section className="member-detail-grid"><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Profile</p><h3>Server context</h3></div></div><dl className="detail-list"><div><dt>Discord ID</dt><dd>{member.id}</dd></div><div><dt>Joined server</dt><dd>{member.joinedAt}</dd></div><div><dt>Highest role</dt><dd>{member.role}</dd></div><div><dt>Last active</dt><dd>{member.lastSeen}</dd></div></dl><div className="role-list"><p className="eyebrow">Roles</p>{member.roles.map((role) => <Badge key={role} tone={role === 'Member' ? 'neutral' : 'violet'}>{role}</Badge>)}</div></Panel><Panel className="profile-panel"><div className="panel-heading"><div><p className="eyebrow">Moderation</p><h3>Case history</h3></div><Badge tone={member.cases ? 'amber' : 'green'}>{member.cases} cases</Badge></div>{member.cases ? <div className="member-case"><span>#1042</span><div><strong>Automod warning</strong><small>Repeated message pattern · resolved by mossbyte</small></div><time>Today, 19:04</time></div> : <div className="quiet-state"><ShieldCheck size={24} /><strong>No moderation history</strong><span>This member has no recorded cases.</span></div>}</Panel></section>
   </div>
 }

@@ -107,6 +107,7 @@ struct ResourceDiagnostics {
 struct AuditParams {
     limit: Option<i64>,
     before_id: Option<i64>,
+    user_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1868,9 +1869,17 @@ async fn get_global_audit(
     Query(params): Query<AuditParams>,
 ) -> Result<Json<Vec<AuditEvent>>, ApiError> {
     let actor = state.auth.require_owner(&headers).await?;
+    if let Some(user_id) = params.user_id.as_deref() {
+        validate_snowflake(user_id)?;
+    }
     let events = state
         .infrastructure
-        .audit_events(None, params.limit.unwrap_or(100), params.before_id)
+        .audit_events(
+            None,
+            params.user_id.as_deref(),
+            params.limit.unwrap_or(100),
+            params.before_id,
+        )
         .await
         .map_err(internal_error)?;
     record_read(&state, None, &actor, &headers, "audit.global.viewed").await;
@@ -1884,11 +1893,15 @@ async fn get_guild_audit(
     Query(params): Query<AuditParams>,
 ) -> Result<Json<Vec<AuditEvent>>, ApiError> {
     validate_snowflake(&guild_id)?;
+    if let Some(user_id) = params.user_id.as_deref() {
+        validate_snowflake(user_id)?;
+    }
     let actor = state.auth.require_guild(&headers, &guild_id).await?;
     let events = state
         .infrastructure
         .audit_events(
             Some(&guild_id),
+            params.user_id.as_deref(),
             params.limit.unwrap_or(100),
             params.before_id,
         )

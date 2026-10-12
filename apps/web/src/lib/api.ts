@@ -315,6 +315,15 @@ export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {
   return request<AuditEvent[]>(guildId ? `/v1/guilds/${guildId}/audit?limit=200` : '/v1/audit?limit=200')
 }
 
+export async function getUserAuditEvents(userId: string, guildId?: string): Promise<AuditEvent[]> {
+  if (isDemoMode) {
+    const events = await getAuditEvents(guildId)
+    return events.filter((event) => event.actor_id === userId || event.target_id === userId)
+  }
+  const query = new URLSearchParams({ limit: '200', user_id: userId })
+  return request<AuditEvent[]>(`${guildId ? `/v1/guilds/${guildId}/audit` : '/v1/audit'}?${query}`)
+}
+
 export async function getAuditEvent(eventId: string, guildId?: string): Promise<AuditEvent> {
   if (isDemoMode) {
     await new Promise((resolve) => setTimeout(resolve, 90))

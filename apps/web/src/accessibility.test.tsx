@@ -82,6 +82,8 @@ describe('dashboard accessibility', () => {
     fireEvent.click(screen.getAllByRole('link', { name: 'lunahey' })[0])
     await waitFor(() => expect(router.state.location.pathname).toBe('/users/312058643210567680'))
     expect(screen.getByRole('heading', { name: 'Luna' })).toBeInTheDocument()
+    expect(await screen.findByRole('table', { name: 'Audit history for Discord user 312058643210567680' })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Inspect →' }).length).toBeGreaterThan(0)
     cleanup()
   })
 
