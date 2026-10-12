@@ -59,7 +59,11 @@ export async function getGuildChannels(guildId: string): Promise<GuildChannel[]>
 }
 
 export async function getGuildRoles(guildId: string): Promise<GuildRole[]> {
-  if (isDemoMode) return []
+  if (isDemoMode) return [
+    { id: '100000000000000101', name: 'Support', position: 3, managed: false },
+    { id: '100000000000000102', name: 'Announcements', position: 2, managed: false },
+    { id: '100000000000000103', name: 'Member', position: 1, managed: false },
+  ]
   return request<GuildRole[]>(`/v1/guilds/${guildId}/roles`)
 }
 
@@ -228,6 +232,7 @@ export async function getTicketNotes(guildId:string,id:string):Promise<TicketNot
 export async function addTicketNote(input:{guildId:string;ticketId:string;body:string}):Promise<TicketNote>{if(isDemoMode)return{id:Date.now(),ticket_id:Number(input.ticketId),guild_id:input.guildId,author_id:demoActorId,body:input.body,created_at:new Date().toISOString()};return request(`/v1/guilds/${input.guildId}/tickets/${input.ticketId}/notes`,{method:'POST',body:JSON.stringify({body:input.body})})}
 export async function updateTicketMetadata(input:{guildId:string;ticketId:string;priority:Ticket['priority'];tags:string[]}):Promise<Ticket>{if(isDemoMode){const items=demoTickets(input.guildId),item=items.find(x=>String(x.id)===input.ticketId);if(!item)throw new Error('Ticket not found');const updated={...item,priority:input.priority,tags:input.tags,updated_at:new Date().toISOString()};localStorage.setItem(ticketKey(input.guildId),JSON.stringify(items.map(x=>x.id===updated.id?updated:x)));return updated}return request(`/v1/guilds/${input.guildId}/tickets/${input.ticketId}`,{method:'PATCH',body:JSON.stringify({priority:input.priority,tags:input.tags})})}
 export function ticketTranscriptUrl(guildId:string,id:string):string{return `${apiBase??''}/v1/guilds/${guildId}/tickets/${id}/transcript`}
+export async function deployReactionRolePanel(guildId:string,panelId:string):Promise<GuildConfig>{if(isDemoMode){const config=await getGuildConfig(guildId),panels=config.modules.reaction_roles.panels.map(panel=>panel.id===panelId?{...panel,message_id:panel.message_id??`demo-${Date.now()}`}:panel),updated={...config,modules:{...config.modules,reaction_roles:{...config.modules.reaction_roles,panels}}};localStorage.setItem(demoKey(guildId),JSON.stringify(updated));return updated}return request(`/v1/guilds/${guildId}/reaction-role-panels/${encodeURIComponent(panelId)}/deploy`,{method:'POST'})}
 
 export async function getAuditEvents(guildId?: string): Promise<AuditEvent[]> {
   if (isDemoMode) {

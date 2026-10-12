@@ -35,6 +35,8 @@ const loggingRoute = createRoute({ getParentRoute: () => rootRoute, path: '/serv
 const ticketsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/tickets', component: lazyRouteComponent(() => import('./pages/tickets'), 'TicketsPage') })
 const ticketPanelRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/tickets/panels/$panelId', component: lazyRouteComponent(() => import('./pages/tickets'), 'TicketPanelEditorPage') })
 const ticketDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/tickets/$ticketId', component: lazyRouteComponent(() => import('./pages/tickets'), 'TicketDetailPage') })
+const reactionRolesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/reaction_roles', component: lazyRouteComponent(() => import('./pages/reaction-roles'), 'ReactionRolesPage') })
+const reactionRolePanelRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/reaction_roles/$panelId', component: lazyRouteComponent(() => import('./pages/reaction-roles'), 'ReactionRolePanelPage') })
 const moduleDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/modules/$moduleId', component: lazyRouteComponent(() => import('./pages/modules'), 'ModuleDetailPage') })
 const moderationRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationPage') })
 const moderationCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/moderation/$caseId', component: lazyRouteComponent(() => import('./pages/moderation'), 'ModerationCasePage') })
@@ -78,6 +80,8 @@ const routeTree = rootRoute.addChildren([
   ticketsRoute,
   ticketPanelRoute,
   ticketDetailRoute,
+  reactionRolesRoute,
+  reactionRolePanelRoute,
   moduleDetailRoute,
   moderationRoute,
   moderationCaseRoute,

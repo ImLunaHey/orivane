@@ -24,7 +24,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   starboard: { title: 'Starboard', description: 'Promote popular posts once, with thresholds and self-star protection.', icon: Star, tone: 'amber', runtime: 'Live' },
   tickets: { title: 'Tickets', description: 'Private support channels with duplicate protection, closure logs, and support roles.', icon: Ticket, tone: 'blue', runtime: 'Live' },
   custom_commands: { title: 'Custom commands', description: 'Server-owned slash responses with channel restrictions and variables.', icon: Bot, tone: 'violet', runtime: 'Live' },
-  reaction_roles: { title: 'Reaction roles', description: 'Mirror configured message reactions to member roles.', icon: Tags, tone: 'green', runtime: 'Live' },
+  reaction_roles: { title: 'Reaction roles', description: 'Publish button and dropdown role panels or mirror classic reactions.', icon: Tags, tone: 'green', runtime: 'Live' },
   autoresponder: { title: 'Autoresponder', description: 'Respond to configurable message triggers with channel and role controls.', icon: MessageSquareReply, tone: 'blue', runtime: 'Live' },
   anti_raid: { title: 'Anti-raid', description: 'Detect join bursts and contain risky new accounts before they can cause damage.', icon: ShieldAlert, tone: 'violet', runtime: 'Live' },
   scheduled_messages: { title: 'Scheduled messages', description: 'Post recurring announcements on a durable server-owned schedule.', icon: CalendarClock, tone: 'blue', runtime: 'Live' },

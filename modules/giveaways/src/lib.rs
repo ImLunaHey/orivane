@@ -691,6 +691,7 @@ mod tests {
             actor_id: 1,
             actor_role_ids: vec![],
             custom_id: "orivane:giveaway:enter:12".into(),
+            values: vec![],
         };
         GiveawaysModule
             .on_component(&context(&discord, &services), &config(), &interaction)

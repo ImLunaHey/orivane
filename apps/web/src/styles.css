@@ -399,6 +399,13 @@ small { font-size: 14px !important; line-height: 1.45; }
 .ticket-transcript-actions { display: grid; gap: 14px; }
 .ticket-transcript-actions pre { max-height: 520px; margin: 0; overflow: auto; white-space: pre-wrap; }
 .ticket-transcript-actions .button { justify-self: start; }
+.reaction-role-options { display: grid; gap: 14px; }
+.reaction-role-options > .button { justify-self: start; }
+.discord-message-preview { max-width: 720px; border-left: 4px solid #5865f2; background: #2b2d31; color: #f2f3f5; }
+.discord-message-preview > strong { font-size: 17px; }
+.discord-message-preview > p { margin: 7px 0 14px; color: #dbdee1; }
+.reaction-role-preview-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.reaction-role-preview-controls button { min-height: 38px; padding: 7px 12px; border: 0; border-radius: 3px; color: #f2f3f5; background: #4e5058; font: inherit; }
 .discord-role-field { position: relative; display: flex; flex-direction: column; min-width: 0; }
 .discord-role-field > span { font-size: 14px; font-weight: 600; }
 .discord-role-field > small { margin: 3px 0 7px; color: #9999a3; font-size: 14px; }

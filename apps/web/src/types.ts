@@ -44,7 +44,7 @@ export type GuildConfig = {
     starboard: { enabled: boolean; channel_id: string | null; emoji: string; threshold: number; allow_self_stars: boolean; ignored_channel_ids: string[] }
     tickets: { enabled: boolean; category_id: string | null; support_role_ids: string[]; transcript_channel_id: string | null; welcome_message: string; channel_name: string }
     custom_commands: { enabled: boolean; max_commands: number; commands: CustomCommand[] }
-    reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[] }
+    reaction_roles: { enabled: boolean; bindings: ReactionRoleBinding[]; panels: ReactionRolePanel[] }
     autoresponder: { enabled: boolean; responses: Autoresponse[] }
     anti_raid: { enabled: boolean; join_threshold: number; join_window_seconds: number; minimum_account_age_days: number; require_avatar: boolean; punish_all_during_raid: boolean; action: 'log' | 'quarantine' | 'timeout' | 'kick' | 'ban'; timeout_seconds: number; quarantine_role_id: string | null; alert_channel_id: string | null }
     scheduled_messages: { enabled: boolean; schedules: ScheduledMessage[] }
@@ -78,6 +78,8 @@ export type LoggingConfig = {
 }
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }
+export type ReactionRoleOption = { id:string;label:string;description:string;emoji:string;role_id:string }
+export type ReactionRolePanel = { id:string;enabled:boolean;name:string;title:string;description:string;channel_id:string;message_id:string|null;component_type:'buttons'|'select';mode:'toggle'|'add_only'|'remove_only';exclusive:boolean;required_role_ids:string[];blocked_role_ids:string[];options:ReactionRoleOption[] }
 export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[] }
 export type ScheduledMessage = { enabled: boolean; id: string; channel_id: string; message: string; starts_at_unix: number; interval_minutes: number; ends_at_unix: number | null }
 export type FormQuestion = { id: string; label: string; style: 'short' | 'paragraph'; required: boolean; min_length: number; max_length: number; placeholder: string }

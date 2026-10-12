@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, ComponentInteraction, DiscordApi,
     DiscordError, GuildChannel, GuildRole, MessageButton, MessageReactionSummary, ModalDefinition,
-    ModalSubmitInteraction, RichEmbed,
+    ModalSubmitInteraction, RichEmbed, RolePanelComponents,
 };
 use bot_module_api::{
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedResult,
@@ -55,6 +55,17 @@ pub enum DiscordCall {
         message_id: u64,
         content: String,
         buttons: Vec<MessageButton>,
+    },
+    SendRolePanel {
+        channel_id: u64,
+        content: String,
+        components: RolePanelComponents,
+    },
+    EditRolePanel {
+        channel_id: u64,
+        message_id: u64,
+        content: String,
+        components: RolePanelComponents,
     },
     SendRichEmbed {
         channel_id: u64,
@@ -1244,6 +1255,39 @@ impl DiscordApi for FakeDiscord {
             message_id,
             content: content.into(),
             buttons: buttons.to_vec(),
+        })
+    }
+
+    async fn send_role_panel(
+        &self,
+        channel_id: u64,
+        content: &str,
+        components: &RolePanelComponents,
+    ) -> Result<u64, DiscordError> {
+        self.record(DiscordCall::SendRolePanel {
+            channel_id,
+            content: content.into(),
+            components: components.clone(),
+        })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .next_message_id)
+    }
+
+    async fn edit_role_panel(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+        components: &RolePanelComponents,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::EditRolePanel {
+            channel_id,
+            message_id,
+            content: content.into(),
+            components: components.clone(),
         })
     }
 

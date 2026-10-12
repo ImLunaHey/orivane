@@ -1692,6 +1692,7 @@ async fn main() -> Result<()> {
                             .map(|member| member.roles.iter().map(|role| role.get()).collect())
                             .unwrap_or_default(),
                         custom_id: component.custom_id.clone(),
+                        values: component.values.clone(),
                     };
                     for module in modules
                         .iter()

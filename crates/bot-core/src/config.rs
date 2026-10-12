@@ -276,11 +276,48 @@ pub struct ReactionRolesConfig {
     pub enabled: bool,
     #[serde(default)]
     pub bindings: Vec<ReactionRoleBinding>,
+    #[serde(default)]
+    pub panels: Vec<ReactionRolePanel>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ReactionRoleBinding {
     pub message_id: String,
+    pub emoji: String,
+    pub role_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ReactionRolePanel {
+    pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub name: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub channel_id: String,
+    #[serde(default)]
+    pub message_id: Option<String>,
+    pub component_type: String,
+    pub mode: String,
+    #[serde(default)]
+    pub exclusive: bool,
+    #[serde(default)]
+    pub required_role_ids: Vec<String>,
+    #[serde(default)]
+    pub blocked_role_ids: Vec<String>,
+    #[serde(default)]
+    pub options: Vec<ReactionRoleOption>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ReactionRoleOption {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
     pub emoji: String,
     pub role_id: String,
 }
@@ -726,14 +763,57 @@ impl GuildConfig {
 
         let reaction_roles = &self.modules.reaction_roles;
         let mut mappings = std::collections::HashSet::new();
+        let mut panel_ids = std::collections::HashSet::new();
         if (reaction_roles.enabled && reaction_roles.bindings.is_empty())
+            && reaction_roles.panels.is_empty()
             || reaction_roles.bindings.len() > 100
+            || reaction_roles.panels.len() > 50
             || reaction_roles.bindings.iter().any(|binding| {
                 !valid_snowflake(&binding.message_id)
                     || !valid_snowflake(&binding.role_id)
                     || binding.emoji.trim().is_empty()
                     || binding.emoji.chars().count() > 64
                     || !mappings.insert((binding.message_id.clone(), binding.emoji.clone()))
+            })
+            || reaction_roles.panels.iter().any(|panel| {
+                let mut option_ids = std::collections::HashSet::new();
+                let mut role_ids = std::collections::HashSet::new();
+                panel.id.is_empty()
+                    || panel.id.chars().count() > 64
+                    || !panel_ids.insert(panel.id.clone())
+                    || !panel.id.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || "_-".contains(character)
+                    })
+                    || panel.name.trim().is_empty()
+                    || panel.name.chars().count() > 80
+                    || panel.title.trim().is_empty()
+                    || panel.title.chars().count() > 100
+                    || panel.description.chars().count() > 1800
+                    || !valid_snowflake(&panel.channel_id)
+                    || panel
+                        .message_id
+                        .as_deref()
+                        .is_some_and(|id| !valid_snowflake(id))
+                    || !matches!(panel.component_type.as_str(), "buttons" | "select")
+                    || !matches!(panel.mode.as_str(), "toggle" | "add_only" | "remove_only")
+                    || invalid_snowflake_list(&panel.required_role_ids, 25)
+                    || invalid_snowflake_list(&panel.blocked_role_ids, 25)
+                    || panel.options.is_empty()
+                    || panel.options.len() > 25
+                    || panel.options.iter().any(|option| {
+                        option.id.is_empty()
+                            || option.id.chars().count() > 32
+                            || !option_ids.insert(option.id.clone())
+                            || !option.id.chars().all(|character| {
+                                character.is_ascii_alphanumeric() || "_-".contains(character)
+                            })
+                            || option.label.trim().is_empty()
+                            || option.label.chars().count() > 80
+                            || option.description.chars().count() > 100
+                            || option.emoji.chars().count() > 32
+                            || !valid_snowflake(&option.role_id)
+                            || !role_ids.insert(option.role_id.clone())
+                    })
             })
         {
             return Err(ConfigValidationError::InvalidReactionRoles);

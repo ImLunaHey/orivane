@@ -17,7 +17,8 @@ use twilight_model::{
     channel::{
         message::MessageFlags,
         message::component::{
-            ActionRow, Button, ButtonStyle, Component, Label, TextInput, TextInputStyle,
+            ActionRow, Button, ButtonStyle, Component, Label, SelectMenu, SelectMenuOption,
+            SelectMenuType, TextInput, TextInputStyle,
         },
         message::embed::{
             Embed, EmbedAuthor, EmbedField as TwilightEmbedField, EmbedFooter, EmbedImage,
@@ -36,7 +37,8 @@ use twilight_model::{
     id::{
         Id,
         marker::{
-            ApplicationMarker, ChannelMarker, GuildMarker, MessageMarker, RoleMarker, UserMarker,
+            ApplicationMarker, ChannelMarker, EmojiMarker, GuildMarker, MessageMarker, RoleMarker,
+            UserMarker,
         },
     },
     util::Timestamp,
@@ -185,6 +187,7 @@ pub struct ComponentInteraction {
     pub actor_id: u64,
     pub actor_role_ids: Vec<u64>,
     pub custom_id: String,
+    pub values: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,6 +203,22 @@ pub struct MessageButton {
     pub custom_id: String,
     pub label: String,
     pub style: MessageButtonStyle,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RolePanelOption {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub emoji: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RolePanelComponents {
+    pub custom_id: String,
+    pub kind: String,
+    pub exclusive: bool,
+    pub options: Vec<RolePanelOption>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -382,6 +401,19 @@ pub trait DiscordApi: Send + Sync {
         content: &str,
         buttons: &[MessageButton],
     ) -> Result<(), DiscordError>;
+    async fn send_role_panel(
+        &self,
+        channel_id: u64,
+        content: &str,
+        components: &RolePanelComponents,
+    ) -> Result<u64, DiscordError>;
+    async fn edit_role_panel(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+        components: &RolePanelComponents,
+    ) -> Result<(), DiscordError>;
 
     async fn send_rich_embed(
         &self,
@@ -543,6 +575,43 @@ impl DiscordApi for TwilightDiscord {
             .collect::<Vec<_>>();
         client
             .set_global_commands(&commands)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn send_role_panel(
+        &self,
+        channel_id: u64,
+        content: &str,
+        definition: &RolePanelComponents,
+    ) -> Result<u64, DiscordError> {
+        let components = role_panel_components(definition);
+        let message = self
+            .http
+            .create_message(Id::<ChannelMarker>::new(channel_id))
+            .content(content)
+            .components(&components)
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(message.id.get())
+    }
+
+    async fn edit_role_panel(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+        definition: &RolePanelComponents,
+    ) -> Result<(), DiscordError> {
+        let components = role_panel_components(definition);
+        self.http
+            .update_message(Id::new(channel_id), Id::new(message_id))
+            .content(Some(content))
+            .components(Some(&components))
             .await
             .map_err(request_error)?;
         Ok(())
@@ -1196,6 +1265,89 @@ impl DiscordApi for TwilightDiscord {
     }
 }
 
+fn role_panel_components(definition: &RolePanelComponents) -> Vec<Component> {
+    if definition.kind == "select" {
+        return vec![Component::ActionRow(ActionRow {
+            id: None,
+            components: vec![Component::SelectMenu(SelectMenu {
+                id: None,
+                channel_types: None,
+                custom_id: definition.custom_id.clone(),
+                default_values: None,
+                disabled: false,
+                kind: SelectMenuType::Text,
+                max_values: Some(if definition.exclusive {
+                    1
+                } else {
+                    u8::try_from(definition.options.len()).unwrap_or(25)
+                }),
+                min_values: Some(0),
+                options: Some(
+                    definition
+                        .options
+                        .iter()
+                        .map(|option| SelectMenuOption {
+                            default: false,
+                            description: (!option.description.trim().is_empty())
+                                .then(|| option.description.clone()),
+                            emoji: component_emoji(&option.emoji),
+                            label: option.label.clone(),
+                            value: option.id.clone(),
+                        })
+                        .collect(),
+                ),
+                placeholder: Some("Choose your roles".into()),
+                required: None,
+            })],
+        })];
+    }
+    definition
+        .options
+        .chunks(5)
+        .map(|options| {
+            Component::ActionRow(ActionRow {
+                id: None,
+                components: options
+                    .iter()
+                    .map(|option| {
+                        Component::Button(Button {
+                            id: None,
+                            custom_id: Some(format!("{}:{}", definition.custom_id, option.id)),
+                            disabled: false,
+                            emoji: component_emoji(&option.emoji),
+                            label: Some(option.label.clone()),
+                            style: ButtonStyle::Secondary,
+                            url: None,
+                            sku_id: None,
+                        })
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+fn component_emoji(value: &str) -> Option<twilight_model::channel::message::EmojiReactionType> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Ok(id) = value.parse::<u64>() {
+        return Some(
+            twilight_model::channel::message::EmojiReactionType::Custom {
+                animated: false,
+                id: Id::<EmojiMarker>::new(id),
+                name: None,
+            },
+        );
+    }
+    Some(
+        twilight_model::channel::message::EmojiReactionType::Unicode {
+            name: value.to_owned(),
+        },
+    )
+}
+
 fn emoji_key(emoji: &twilight_model::channel::message::EmojiReactionType) -> String {
     match emoji {
         twilight_model::channel::message::EmojiReactionType::Unicode { name } => name.clone(),
@@ -1241,4 +1393,46 @@ impl<T> OptionContext<T> for Option<T> {
 
 fn request_error(error: impl std::fmt::Display) -> DiscordError {
     DiscordError::Request(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(count: usize) -> Vec<RolePanelOption> {
+        (0..count)
+            .map(|index| RolePanelOption {
+                id: format!("role-{index}"),
+                label: format!("Role {index}"),
+                description: "Choose this role".into(),
+                emoji: "✨".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn role_panel_buttons_are_split_into_discord_safe_rows() {
+        let components = role_panel_components(&RolePanelComponents {
+            custom_id: "orivane:rr:colors".into(),
+            kind: "buttons".into(),
+            exclusive: false,
+            options: options(7),
+        });
+        assert_eq!(components.len(), 2);
+        assert!(matches!(&components[0], Component::ActionRow(row) if row.components.len() == 5));
+        assert!(matches!(&components[1], Component::ActionRow(row) if row.components.len() == 2));
+    }
+
+    #[test]
+    fn exclusive_select_panel_allows_one_value() {
+        let components = role_panel_components(&RolePanelComponents {
+            custom_id: "orivane:rr-select:colors".into(),
+            kind: "select".into(),
+            exclusive: true,
+            options: options(2),
+        });
+        assert!(
+            matches!(&components[0], Component::ActionRow(row) if matches!(&row.components[0], Component::SelectMenu(menu) if menu.max_values == Some(1) && menu.options.as_ref().is_some_and(|options| options.len() == 2)))
+        );
+    }
 }

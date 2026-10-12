@@ -23,7 +23,7 @@ use bot_core::{
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
-    TwilightDiscord,
+    RolePanelComponents, RolePanelOption, TwilightDiscord,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -248,6 +248,10 @@ async fn main() -> Result<()> {
         .route(
             "/v1/guilds/{guild_id}/tickets/{ticket_id}/transcript",
             get(download_ticket_transcript),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/reaction-role-panels/{panel_id}/deploy",
+            axum::routing::post(deploy_reaction_role_panel),
         )
         .route("/v1/guilds/{guild_id}/stats", get(get_guild_stats))
         .route("/v1/guilds/{guild_id}/members", get(get_guild_members))
@@ -2240,6 +2244,136 @@ async fn transfer_ticket(
     )
     .await;
     Ok(Json(item))
+}
+
+async fn deploy_reaction_role_panel(
+    State(state): State<AppState>,
+    Path((guild_id, panel_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<GuildConfig>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let mut config = state
+        .infrastructure
+        .guild_config(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    let panel = config
+        .modules
+        .reaction_roles
+        .panels
+        .iter()
+        .find(|panel| panel.id == panel_id)
+        .cloned()
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                "reaction-role panel not found".into(),
+            )
+        })?;
+    if !panel.enabled || panel.options.is_empty() {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "enable the panel and configure at least one role before deploying".into(),
+        ));
+    }
+    let channel_id = panel.channel_id.parse::<u64>().map_err(|_| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "reaction-role channel is invalid".into(),
+        )
+    })?;
+    let definition = RolePanelComponents {
+        custom_id: if panel.component_type == "select" {
+            format!("orivane:rr-select:{}", panel.id)
+        } else {
+            format!("orivane:rr:{}", panel.id)
+        },
+        kind: panel.component_type.clone(),
+        exclusive: panel.exclusive,
+        options: panel
+            .options
+            .iter()
+            .map(|option| RolePanelOption {
+                id: option.id.clone(),
+                label: option.label.clone(),
+                description: option.description.clone(),
+                emoji: option.emoji.clone(),
+            })
+            .collect(),
+    };
+    let content = if panel.description.trim().is_empty() {
+        format!("**{}**", panel.title)
+    } else {
+        format!("**{}**\n{}", panel.title, panel.description)
+    };
+    let discord = TwilightDiscord::connect(state.discord_token.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Discord actions are unavailable".into(),
+        )
+    })?)
+    .await
+    .map_err(internal_error)?;
+    let synchronized = panel.message_id.is_some();
+    let message_id = if let Some(message_id) = panel.message_id.as_deref() {
+        discord
+            .edit_role_panel(
+                channel_id,
+                message_id.parse().map_err(|_| {
+                    ApiError(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "stored reaction-role message is invalid".into(),
+                    )
+                })?,
+                &content,
+                &definition,
+            )
+            .await
+            .map_err(internal_error)?;
+        message_id.to_owned()
+    } else {
+        discord
+            .send_role_panel(channel_id, &content, &definition)
+            .await
+            .map_err(internal_error)?
+            .to_string()
+    };
+    let before = config.clone();
+    config
+        .modules
+        .reaction_roles
+        .panels
+        .iter_mut()
+        .find(|item| item.id == panel_id)
+        .expect("reaction-role panel was loaded")
+        .message_id = Some(message_id.clone());
+    config
+        .validate()
+        .map_err(|error| ApiError(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()))?;
+    let mut event = NewAuditEvent::guild(
+        &guild_id,
+        &actor.discord_user_id,
+        if synchronized {
+            "reaction_roles.panel.synchronized"
+        } else {
+            "reaction_roles.panel.deployed"
+        },
+    );
+    event.source = "dashboard_api".into();
+    event.target_type = "reaction_role_panel".into();
+    event.target_id = Some(panel_id);
+    event.request_id = header_value(&headers, "x-request-id").map(str::to_owned);
+    event.before_state = serde_json::to_value(before).ok();
+    event.after_state = serde_json::to_value(&config).ok();
+    event.metadata =
+        serde_json::json!({"channel_id":channel_id.to_string(),"message_id":message_id});
+    state
+        .infrastructure
+        .put_guild_config_audited(&config, &event)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(config))
 }
 
 async fn get_embed_templates(

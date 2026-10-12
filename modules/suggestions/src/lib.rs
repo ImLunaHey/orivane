@@ -414,6 +414,7 @@ mod tests {
             actor_id: 50,
             actor_role_ids: vec![],
             custom_id: "orivane:suggestion:vote:7:up".into(),
+            values: vec![],
         };
         let outcome = SuggestionsModule
             .on_component(&context, &config(), &interaction)

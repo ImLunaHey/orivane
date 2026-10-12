@@ -46,7 +46,6 @@ describe('module configuration pages', () => {
       ['leveling', 'Leveling settings', 'Minimum XP', 'number', '20'],
       ['starboard', 'Starboard settings', 'Reaction threshold', 'number', '5'],
       ['custom_commands', 'Custom commands settings', 'Command limit', 'number', '30'],
-      ['reaction_roles', 'Reaction roles settings', 'Enable Reaction roles', 'switch', true],
       ['autoresponder', 'Autoresponder settings', 'Enable Autoresponder', 'switch', true],
       ['anti_raid', 'Anti-raid settings', 'Join threshold', 'number', '20'],
       ['scheduled_messages', 'Scheduled messages settings', 'Enable Scheduled messages', 'switch', true],
@@ -143,16 +142,42 @@ describe('module configuration pages', () => {
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
   })
 
-  it('creates and removes a reaction-role mapping', async () => {
+  it('opens the managed reaction-role panel editor', async () => {
     renderDashboard()
     await navigateTo(`/servers/${serverId}/modules/reaction_roles`)
-    await screen.findByRole('heading', { name: 'Reaction roles settings' })
-    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }))
-    fireEvent.change(screen.getByLabelText(/^Message ID/), { target: { value: 'message 123456789012345678' } })
-    fireEvent.change(screen.getByLabelText(/^Emoji/), { target: { value: '🌙' } })
-    expect(screen.getByLabelText(/^Message ID/)).toHaveValue('123456789012345678')
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
-    expect(screen.getByText('No reaction mappings yet')).toBeVisible()
+    await screen.findByRole('heading', { name: 'Reaction roles' })
+    expect(screen.getByRole('link', { name: 'New panel' })).toBeVisible()
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Reaction roles' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await navigateTo(`/servers/${serverId}/modules/reaction_roles/new`)
+    await screen.findByRole('heading', { name: 'New reaction-role panel' })
+    fireEvent.change(screen.getByLabelText(/^Internal name/), { target: { value: 'Color roles' } })
+    fireEvent.change(screen.getByLabelText(/^Stable panel ID/), { target: { value: 'Color Roles!' } })
+    fireEvent.click(screen.getByRole('combobox', { name: 'Destination channel' }))
+    fireEvent.click(screen.getByRole('option', { name: 'welcome' }))
+    fireEvent.change(screen.getByLabelText(/^Message title/), { target: { value: 'Pick a color' } })
+    fireEvent.change(screen.getAllByLabelText(/^Description/)[0], { target: { value: 'Choose one color role.' } })
+    fireEvent.change(screen.getByLabelText(/^Interaction control/), { target: { value: 'select' } })
+    fireEvent.change(screen.getByLabelText(/^Assignment mode/), { target: { value: 'add_only' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Exclusive group' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Panel enabled' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Panel enabled' }))
+    fireEvent.change(screen.getByLabelText(/^Option ID/), { target: { value: 'Red Role!' } })
+    fireEvent.change(screen.getByLabelText(/^Label/), { target: { value: 'Red' } })
+    fireEvent.change(screen.getByLabelText(/^Emoji/), { target: { value: '🔴' } })
+    fireEvent.change(screen.getAllByLabelText(/^Description/)[1], { target: { value: 'The red team' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Discord role' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Support' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add role option' }))
+    expect(screen.getByText('Option 2')).toBeVisible()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1])
+    expect(screen.queryByText('Option 2')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save panel' }))
+    await screen.findByRole('button', { name: 'Deploy message' })
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy message' }))
+    await screen.findByRole('button', { name: 'Sync message' })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await screen.findByRole('heading', { name: 'Reaction roles' })
   })
 
   it('creates and edits an automatic response', async () => {

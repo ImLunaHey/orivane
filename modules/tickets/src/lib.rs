@@ -889,6 +889,7 @@ mod tests {
             actor_id: 40,
             actor_role_ids: vec![],
             custom_id: format!("{CLOSE_PREFIX}7"),
+            values: vec![],
         };
         TicketsModule
             .on_component(&context, &config, &button)
