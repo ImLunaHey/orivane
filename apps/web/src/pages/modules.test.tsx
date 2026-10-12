@@ -25,7 +25,7 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     await screen.findAllByText('View details →')
 
-    expect(screen.getAllByText('Live')).toHaveLength(20)
+    expect(screen.getAllByText('Live')).toHaveLength(21)
     expect(screen.queryByText('Configuration only')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Autorole' }))
     const save = screen.getByRole('button', { name: 'Save changes' })
@@ -135,6 +135,22 @@ describe('module configuration pages', () => {
     const leveling = JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.leveling
     expect(leveling).toMatchObject({ minimum_message_length: 12, voice_xp_enabled: true, voice_xp_per_minute: 4 })
     expect(leveling.role_rewards).toEqual([{ level: 5, role_id: '100000000000000103' }])
+  })
+
+  it('configures temporary voice and manages active channels', async () => {
+    renderDashboard()
+    await navigateTo(`/servers/${serverId}/modules/temporary_voice`)
+    expect(await screen.findByRole('heading', { name: /Temporary voice/ })).toBeVisible()
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Temporary voice' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Creation lobby' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Lounge' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Channel category' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Community' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('1 active')
+    expect(screen.getByRole('table', { name: 'Active temporary voice channels' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.getByText('0 active')).toBeVisible())
   })
 
   it('uses dedicated ticket inbox, panel editor, and ticket detail pages', async () => {

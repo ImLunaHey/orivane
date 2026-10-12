@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Folder, Hash, Minus } from 'lucide-react'
+import { Check, ChevronDown, Folder, Hash, Minus, Volume2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { GuildChannel } from '../types'
 
@@ -6,7 +6,7 @@ type DiscordChannelSelectProps = {
   title: string
   detail: string
   value: string | null
-  kind: 'text' | 'category'
+  kind: 'text' | 'category' | 'voice'
   channels: GuildChannel[]
   pending: boolean
   error: boolean
@@ -27,6 +27,7 @@ export function DiscordChannelSelect({ title, detail, value, kind, channels, pen
   const disabled = pending || error
   const allowed = useMemo(() => channels.filter((channel) => kind === 'category'
     ? channel.kind === 'GuildCategory'
+    : kind === 'voice' ? channel.kind === 'GuildVoice' || channel.kind === 'GuildStageVoice'
     : channel.kind === 'GuildText' || channel.kind === 'GuildAnnouncement'), [channels, kind])
   const groups = useMemo(() => channelGroups(kind, channels, allowed), [kind, channels, allowed])
   const orderedChannels = useMemo(() => groups.flatMap((group) => group.channels), [groups])
@@ -158,7 +159,7 @@ function ChannelOption({ id, label, selected, active, icon, onHover, onChoose }:
 }
 
 function ChannelIcon({ kind }: { kind: string }) {
-  return kind === 'GuildCategory' ? <Folder size={17} /> : <Hash size={17} />
+  return kind === 'GuildCategory' ? <Folder size={17} /> : kind === 'GuildVoice' || kind === 'GuildStageVoice' ? <Volume2 size={17} /> : <Hash size={17} />
 }
 
 function channelGroups(kind: DiscordChannelSelectProps['kind'], allChannels: GuildChannel[], allowed: GuildChannel[]): ChannelGroup[] {
@@ -182,5 +183,5 @@ function optionId(baseId: string, index: number) {
 function placeholder(kind: DiscordChannelSelectProps['kind'], pending: boolean, error: boolean) {
   if (pending) return 'Loading Discord channels…'
   if (error) return 'Could not load Discord channels'
-  return kind === 'category' ? 'Select a category' : 'Select a channel'
+  return kind === 'category' ? 'Select a category' : kind === 'voice' ? 'Select a voice channel' : 'Select a channel'
 }

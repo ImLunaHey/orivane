@@ -10,8 +10,8 @@ use crate::{
     GuildDashboardStats, GuildMemberSummary, InfrastructureHealth, MemberXpAward, MemberXpProfile,
     MessageDeletionJob, ModerationCase, NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate,
     NewFormSubmission, NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket,
-    NewTicketPanel, Reminder, Suggestion, Ticket, TicketAnalytics, TicketEvent, TicketNote,
-    TicketPanel, UserGuildContext, config::ConfigValidationError,
+    NewTicketPanel, Reminder, Suggestion, TemporaryVoiceChannel, Ticket, TicketAnalytics,
+    TicketEvent, TicketNote, TicketPanel, UserGuildContext, config::ConfigValidationError,
 };
 
 const CONFIG_CACHE_TTL_SECONDS: u64 = 300;
@@ -42,6 +42,141 @@ pub enum StoreError {
 }
 
 impl Infrastructure {
+    pub async fn temporary_voice_channels(
+        &self,
+        guild_id: &str,
+    ) -> Result<Vec<TemporaryVoiceChannel>, StoreError> {
+        sqlx::query_as("SELECT * FROM temporary_voice_channels WHERE guild_id=$1 AND status='active' ORDER BY created_at DESC")
+            .bind(guild_id).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn temporary_voice_channel(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+    ) -> Result<Option<TemporaryVoiceChannel>, StoreError> {
+        sqlx::query_as("SELECT * FROM temporary_voice_channels WHERE guild_id=$1 AND channel_id=$2 AND status='active'")
+            .bind(guild_id).bind(channel_id).fetch_optional(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn temporary_voice_owner_channel(
+        &self,
+        guild_id: &str,
+        owner_id: &str,
+    ) -> Result<Option<TemporaryVoiceChannel>, StoreError> {
+        sqlx::query_as("SELECT * FROM temporary_voice_channels WHERE guild_id=$1 AND owner_id=$2 AND status='active'")
+            .bind(guild_id).bind(owner_id).fetch_optional(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn register_temporary_voice_channel(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        owner_id: &str,
+        name: &str,
+        user_limit: u8,
+    ) -> Result<TemporaryVoiceChannel, StoreError> {
+        sqlx::query_as("INSERT INTO temporary_voice_channels (guild_id,channel_id,owner_id,name,user_limit) VALUES ($1,$2,$3,$4,$5) RETURNING *")
+            .bind(guild_id).bind(channel_id).bind(owner_id).bind(name).bind(i16::from(user_limit)).fetch_one(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn update_temporary_voice_channel(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        owner_id: Option<&str>,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+    ) -> Result<Option<TemporaryVoiceChannel>, StoreError> {
+        sqlx::query_as("UPDATE temporary_voice_channels SET owner_id=COALESCE($3,owner_id),name=COALESCE($4,name),user_limit=COALESCE($5,user_limit),locked=COALESCE($6,locked),updated_at=now() WHERE guild_id=$1 AND channel_id=$2 AND status='active' RETURNING *")
+            .bind(guild_id).bind(channel_id).bind(owner_id).bind(name).bind(user_limit.map(i16::from)).bind(locked).fetch_optional(&self.pool).await.map_err(StoreError::from)
+    }
+
+    pub async fn unregister_temporary_voice_channel(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+    ) -> Result<bool, StoreError> {
+        let result=sqlx::query("UPDATE temporary_voice_channels SET status='deleted',deleted_at=now(),updated_at=now() WHERE guild_id=$1 AND channel_id=$2 AND status='active'").bind(guild_id).bind(channel_id).execute(&self.pool).await?;
+        let mut cache = self.redis.clone();
+        let _: u64 = redis::cmd("DEL")
+            .arg(format!("temporary-voice:members:{channel_id}"))
+            .query_async(&mut cache)
+            .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn temporary_voice_member_join(
+        &self,
+        channel_id: &str,
+        user_id: &str,
+    ) -> Result<u64, StoreError> {
+        let key = format!("temporary-voice:members:{channel_id}");
+        let mut cache = self.redis.clone();
+        let _: u64 = redis::cmd("SADD")
+            .arg(&key)
+            .arg(user_id)
+            .query_async(&mut cache)
+            .await?;
+        let _: () = redis::cmd("EXPIRE")
+            .arg(&key)
+            .arg(86_400_u64)
+            .query_async(&mut cache)
+            .await?;
+        redis::cmd("SCARD")
+            .arg(&key)
+            .query_async(&mut cache)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn temporary_voice_member_leave(
+        &self,
+        channel_id: &str,
+        user_id: &str,
+    ) -> Result<u64, StoreError> {
+        let key = format!("temporary-voice:members:{channel_id}");
+        let mut cache = self.redis.clone();
+        let _: u64 = redis::cmd("SREM")
+            .arg(&key)
+            .arg(user_id)
+            .query_async(&mut cache)
+            .await?;
+        redis::cmd("SCARD")
+            .arg(&key)
+            .query_async(&mut cache)
+            .await
+            .map_err(StoreError::from)
+    }
+
+    pub async fn schedule_temporary_voice_delete(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        delay_seconds: u16,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE temporary_voice_channels SET delete_after=now()+($3::bigint * interval '1 second'),updated_at=now() WHERE guild_id=$1 AND channel_id=$2 AND status='active'").bind(guild_id).bind(channel_id).bind(i64::from(delay_seconds)).execute(&self.pool).await?;
+        Ok(())
+    }
+    pub async fn cancel_temporary_voice_delete(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE temporary_voice_channels SET delete_after=NULL,updated_at=now() WHERE guild_id=$1 AND channel_id=$2 AND status='active'").bind(guild_id).bind(channel_id).execute(&self.pool).await?;
+        Ok(())
+    }
+    pub async fn due_temporary_voice_deletes(
+        &self,
+        guild_id: &str,
+        now_unix: u64,
+    ) -> Result<Vec<TemporaryVoiceChannel>, StoreError> {
+        let now = chrono::DateTime::from_timestamp(i64::try_from(now_unix).unwrap_or(i64::MAX), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query_as("SELECT * FROM temporary_voice_channels WHERE guild_id=$1 AND status='active' AND delete_after IS NOT NULL AND delete_after <= $2").bind(guild_id).bind(now).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+
     pub async fn create_embed_template(
         &self,
         input: &NewEmbedTemplate,
@@ -717,7 +852,7 @@ impl Infrastructure {
 
     pub async fn scheduled_guild_configs(&self) -> Result<Vec<GuildConfig>, StoreError> {
         let values: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true'",
+            "SELECT config FROM guild_configs WHERE config #>> '{modules,scheduled_messages,enabled}' = 'true' OR config #>> '{modules,giveaways,enabled}' = 'true' OR config #>> '{modules,reminders,enabled}' = 'true' OR config #>> '{modules,auto_delete,enabled}' = 'true' OR config #>> '{modules,tickets,enabled}' = 'true' OR config #>> '{modules,temporary_voice,enabled}' = 'true'",
         )
         .fetch_all(&self.pool)
         .await?;

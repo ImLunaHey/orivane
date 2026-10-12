@@ -65,6 +65,7 @@ export type GuildConfig = {
     reminders: { enabled: boolean; allow_direct_messages: boolean; max_active_per_user: number; minimum_delay_minutes: number; maximum_delay_days: number }
     auto_delete: { enabled: boolean; rules: AutoDeleteRule[] }
     managed_embeds: { enabled: boolean }
+    temporary_voice: { enabled:boolean;lobby_channel_id:string|null;category_id:string|null;default_name:string;user_limit:number;delete_delay_seconds:number;owner_controls:boolean }
   }
 }
 
@@ -185,3 +186,4 @@ export type ModerationCase = {
 }
 
 export type NewModerationCase = Pick<ModerationCase, 'member_id' | 'action' | 'reason'>
+export type TemporaryVoiceChannel = { id:number;guild_id:string;channel_id:string;owner_id:string;name:string;user_limit:number;locked:boolean;status:string;created_at:string;updated_at:string;deleted_at:string|null;delete_after:string|null }

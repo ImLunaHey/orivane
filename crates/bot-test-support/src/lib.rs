@@ -12,8 +12,8 @@ use bot_discord::{
 use bot_module_api::{
     FormSubmissionInput, GiveawayInput, GiveawayResult, ManagedEmbedResult,
     MessageDeletionJobResult, ModerationCaseInput, ModuleServices, ReminderInput, ReminderResult,
-    SuggestionInput, SuggestionResult, TicketPanelResult, TicketRecordInput, TicketResult,
-    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
+    SuggestionInput, SuggestionResult, TemporaryVoiceResult, TicketPanelResult, TicketRecordInput,
+    TicketResult, XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,6 +134,34 @@ pub enum DiscordCall {
         seconds: u16,
         reason: String,
     },
+    CreateTemporaryVoiceChannel {
+        guild_id: u64,
+        category_id: u64,
+        owner_id: u64,
+        name: String,
+        user_limit: u8,
+        reason: String,
+    },
+    UpdateVoiceChannel {
+        guild_id: u64,
+        channel_id: u64,
+        name: Option<String>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+        reason: String,
+    },
+    MoveMember {
+        guild_id: u64,
+        user_id: u64,
+        channel_id: Option<u64>,
+        reason: String,
+    },
+    TransferVoiceOwner {
+        channel_id: u64,
+        previous_owner_id: u64,
+        owner_id: u64,
+        reason: String,
+    },
     GuildChannels {
         guild_id: u64,
     },
@@ -185,6 +213,19 @@ pub enum ServiceCall {
     },
     AwardXp(XpAwardInput),
     AdjustXp(XpAdjustmentInput),
+    RegisterTemporaryVoice {
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: u64,
+    },
+    UpdateTemporaryVoice {
+        guild_id: u64,
+        channel_id: u64,
+    },
+    UnregisterTemporaryVoice {
+        guild_id: u64,
+        channel_id: u64,
+    },
     XpProfile {
         guild_id: u64,
         user_id: u64,
@@ -342,6 +383,9 @@ pub struct FakeModuleServices {
     scheduled_claims: Arc<Mutex<HashSet<(u64, String, u64)>>>,
     due_tickets: Arc<Mutex<Vec<TicketResult>>>,
     automod_counts: Arc<Mutex<HashMap<(u64, u64, String, Option<String>), u64>>>,
+    temporary_voice: Arc<Mutex<HashMap<(u64, u64), TemporaryVoiceResult>>>,
+    temporary_voice_members: Arc<Mutex<HashMap<u64, HashSet<u64>>>>,
+    temporary_voice_due: Arc<Mutex<HashSet<(u64, u64)>>>,
 }
 
 impl FakeModuleServices {
@@ -960,6 +1004,176 @@ impl ModuleServices for FakeModuleServices {
             rank: 1,
         })
     }
+    async fn temporary_voice_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+    ) -> anyhow::Result<Option<TemporaryVoiceResult>> {
+        Ok(self
+            .temporary_voice
+            .lock()
+            .expect("fake lock poisoned")
+            .get(&(guild_id, channel_id))
+            .cloned())
+    }
+    async fn temporary_voice_owner_channel(
+        &self,
+        guild_id: u64,
+        owner_id: u64,
+    ) -> anyhow::Result<Option<TemporaryVoiceResult>> {
+        Ok(self
+            .temporary_voice
+            .lock()
+            .expect("fake lock poisoned")
+            .iter()
+            .find(|((stored_guild, _), channel)| {
+                *stored_guild == guild_id && channel.owner_id == owner_id
+            })
+            .map(|(_, channel)| channel.clone()))
+    }
+    async fn register_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: u64,
+        name: &str,
+        user_limit: u8,
+    ) -> anyhow::Result<TemporaryVoiceResult> {
+        let channel = TemporaryVoiceResult {
+            channel_id,
+            owner_id,
+            name: name.into(),
+            user_limit,
+            locked: false,
+        };
+        self.temporary_voice
+            .lock()
+            .expect("fake lock poisoned")
+            .insert((guild_id, channel_id), channel.clone());
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::RegisterTemporaryVoice {
+                guild_id,
+                channel_id,
+                owner_id,
+            });
+        Ok(channel)
+    }
+    async fn update_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: Option<u64>,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+    ) -> anyhow::Result<Option<TemporaryVoiceResult>> {
+        let mut channels = self.temporary_voice.lock().expect("fake lock poisoned");
+        if let Some(channel) = channels.get_mut(&(guild_id, channel_id)) {
+            if let Some(value) = owner_id {
+                channel.owner_id = value;
+            }
+            if let Some(value) = name {
+                channel.name = value.into();
+            }
+            if let Some(value) = user_limit {
+                channel.user_limit = value;
+            }
+            if let Some(value) = locked {
+                channel.locked = value;
+            }
+        }
+        let result = channels.get(&(guild_id, channel_id)).cloned();
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::UpdateTemporaryVoice {
+                guild_id,
+                channel_id,
+            });
+        Ok(result)
+    }
+    async fn unregister_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+    ) -> anyhow::Result<bool> {
+        self.calls.lock().expect("fake lock poisoned").push(
+            ServiceCall::UnregisterTemporaryVoice {
+                guild_id,
+                channel_id,
+            },
+        );
+        Ok(self
+            .temporary_voice
+            .lock()
+            .expect("fake lock poisoned")
+            .remove(&(guild_id, channel_id))
+            .is_some())
+    }
+    async fn temporary_voice_member_join(
+        &self,
+        channel_id: u64,
+        user_id: u64,
+    ) -> anyhow::Result<u64> {
+        let mut members = self
+            .temporary_voice_members
+            .lock()
+            .expect("fake lock poisoned");
+        let channel = members.entry(channel_id).or_default();
+        channel.insert(user_id);
+        Ok(channel.len() as u64)
+    }
+    async fn temporary_voice_member_leave(
+        &self,
+        channel_id: u64,
+        user_id: u64,
+    ) -> anyhow::Result<u64> {
+        let mut members = self
+            .temporary_voice_members
+            .lock()
+            .expect("fake lock poisoned");
+        let channel = members.entry(channel_id).or_default();
+        channel.remove(&user_id);
+        Ok(channel.len() as u64)
+    }
+    async fn schedule_temporary_voice_delete(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        _: u16,
+    ) -> anyhow::Result<()> {
+        self.temporary_voice_due
+            .lock()
+            .expect("fake lock poisoned")
+            .insert((guild_id, channel_id));
+        Ok(())
+    }
+    async fn cancel_temporary_voice_delete(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+    ) -> anyhow::Result<()> {
+        self.temporary_voice_due
+            .lock()
+            .expect("fake lock poisoned")
+            .remove(&(guild_id, channel_id));
+        Ok(())
+    }
+    async fn due_temporary_voice_deletes(
+        &self,
+        guild_id: u64,
+        _: u64,
+    ) -> anyhow::Result<Vec<TemporaryVoiceResult>> {
+        let due = self.temporary_voice_due.lock().expect("fake lock poisoned");
+        let channels = self.temporary_voice.lock().expect("fake lock poisoned");
+        Ok(due
+            .iter()
+            .filter(|(stored, _)| *stored == guild_id)
+            .filter_map(|key| channels.get(key).cloned())
+            .collect())
+    }
 
     async fn open_ticket_channel(
         &self,
@@ -1239,6 +1453,71 @@ impl FakeDiscord {
 
 #[async_trait]
 impl DiscordApi for FakeDiscord {
+    async fn create_temporary_voice_channel(
+        &self,
+        guild_id: u64,
+        category_id: u64,
+        owner_id: u64,
+        name: &str,
+        user_limit: u8,
+        reason: &str,
+    ) -> Result<u64, DiscordError> {
+        self.record(DiscordCall::CreateTemporaryVoiceChannel {
+            guild_id,
+            category_id,
+            owner_id,
+            name: name.into(),
+            user_limit,
+            reason: reason.into(),
+        })?;
+        Ok(9_001)
+    }
+    async fn update_voice_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::UpdateVoiceChannel {
+            guild_id,
+            channel_id,
+            name: name.map(str::to_owned),
+            user_limit,
+            locked,
+            reason: reason.into(),
+        })
+    }
+    async fn move_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        channel_id: Option<u64>,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::MoveMember {
+            guild_id,
+            user_id,
+            channel_id,
+            reason: reason.into(),
+        })
+    }
+    async fn transfer_voice_owner(
+        &self,
+        channel_id: u64,
+        previous_owner_id: u64,
+        owner_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::TransferVoiceOwner {
+            channel_id,
+            previous_owner_id,
+            owner_id,
+            reason: reason.into(),
+        })
+    }
     async fn recent_message_ids(&self, _: u64, limit: u16) -> Result<Vec<u64>, DiscordError> {
         Ok((1..=u64::from(limit)).collect())
     }

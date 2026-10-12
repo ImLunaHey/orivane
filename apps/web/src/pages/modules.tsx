@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, Bell, Bot, CalendarClock, Check, ClipboardList, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, PanelsTopLeft, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus } from 'lucide-react'
+import { ArrowLeft, Bell, Bot, CalendarClock, Check, ClipboardList, Gavel, Gift, Lightbulb, LoaderCircle, MessageSquareReply, PanelsTopLeft, Plus, ScrollText, ShieldAlert, ShieldCheck, Sparkles, Star, Tags, TerminalSquare, Ticket, Trash2, Trophy, UserPlus, Volume2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DiscordChannelSelect } from '../components/discord-channel-select'
 import { DiscordChannelMultiSelect } from '../components/discord-channel-multi-select'
@@ -34,6 +34,7 @@ const moduleMeta: Record<ModuleKey, ModuleMeta> = {
   reminders: { title: 'Reminders', description: 'Deliver durable personal reminders in channels or direct messages.', icon: Bell, tone: 'blue', runtime: 'Live' },
   auto_delete: { title: 'Auto-delete', description: 'Delete channel messages on durable timers and run permission-gated manual purges.', icon: Trash2, tone: 'red', runtime: 'Live' },
   managed_embeds: { title: 'Managed embeds', description: 'Design reusable rich messages and synchronize published Discord posts.', icon: PanelsTopLeft, tone: 'violet', runtime: 'Live' },
+  temporary_voice: { title: 'Temporary voice', description: 'Create owner-controlled voice channels from a lobby and clean them up automatically.', icon: Volume2, tone: 'blue', runtime: 'Live' },
 }
 
 export function ModulesPage() {
@@ -128,6 +129,7 @@ function ModuleSettings({ moduleKey, config, update, channels, channelsPending, 
     case 'reminders': return null
     case 'auto_delete': return null
     case 'managed_embeds': return null
+    case 'temporary_voice': return null
   }
 }
 

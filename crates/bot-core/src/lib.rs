@@ -9,6 +9,7 @@ mod managed_embeds;
 mod reminders;
 mod store;
 mod suggestions;
+mod temporary_voice;
 mod tickets;
 
 pub use audit::{AuditEvent, NewAuditEvent};
@@ -21,8 +22,8 @@ pub use config::{
     GuildConfig, LevelRewardConfig, LevelingConfig, LoggingConfig, ManagedEmbedsConfig,
     ModerationConfig, ModulesConfig, ReactionRoleBinding, ReactionRoleOption, ReactionRolePanel,
     ReactionRolesConfig, RemindersConfig, ScheduledMessageConfig, ScheduledMessagesConfig,
-    StarboardConfig, SuggestionsConfig, TicketsConfig, UtilityConfig, WarningThresholdConfig,
-    WelcomeConfig,
+    StarboardConfig, SuggestionsConfig, TemporaryVoiceConfig, TicketsConfig, UtilityConfig,
+    WarningThresholdConfig, WelcomeConfig,
 };
 pub use fleet::{
     CommandVolumeBucket, ConnectedGuild, DependencyHealth, GlobalUser, GuildDashboardStats,
@@ -36,6 +37,7 @@ pub use managed_embeds::{
 pub use reminders::{NewReminder, Reminder};
 pub use store::{Infrastructure, StoreError, level_for_xp};
 pub use suggestions::{NewSuggestion, Suggestion};
+pub use temporary_voice::TemporaryVoiceChannel;
 pub use tickets::{
     NewTicket, NewTicketPanel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel,
 };

@@ -18,8 +18,8 @@ use bot_core::{
     FormSubmission, Giveaway, GiveawayEntry, GlobalUser, GuildConfig, GuildDashboardStats,
     GuildMemberSummary, Infrastructure, InfrastructureHealth, MessageDeletionJob, ModerationCase,
     NewAuditEvent, NewEmbedDelivery, NewEmbedTemplate, NewGiveaway, NewModerationCase,
-    NewTicketPanel, Reminder, Suggestion, Ticket, TicketAnalytics, TicketEvent, TicketNote,
-    TicketPanel, UserGuildContext,
+    NewTicketPanel, Reminder, Suggestion, TemporaryVoiceChannel, Ticket, TicketAnalytics,
+    TicketEvent, TicketNote, TicketPanel, UserGuildContext,
 };
 use bot_discord::{
     CommandDefinition, DiscordApi, GuildChannel, GuildRole, MessageButton, MessageButtonStyle,
@@ -198,6 +198,14 @@ async fn main() -> Result<()> {
         )
         .route("/v1/guilds/{guild_id}/channels", get(get_guild_channels))
         .route("/v1/guilds/{guild_id}/roles", get(get_guild_roles))
+        .route(
+            "/v1/guilds/{guild_id}/temporary-voice",
+            get(get_temporary_voice_channels),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/temporary-voice/{channel_id}",
+            axum::routing::delete(delete_temporary_voice_channel),
+        )
         .route(
             "/v1/guilds/{guild_id}/ticket-panels",
             get(get_ticket_panels).post(create_ticket_panel),
@@ -586,6 +594,7 @@ fn all_commands() -> Vec<CommandDefinition> {
         bot_module_reminders::COMMANDS,
         bot_module_auto_delete::COMMANDS,
         bot_module_managed_embeds::COMMANDS,
+        bot_module_temporary_voice::COMMANDS,
     ];
     groups
         .iter()
@@ -702,6 +711,85 @@ async fn get_guild_roles(
     )
     .await;
     Ok(Json(roles))
+}
+
+async fn get_temporary_voice_channels(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<TemporaryVoiceChannel>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let channels = state
+        .infrastructure
+        .temporary_voice_channels(&guild_id)
+        .await
+        .map_err(internal_error)?;
+    record_read(
+        &state,
+        Some(&guild_id),
+        &actor,
+        &headers,
+        "temporary_voice.channels.viewed",
+    )
+    .await;
+    Ok(Json(channels))
+}
+
+async fn delete_temporary_voice_channel(
+    State(state): State<AppState>,
+    Path((guild_id, channel_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_snowflake(&channel_id)?;
+    let actor = state.auth.require_guild(&headers, &guild_id).await?;
+    let channel = state
+        .infrastructure
+        .temporary_voice_channel(&guild_id, &channel_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                "temporary voice channel not found".into(),
+            )
+        })?;
+    let discord = TwilightDiscord::connect(state.discord_token.clone().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DISCORD_TOKEN is not configured".into(),
+        )
+    })?)
+    .await
+    .map_err(internal_error)?;
+    discord
+        .delete_channel(
+            channel_id.parse().expect("validated snowflake"),
+            "Removed from the Orivane dashboard",
+        )
+        .await
+        .map_err(internal_error)?;
+    state
+        .infrastructure
+        .unregister_temporary_voice_channel(&guild_id, &channel_id)
+        .await
+        .map_err(internal_error)?;
+    let mut event = NewAuditEvent::guild(
+        &guild_id,
+        &actor.discord_user_id,
+        "temporary_voice.channel.deleted",
+    );
+    event.source = "dashboard_api".into();
+    event.target_type = "channel".into();
+    event.target_id = Some(channel_id);
+    event.before_state = serde_json::to_value(channel).ok();
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn put_config(
@@ -2983,6 +3071,8 @@ async fn record_read(
         "guild_fleet"
     } else if action.starts_with("analytics") {
         "analytics_report"
+    } else if action.starts_with("temporary_voice") {
+        "voice_channel"
     } else {
         "audit_log"
     }

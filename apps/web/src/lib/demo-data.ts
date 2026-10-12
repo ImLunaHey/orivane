@@ -89,6 +89,7 @@ export const defaultConfig: GuildConfig = {
     reminders: { enabled: false, allow_direct_messages: true, max_active_per_user: 10, minimum_delay_minutes: 1, maximum_delay_days: 365 },
     auto_delete: { enabled: false, rules: [] },
     managed_embeds: { enabled: false },
+    temporary_voice: { enabled: false, lobby_channel_id: null, category_id: null, default_name: "{username}'s channel", user_limit: 0, delete_delay_seconds: 5, owner_controls: true },
   },
 }
 

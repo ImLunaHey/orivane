@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use bot_core::{
     Giveaway, GuildConfig, Infrastructure, NewAuditEvent, NewEmbedDelivery, NewFormSubmission,
     NewGiveaway, NewModerationCase, NewReminder, NewSuggestion, NewTicket, Reminder, Suggestion,
-    level_for_xp,
+    TemporaryVoiceChannel, level_for_xp,
 };
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, CommandValue, ComponentInteraction,
@@ -22,8 +22,8 @@ use bot_module_api::{
     ManagedEmbedDeliveryInput, ManagedEmbedResult, MemberJoin, MemberLeave, MessageCreate,
     MessageDeletionJobResult, ModerationCaseInput, ModuleContext, ModuleServices, ReactionAdd,
     ReminderInput, ReminderResult, ScheduledTick, SuggestionInput, SuggestionResult,
-    TicketPanelResult, TicketRecordInput, TicketResult, VoiceStateChange, XpAdjustmentInput,
-    XpAwardInput, XpAwardResult, XpProfile,
+    TemporaryVoiceResult, TicketPanelResult, TicketRecordInput, TicketResult, VoiceStateChange,
+    XpAdjustmentInput, XpAwardInput, XpAwardResult, XpProfile,
 };
 use bot_module_auto_delete::AutoDeleteModule;
 use bot_module_automod::AutomodModule;
@@ -41,6 +41,7 @@ use bot_module_reminders::RemindersModule;
 use bot_module_scheduled_messages::ScheduledMessagesModule;
 use bot_module_starboard::StarboardModule;
 use bot_module_suggestions::SuggestionsModule;
+use bot_module_temporary_voice::TemporaryVoiceModule;
 use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
 use bot_module_welcome::WelcomeModule;
@@ -613,6 +614,129 @@ impl ModuleServices for GatewayModuleServices {
         })
     }
 
+    async fn temporary_voice_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+    ) -> Result<Option<TemporaryVoiceResult>> {
+        Ok(self
+            .infrastructure
+            .temporary_voice_channel(&guild_id.to_string(), &channel_id.to_string())
+            .await?
+            .as_ref()
+            .map(temporary_voice_result)
+            .transpose()?)
+    }
+    async fn temporary_voice_owner_channel(
+        &self,
+        guild_id: u64,
+        owner_id: u64,
+    ) -> Result<Option<TemporaryVoiceResult>> {
+        Ok(self
+            .infrastructure
+            .temporary_voice_owner_channel(&guild_id.to_string(), &owner_id.to_string())
+            .await?
+            .as_ref()
+            .map(temporary_voice_result)
+            .transpose()?)
+    }
+    async fn register_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: u64,
+        name: &str,
+        user_limit: u8,
+    ) -> Result<TemporaryVoiceResult> {
+        temporary_voice_result(
+            &self
+                .infrastructure
+                .register_temporary_voice_channel(
+                    &guild_id.to_string(),
+                    &channel_id.to_string(),
+                    &owner_id.to_string(),
+                    name,
+                    user_limit,
+                )
+                .await?,
+        )
+    }
+    async fn update_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: Option<u64>,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+    ) -> Result<Option<TemporaryVoiceResult>> {
+        Ok(self
+            .infrastructure
+            .update_temporary_voice_channel(
+                &guild_id.to_string(),
+                &channel_id.to_string(),
+                owner_id.map(|id| id.to_string()).as_deref(),
+                name,
+                user_limit,
+                locked,
+            )
+            .await?
+            .as_ref()
+            .map(temporary_voice_result)
+            .transpose()?)
+    }
+    async fn unregister_temporary_voice(&self, guild_id: u64, channel_id: u64) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .unregister_temporary_voice_channel(&guild_id.to_string(), &channel_id.to_string())
+            .await?)
+    }
+    async fn temporary_voice_member_join(&self, channel_id: u64, user_id: u64) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .temporary_voice_member_join(&channel_id.to_string(), &user_id.to_string())
+            .await?)
+    }
+    async fn temporary_voice_member_leave(&self, channel_id: u64, user_id: u64) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .temporary_voice_member_leave(&channel_id.to_string(), &user_id.to_string())
+            .await?)
+    }
+    async fn schedule_temporary_voice_delete(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        delay_seconds: u16,
+    ) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .schedule_temporary_voice_delete(
+                &guild_id.to_string(),
+                &channel_id.to_string(),
+                delay_seconds,
+            )
+            .await?)
+    }
+    async fn cancel_temporary_voice_delete(&self, guild_id: u64, channel_id: u64) -> Result<()> {
+        Ok(self
+            .infrastructure
+            .cancel_temporary_voice_delete(&guild_id.to_string(), &channel_id.to_string())
+            .await?)
+    }
+    async fn due_temporary_voice_deletes(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+    ) -> Result<Vec<TemporaryVoiceResult>> {
+        self.infrastructure
+            .due_temporary_voice_deletes(&guild_id.to_string(), now_unix)
+            .await?
+            .iter()
+            .map(temporary_voice_result)
+            .collect()
+    }
+
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>> {
         self.infrastructure
             .open_ticket_channel(&guild_id.to_string(), &opener_id.to_string())
@@ -956,6 +1080,7 @@ async fn main() -> Result<()> {
         Arc::new(RemindersModule),
         Arc::new(AutoDeleteModule),
         Arc::new(ManagedEmbedsModule),
+        Arc::new(TemporaryVoiceModule),
     ];
     let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
     register_commands(discord.as_ref(), &modules).await?;
@@ -1669,6 +1794,10 @@ async fn main() -> Result<()> {
                     previous_session_seconds,
                     previous_session_eligible,
                     user_is_bot,
+                    username: voice.member.as_ref().map_or_else(
+                        || voice.user_id.to_string(),
+                        |member| member.user.name.clone(),
+                    ),
                 };
                 for module in modules
                     .iter()
@@ -2285,6 +2414,22 @@ fn account_age_seconds(user_id: u64) -> u64 {
         .unwrap_or_default()
         .as_millis() as u64;
     now_ms.saturating_sub(created_ms) / 1_000
+}
+
+fn temporary_voice_result(channel: &TemporaryVoiceChannel) -> Result<TemporaryVoiceResult> {
+    Ok(TemporaryVoiceResult {
+        channel_id: channel
+            .channel_id
+            .parse()
+            .context("stored temporary voice channel is invalid")?,
+        owner_id: channel
+            .owner_id
+            .parse()
+            .context("stored temporary voice owner is invalid")?,
+        name: channel.name.clone(),
+        user_limit: u8::try_from(channel.user_limit).unwrap_or_default(),
+        locked: channel.locked,
+    })
 }
 
 fn init_tracing() {

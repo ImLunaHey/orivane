@@ -56,6 +56,15 @@ pub struct XpAdjustmentInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemporaryVoiceResult {
+    pub channel_id: u64,
+    pub owner_id: u64,
+    pub name: String,
+    pub user_limit: u8,
+    pub locked: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketRecordInput {
     pub guild_id: u64,
     pub opener_id: u64,
@@ -233,6 +242,48 @@ pub trait ModuleServices: Send + Sync {
     async fn xp_profile(&self, guild_id: u64, user_id: u64) -> Result<XpProfile>;
     async fn xp_leaderboard(&self, guild_id: u64, limit: u8) -> Result<Vec<XpProfile>>;
     async fn adjust_xp(&self, input: XpAdjustmentInput) -> Result<XpProfile>;
+    async fn temporary_voice_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+    ) -> Result<Option<TemporaryVoiceResult>>;
+    async fn temporary_voice_owner_channel(
+        &self,
+        guild_id: u64,
+        owner_id: u64,
+    ) -> Result<Option<TemporaryVoiceResult>>;
+    async fn register_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: u64,
+        name: &str,
+        user_limit: u8,
+    ) -> Result<TemporaryVoiceResult>;
+    async fn update_temporary_voice(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        owner_id: Option<u64>,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+    ) -> Result<Option<TemporaryVoiceResult>>;
+    async fn unregister_temporary_voice(&self, guild_id: u64, channel_id: u64) -> Result<bool>;
+    async fn temporary_voice_member_join(&self, channel_id: u64, user_id: u64) -> Result<u64>;
+    async fn temporary_voice_member_leave(&self, channel_id: u64, user_id: u64) -> Result<u64>;
+    async fn schedule_temporary_voice_delete(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        delay_seconds: u16,
+    ) -> Result<()>;
+    async fn cancel_temporary_voice_delete(&self, guild_id: u64, channel_id: u64) -> Result<()>;
+    async fn due_temporary_voice_deletes(
+        &self,
+        guild_id: u64,
+        now_unix: u64,
+    ) -> Result<Vec<TemporaryVoiceResult>>;
     async fn open_ticket_channel(&self, guild_id: u64, opener_id: u64) -> Result<Option<u64>>;
     async fn ticket_panel(
         &self,
@@ -492,6 +543,7 @@ pub struct VoiceStateChange {
     pub previous_session_seconds: u64,
     pub previous_session_eligible: bool,
     pub user_is_bot: bool,
+    pub username: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

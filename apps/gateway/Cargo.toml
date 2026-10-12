@@ -31,6 +31,7 @@ bot-module-giveaways.workspace = true
 bot-module-reminders.workspace = true
 bot-module-auto-delete.workspace = true
 bot-module-managed-embeds.workspace = true
+bot-module-temporary-voice.workspace = true
 chrono.workspace = true
 rustls.workspace = true
 serde_json.workspace = true

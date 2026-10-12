@@ -553,6 +553,7 @@ mod tests {
             previous_session_seconds: 600,
             previous_session_eligible: true,
             user_is_bot: false,
+            username: "luna".into(),
         };
 
         let outcome = LevelingModule

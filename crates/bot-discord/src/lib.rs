@@ -15,6 +15,7 @@ use twilight_model::{
     },
     application::interaction::InteractionContextType,
     channel::{
+        ChannelType,
         message::MessageFlags,
         message::component::{
             ActionRow, Button, ButtonStyle, Component, Label, SelectMenu, SelectMenuOption,
@@ -534,6 +535,38 @@ pub trait DiscordApi: Send + Sync {
     ) -> Result<u64, DiscordError>;
 
     async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError>;
+    async fn create_temporary_voice_channel(
+        &self,
+        guild_id: u64,
+        category_id: u64,
+        owner_id: u64,
+        name: &str,
+        user_limit: u8,
+        reason: &str,
+    ) -> Result<u64, DiscordError>;
+    async fn update_voice_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+    async fn move_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        channel_id: Option<u64>,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+    async fn transfer_voice_owner(
+        &self,
+        channel_id: u64,
+        previous_owner_id: u64,
+        owner_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
     async fn channel_transcript(&self, _channel_id: u64) -> Result<String, DiscordError> {
         Err(DiscordError::Request(
             "transcript capture unavailable".into(),
@@ -1290,6 +1323,122 @@ impl DiscordApi for TwilightDiscord {
     async fn delete_channel(&self, channel_id: u64, reason: &str) -> Result<(), DiscordError> {
         self.http
             .delete_channel(Id::new(channel_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn create_temporary_voice_channel(
+        &self,
+        guild_id: u64,
+        category_id: u64,
+        owner_id: u64,
+        name: &str,
+        user_limit: u8,
+        reason: &str,
+    ) -> Result<u64, DiscordError> {
+        let overwrites = [PermissionOverwrite {
+            allow: Permissions::CONNECT | Permissions::MANAGE_CHANNELS | Permissions::MOVE_MEMBERS,
+            deny: Permissions::empty(),
+            id: Id::new(owner_id),
+            kind: PermissionOverwriteType::Member,
+        }];
+        let channel = self
+            .http
+            .create_guild_channel(Id::new(guild_id), name)
+            .kind(ChannelType::GuildVoice)
+            .parent_id(Id::new(category_id))
+            .user_limit(u16::from(user_limit))
+            .permission_overwrites(&overwrites)
+            .reason(reason)
+            .await
+            .map_err(request_error)?
+            .model()
+            .await
+            .map_err(request_error)?;
+        Ok(channel.id.get())
+    }
+
+    async fn update_voice_channel(
+        &self,
+        guild_id: u64,
+        channel_id: u64,
+        name: Option<&str>,
+        user_limit: Option<u8>,
+        locked: Option<bool>,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        let mut request = self.http.update_channel(Id::new(channel_id));
+        if let Some(name) = name {
+            request = request.name(name);
+        }
+        if let Some(user_limit) = user_limit {
+            request = request.user_limit(u16::from(user_limit));
+        }
+        request.reason(reason).await.map_err(request_error)?;
+        if let Some(locked) = locked {
+            let overwrite = HttpPermissionOverwrite {
+                allow: Some(if locked {
+                    Permissions::empty()
+                } else {
+                    Permissions::CONNECT
+                }),
+                deny: Some(if locked {
+                    Permissions::CONNECT
+                } else {
+                    Permissions::empty()
+                }),
+                id: Id::<RoleMarker>::new(guild_id).cast(),
+                kind: HttpPermissionOverwriteType::Role,
+            };
+            self.http
+                .update_channel_permission(Id::new(channel_id), &overwrite)
+                .reason(reason)
+                .await
+                .map_err(request_error)?;
+        }
+        Ok(())
+    }
+
+    async fn move_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        channel_id: Option<u64>,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .update_guild_member(Id::new(guild_id), Id::new(user_id))
+            .channel_id(channel_id.map(Id::new))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+    async fn transfer_voice_owner(
+        &self,
+        channel_id: u64,
+        previous_owner_id: u64,
+        owner_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .delete_channel_permission(Id::new(channel_id))
+            .member(Id::new(previous_owner_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        let overwrite = HttpPermissionOverwrite {
+            allow: Some(
+                Permissions::CONNECT | Permissions::MANAGE_CHANNELS | Permissions::MOVE_MEMBERS,
+            ),
+            deny: Some(Permissions::empty()),
+            id: Id::<UserMarker>::new(owner_id).cast(),
+            kind: HttpPermissionOverwriteType::Member,
+        };
+        self.http
+            .update_channel_permission(Id::new(channel_id), &overwrite)
             .reason(reason)
             .await
             .map_err(request_error)?;

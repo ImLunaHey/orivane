@@ -20,6 +20,7 @@ Reference feature sets:
 | Reaction roles | Live | Existing-message emoji mappings, Unicode/custom emoji, managed bot messages, synchronized button and dropdown panels, toggle/add-only/remove-only modes, exclusive groups, required/blocked role policy, dashboard list/editor/preview, and audited component actions | Timed role expiry is optional future depth rather than core parity |
 | Logging | Live | Category routing for commands, content-safe message edits/deletes, member lifecycle and updates, voice transitions, and attributed Discord audit-log actions for moderation/roles/channels; durable global/guild audit records and analytics | Cached before/after diffs, webhook/integration events, and configurable retention |
 | Leveling | Live | Durable message and voice XP; cooldowns; minimum-length and duplicate-content anti-farming; text/voice/role exclusions; `/rank` progress embeds; `/leaderboard`; level announcements; cumulative or highest-only role rewards; permission-gated XP add/remove/set administration | Generated image-card themes and seasonal XP resets |
+| Temporary voice | Live | Join-to-create lobby, configurable category/name/limit, duplicate-owner reuse, durable channel inventory, delayed empty cleanup, dashboard force-delete, owner rename/limit/lock/unlock/transfer/kick slash controls, and audited lifecycle actions | Regional bitrate presets are optional future depth |
 | Starboard | Live | Threshold, emoji, ignored channels, self-star policy, deduplication | Rich source embeds, attachments, edits/deletes, per-channel thresholds |
 | Tickets | Live | Configurable synchronized panels and close buttons, native intake modals, private channels, per-panel limits, claims and staff transfers, priority/tags/internal notes, retained downloadable transcripts, read-only close and reopen, inactivity auto-close, retention cleanup, SLA analytics, dashboard inbox/details, and lifecycle audit events | Multi-step intake forms and external help-desk integrations are future depth |
 | Custom commands | Live | Slash responses, variables, per-channel restriction, public/ephemeral response | Dynamic command registration, embeds, role permissions, cooldowns, multiple/random responses |
@@ -42,7 +43,6 @@ These are not represented as fake or configuration-only cards in the dashboard.
 | --- | --- | --- |
 | Economy, points, games and tags | Dyno and MEE6-class bots | Not built |
 | AFK and keyword highlights | Dyno | Not built |
-| Voice/text linking and temporary voice channels | Dyno and similar bots | Not built |
 
 Social-feed integrations are intentionally out of scope for Orivane and are not part of the parity backlog.
 

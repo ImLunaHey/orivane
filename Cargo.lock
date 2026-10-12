@@ -944,6 +944,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-module-temporary-voice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bot-core",
+ "bot-discord",
+ "bot-module-api",
+ "bot-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "bot-module-tickets"
 version = "0.1.0"
 dependencies = [
@@ -1642,6 +1655,7 @@ dependencies = [
  "bot-module-moderation",
  "bot-module-reminders",
  "bot-module-suggestions",
+ "bot-module-temporary-voice",
  "bot-module-tickets",
  "bot-module-utility",
  "chrono",
@@ -1684,6 +1698,7 @@ dependencies = [
  "bot-module-scheduled-messages",
  "bot-module-starboard",
  "bot-module-suggestions",
+ "bot-module-temporary-voice",
  "bot-module-tickets",
  "bot-module-utility",
  "bot-module-welcome",

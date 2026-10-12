@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AuditEvent, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion, SuggestionStatus, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
+import type { AuditEvent, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, Reminder, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { hourlyCommands, type ChartDatum } from './analytics-data'
@@ -67,6 +67,16 @@ export async function getGuildRoles(guildId: string): Promise<GuildRole[]> {
     { id: '100000000000000103', name: 'Member', position: 1, managed: false },
   ]
   return request<GuildRole[]>(`/v1/guilds/${guildId}/roles`)
+}
+
+const temporaryVoiceKey=(guildId:string)=>`orivane:temporary-voice:${guildId}`
+export async function getTemporaryVoiceChannels(guildId:string):Promise<TemporaryVoiceChannel[]>{
+  if(isDemoMode){const saved=localStorage.getItem(temporaryVoiceKey(guildId));return saved?JSON.parse(saved):[{id:1,guild_id:guildId,channel_id:'100000000000000006',owner_id:'118742006320914432',name:"Silver's channel",user_limit:5,locked:false,status:'active',created_at:new Date(Date.now()-900000).toISOString(),updated_at:new Date().toISOString(),deleted_at:null,delete_after:null}]}
+  return request(`/v1/guilds/${guildId}/temporary-voice`)
+}
+export async function deleteTemporaryVoiceChannel(guildId:string,channelId:string):Promise<void>{
+  if(isDemoMode){const channels=await getTemporaryVoiceChannels(guildId);localStorage.setItem(temporaryVoiceKey(guildId),JSON.stringify(channels.filter(channel=>channel.channel_id!==channelId)));return}
+  return request(`/v1/guilds/${guildId}/temporary-voice/${channelId}`,{method:'DELETE'})
 }
 
 export async function saveGuildConfig(config: GuildConfig): Promise<GuildConfig> {

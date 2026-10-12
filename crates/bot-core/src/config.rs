@@ -50,6 +50,38 @@ pub struct ModulesConfig {
     pub auto_delete: AutoDeleteConfig,
     #[serde(default)]
     pub managed_embeds: ManagedEmbedsConfig,
+    #[serde(default)]
+    pub temporary_voice: TemporaryVoiceConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TemporaryVoiceConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub lobby_channel_id: Option<String>,
+    pub category_id: Option<String>,
+    #[serde(default = "default_temporary_voice_name")]
+    pub default_name: String,
+    #[serde(default)]
+    pub user_limit: u8,
+    #[serde(default = "default_temporary_voice_delete_delay")]
+    pub delete_delay_seconds: u16,
+    #[serde(default = "default_true")]
+    pub owner_controls: bool,
+}
+
+impl Default for TemporaryVoiceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            lobby_channel_id: None,
+            category_id: None,
+            default_name: default_temporary_voice_name(),
+            user_limit: 0,
+            delete_delay_seconds: default_temporary_voice_delete_delay(),
+            owner_controls: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -632,6 +664,8 @@ pub enum ConfigValidationError {
     InvalidReminders,
     #[error("auto-delete rules contain invalid IDs, channels, delays, or exclusions")]
     InvalidAutoDelete,
+    #[error("temporary voice lobby, category, name, limit, or deletion delay is invalid")]
+    InvalidTemporaryVoice,
 }
 
 impl GuildConfig {
@@ -758,6 +792,26 @@ impl GuildConfig {
                     .is_some_and(|id| !valid_snowflake(id)))
         {
             return Err(ConfigValidationError::InvalidLeveling);
+        }
+        let temporary_voice = &self.modules.temporary_voice;
+        if temporary_voice.default_name.trim().is_empty()
+            || temporary_voice.default_name.chars().count() > 100
+            || temporary_voice.user_limit > 99
+            || temporary_voice.delete_delay_seconds > 300
+            || temporary_voice
+                .lobby_channel_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || temporary_voice
+                .category_id
+                .as_deref()
+                .is_some_and(|id| !valid_snowflake(id))
+            || (temporary_voice.enabled
+                && (temporary_voice.lobby_channel_id.is_none()
+                    || temporary_voice.category_id.is_none()
+                    || temporary_voice.lobby_channel_id == temporary_voice.category_id))
+        {
+            return Err(ConfigValidationError::InvalidTemporaryVoice);
         }
         let moderation = &self.modules.moderation;
         let mut warning_counts = std::collections::HashSet::new();
@@ -1366,6 +1420,12 @@ const fn default_rank_card_color() -> u32 {
 }
 fn default_rank_card_footer() -> String {
     "Keep participating to reach the next level.".into()
+}
+fn default_temporary_voice_name() -> String {
+    "{username}'s channel".into()
+}
+const fn default_temporary_voice_delete_delay() -> u16 {
+    5
 }
 fn default_welcome_message() -> String {
     "Welcome {user} to {server}!".to_owned()
