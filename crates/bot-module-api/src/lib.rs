@@ -84,6 +84,15 @@ pub struct MemberJoin {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberLeave {
+    pub guild_id: u64,
+    pub guild_name: String,
+    pub user_id: u64,
+    pub username: String,
+    pub display_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditNotice {
     pub guild_id: u64,
     pub action: String,
@@ -140,6 +149,9 @@ pub trait BotModule: Send + Sync {
     fn handles_member_join(&self) -> bool {
         false
     }
+    fn handles_member_leave(&self) -> bool {
+        false
+    }
     fn handles_audit_notice(&self) -> bool {
         false
     }
@@ -164,6 +176,15 @@ pub trait BotModule: Send + Sync {
         _context: &ModuleContext,
         _config: &GuildConfig,
         _event: &MemberJoin,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn on_member_leave(
+        &self,
+        _context: &ModuleContext,
+        _config: &GuildConfig,
+        _event: &MemberLeave,
     ) -> Result<()> {
         Ok(())
     }

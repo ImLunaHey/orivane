@@ -9,6 +9,9 @@ type WelcomeMessageEditorProps = {
   serverId: string
   serverName: string
   onChange: (value: string) => void
+  title?: string
+  detail?: string
+  placeholder?: string
 }
 
 const variables = [
@@ -76,7 +79,7 @@ const editorExtensions = [
   editorTheme,
 ]
 
-export function WelcomeMessageEditor({ value, serverId, serverName, onChange }: WelcomeMessageEditorProps) {
+export function WelcomeMessageEditor({ value, serverId, serverName, onChange, title = 'Welcome message', detail = 'Write the message Orivane sends when somebody joins.', placeholder = 'Welcome {user} to {server}!' }: WelcomeMessageEditorProps) {
   const baseId = useId()
   const editorRef = useRef<ReactCodeMirrorRef>(null)
   const extensions = useMemo(() => [
@@ -99,7 +102,7 @@ export function WelcomeMessageEditor({ value, serverId, serverName, onChange }: 
   }
 
   return <div className="welcome-editor wide">
-    <div className="welcome-editor-label"><span id={`${baseId}-label`}>Welcome message</span><small id={`${baseId}-description`}>Write the message Orivane sends when somebody joins. Type <code>{'{'}</code> for variables.</small></div>
+    <div className="welcome-editor-label"><span id={`${baseId}-label`}>{title}</span><small id={`${baseId}-description`}>{detail} Type <code>{'{'}</code> for variables.</small></div>
     <CodeMirror
       ref={editorRef}
       className="welcome-codemirror"
@@ -115,7 +118,7 @@ export function WelcomeMessageEditor({ value, serverId, serverName, onChange }: 
         autocompletion: false,
         bracketMatching: false,
       }}
-      placeholder="Welcome {user} to {server}!"
+      placeholder={placeholder}
       onChange={onChange}
     />
     <div className="welcome-variable-list" aria-label="Welcome message variables">

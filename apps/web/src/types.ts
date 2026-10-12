@@ -31,6 +31,11 @@ export type GuildConfig = {
       enabled: boolean
       channel_id: string | null
       message: string
+      dm_enabled: boolean
+      dm_message: string
+      goodbye_enabled: boolean
+      goodbye_channel_id: string | null
+      goodbye_message: string
     }
     logging: {
       enabled: boolean

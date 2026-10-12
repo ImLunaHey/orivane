@@ -89,6 +89,15 @@ pub struct WelcomeConfig {
     pub channel_id: Option<String>,
     #[serde(default = "default_welcome_message")]
     pub message: String,
+    #[serde(default)]
+    pub dm_enabled: bool,
+    #[serde(default = "default_welcome_dm_message")]
+    pub dm_message: String,
+    #[serde(default)]
+    pub goodbye_enabled: bool,
+    pub goodbye_channel_id: Option<String>,
+    #[serde(default = "default_goodbye_message")]
+    pub goodbye_message: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -193,6 +202,8 @@ pub enum ConfigValidationError {
     InvalidLeveling,
     #[error("a welcome channel is required when the welcome module is enabled")]
     MissingWelcomeChannel,
+    #[error("welcome direct-message or goodbye settings are invalid")]
+    InvalidWelcomeMessages,
     #[error("a logging channel is required when the logging module is enabled")]
     MissingLoggingChannel,
     #[error("autorole role IDs must be valid Discord snowflakes and contain at most 10 roles")]
@@ -278,6 +289,18 @@ impl GuildConfig {
                 .is_none_or(|id| !valid_snowflake(id))
         {
             return Err(ConfigValidationError::MissingWelcomeChannel);
+        }
+        if self.modules.welcome.dm_message.chars().count() > 2_000
+            || self.modules.welcome.goodbye_message.chars().count() > 2_000
+            || (self.modules.welcome.goodbye_enabled
+                && self
+                    .modules
+                    .welcome
+                    .goodbye_channel_id
+                    .as_deref()
+                    .is_none_or(|id| !valid_snowflake(id)))
+        {
+            return Err(ConfigValidationError::InvalidWelcomeMessages);
         }
         if self.modules.logging.enabled
             && self
@@ -470,6 +493,11 @@ impl Default for WelcomeConfig {
             enabled: false,
             channel_id: None,
             message: default_welcome_message(),
+            dm_enabled: false,
+            dm_message: default_welcome_dm_message(),
+            goodbye_enabled: false,
+            goodbye_channel_id: None,
+            goodbye_message: default_goodbye_message(),
         }
     }
 }
@@ -506,6 +534,12 @@ fn default_level_up_message() -> String {
 }
 fn default_welcome_message() -> String {
     "Welcome {user} to {server}!".to_owned()
+}
+fn default_welcome_dm_message() -> String {
+    "Welcome to {server}, {user}!".to_owned()
+}
+fn default_goodbye_message() -> String {
+    "{username} has left {server}.".to_owned()
 }
 const fn default_true() -> bool {
     true

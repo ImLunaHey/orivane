@@ -7,8 +7,9 @@ use bot_discord::{
     CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
 };
 use bot_module_api::{
-    AuditNotice, BotModule, MemberJoin, MessageCreate, ModerationCaseInput, ModuleContext,
-    ModuleServices, ReactionAdd, TicketRecordInput, XpAwardInput, XpAwardResult, XpProfile,
+    AuditNotice, BotModule, MemberJoin, MemberLeave, MessageCreate, ModerationCaseInput,
+    ModuleContext, ModuleServices, ReactionAdd, TicketRecordInput, XpAwardInput, XpAwardResult,
+    XpProfile,
 };
 use bot_module_automod::AutomodModule;
 use bot_module_autorole::AutoroleModule;
@@ -300,6 +301,57 @@ async fn main() -> Result<()> {
                             tracing::error!(%error, "failed to persist member join module audit event");
                         }
                     });
+                }
+            }
+            Event::MemberRemove(member) => {
+                let guild_id = member.guild_id.to_string();
+                let config = match infrastructure.guild_config(&guild_id).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        tracing::error!(%guild_id, %error, "could not load guild configuration for member leave");
+                        continue;
+                    }
+                };
+                let username = member.user.name.clone();
+                let display_name = member
+                    .user
+                    .global_name
+                    .clone()
+                    .unwrap_or_else(|| username.clone());
+                let event = MemberLeave {
+                    guild_id: member.guild_id.get(),
+                    guild_name: infrastructure
+                        .connected_guild_name(&guild_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "the server".to_owned()),
+                    user_id: member.user.id.get(),
+                    username,
+                    display_name,
+                };
+                for module in modules
+                    .iter()
+                    .filter(|module| module.handles_member_leave() && module.enabled(&config))
+                {
+                    let result = module.on_member_leave(&context, &config, &event).await;
+                    let mut audit = NewAuditEvent::guild(
+                        &guild_id,
+                        "system",
+                        format!("module.{}.member_leave", module.name()),
+                    );
+                    audit.actor_kind = "system".to_owned();
+                    audit.source = "discord_gateway".to_owned();
+                    audit.target_type = "member".to_owned();
+                    audit.target_id = Some(event.user_id.to_string());
+                    audit.metadata = serde_json::json!({ "module": module.name() });
+                    if let Err(error) = result {
+                        audit.outcome = "failure".to_owned();
+                        audit.reason = Some(error.to_string());
+                    }
+                    if let Err(error) = infrastructure.record_audit_event(&audit).await {
+                        tracing::error!(%error, "failed to persist member leave module audit event");
+                    }
                 }
             }
             Event::MessageCreate(message) => {
