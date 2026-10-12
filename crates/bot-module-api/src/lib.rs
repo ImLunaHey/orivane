@@ -281,6 +281,7 @@ pub struct ManagedEmbedDeliveryInput {
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait ModuleServices: Send + Sync {
+    async fn purge_guild_audit_events(&self, guild_id: u64, retention_days: u16) -> Result<u64>;
     async fn set_afk_status(
         &self,
         _guild_id: u64,

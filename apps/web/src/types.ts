@@ -101,6 +101,7 @@ export type LoggingConfig = {
   channel_event_channel_id: string | null
   voice_channel_id: string | null
   ignored_channel_ids: string[]
+  retention_days: number
 }
 
 export type ReactionRoleBinding = { message_id: string; emoji: string; role_id: string }

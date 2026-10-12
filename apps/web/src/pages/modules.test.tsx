@@ -137,6 +137,7 @@ describe('module configuration pages', () => {
     await screen.findByRole('heading', { name: 'Discord event logging' })
 
     expect(screen.getByRole('combobox', { name: 'Default logging channel' })).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^Audit retention/), { target: { value: '180' } })
     expect(screen.getByRole('switch', { name: 'Log messages' })).toBeChecked()
     expect(screen.getByRole('switch', { name: 'Log moderation' })).toBeChecked()
     expect(screen.getByRole('table', { name: 'Recent Discord logging events' })).toBeVisible()
@@ -146,7 +147,7 @@ describe('module configuration pages', () => {
     expect(save).toBeEnabled()
     fireEvent.click(save)
     await screen.findByText('Saved')
-    expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging.voice_events).toBe(false)
+    expect(JSON.parse(localStorage.getItem(`orivane:config:${serverId}`) ?? '{}').modules.logging).toMatchObject({ voice_events: false, retention_days: 180 })
   })
 
   it('configures moderator roles and warning escalation thresholds', async () => {

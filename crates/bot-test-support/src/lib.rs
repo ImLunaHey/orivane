@@ -207,6 +207,10 @@ pub enum DiscordCall {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceCall {
+    PurgeGuildAuditEvents {
+        guild_id: u64,
+        retention_days: u16,
+    },
     CreateModerationCase(ModerationCaseInput),
     ModerationWarningCount {
         guild_id: u64,
@@ -506,6 +510,20 @@ impl FakeModuleServices {
 
 #[async_trait]
 impl ModuleServices for FakeModuleServices {
+    async fn purge_guild_audit_events(
+        &self,
+        guild_id: u64,
+        retention_days: u16,
+    ) -> anyhow::Result<u64> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::PurgeGuildAuditEvents {
+                guild_id,
+                retention_days,
+            });
+        Ok(2)
+    }
     async fn purge_form_submissions(
         &self,
         guild_id: u64,

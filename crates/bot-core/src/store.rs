@@ -1693,6 +1693,22 @@ impl Infrastructure {
         .map_err(StoreError::from)
     }
 
+    pub async fn purge_guild_audit_events(
+        &self,
+        guild_id: &str,
+        retention_days: u16,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query(
+            "DELETE FROM audit_events WHERE guild_id=$1 \
+             AND occurred_at < now() - make_interval(days => $2)",
+        )
+        .bind(guild_id)
+        .bind(i32::from(retention_days))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn audit_event(
         &self,
         event_id: i64,

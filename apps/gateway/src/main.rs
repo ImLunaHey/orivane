@@ -80,6 +80,12 @@ struct GatewayModuleServices {
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 impl ModuleServices for GatewayModuleServices {
+    async fn purge_guild_audit_events(&self, guild_id: u64, retention_days: u16) -> Result<u64> {
+        Ok(self
+            .infrastructure
+            .purge_guild_audit_events(&guild_id.to_string(), retention_days)
+            .await?)
+    }
     async fn set_afk_status(&self, g: u64, u: u64, r: &str, n: u64, t: u64) -> Result<()> {
         Ok(self
             .infrastructure

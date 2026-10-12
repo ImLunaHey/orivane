@@ -495,6 +495,8 @@ pub struct LoggingConfig {
     pub voice_channel_id: Option<String>,
     #[serde(default)]
     pub ignored_channel_ids: Vec<String>,
+    #[serde(default = "default_audit_retention_days")]
+    pub retention_days: u16,
 }
 
 impl Default for LoggingConfig {
@@ -517,6 +519,7 @@ impl Default for LoggingConfig {
             channel_event_channel_id: None,
             voice_channel_id: None,
             ignored_channel_ids: Vec::new(),
+            retention_days: default_audit_retention_days(),
         }
     }
 }
@@ -1267,6 +1270,7 @@ impl GuildConfig {
         }
         let logging = &self.modules.logging;
         if invalid_snowflake_list(&logging.ignored_channel_ids, 100)
+            || !(30..=3_650).contains(&logging.retention_days)
             || [
                 logging.command_channel_id.as_deref(),
                 logging.message_channel_id.as_deref(),
@@ -1898,6 +1902,9 @@ impl Default for WelcomeConfig {
 
 const fn default_max_mentions() -> u8 {
     5
+}
+const fn default_audit_retention_days() -> u16 {
+    365
 }
 const fn default_max_caps_percentage() -> u8 {
     80
