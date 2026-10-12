@@ -1391,7 +1391,18 @@ impl ModuleServices for GatewayModuleServices {
 fn suggestion_result(suggestion: &Suggestion) -> SuggestionResult {
     SuggestionResult {
         id: suggestion.id,
+        channel_id: suggestion.channel_id.parse().unwrap_or_default(),
+        message_id: suggestion
+            .message_id
+            .as_deref()
+            .and_then(|id| id.parse().ok()),
+        author_id: suggestion
+            .author_id
+            .as_deref()
+            .and_then(|id| id.parse().ok()),
+        content: suggestion.content.clone(),
         status: suggestion.status.clone(),
+        staff_note: suggestion.staff_note.clone(),
         upvotes: u64::try_from(suggestion.upvotes).unwrap_or_default(),
         downvotes: u64::try_from(suggestion.downvotes).unwrap_or_default(),
     }

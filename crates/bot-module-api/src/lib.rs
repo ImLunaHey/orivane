@@ -162,7 +162,12 @@ pub struct SuggestionInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SuggestionResult {
     pub id: i64,
+    pub channel_id: u64,
+    pub message_id: Option<u64>,
+    pub author_id: Option<u64>,
+    pub content: String,
     pub status: String,
+    pub staff_note: Option<String>,
     pub upvotes: u64,
     pub downvotes: u64,
 }

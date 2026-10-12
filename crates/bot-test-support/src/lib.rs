@@ -777,10 +777,15 @@ impl ModuleServices for FakeModuleServices {
 
     async fn create_suggestion(&self, input: SuggestionInput) -> anyhow::Result<SuggestionResult> {
         let mut calls = self.calls.lock().expect("fake lock poisoned");
-        calls.push(ServiceCall::CreateSuggestion(input));
+        calls.push(ServiceCall::CreateSuggestion(input.clone()));
         Ok(SuggestionResult {
             id: i64::try_from(calls.len()).unwrap_or(i64::MAX),
+            channel_id: input.channel_id,
+            message_id: None,
+            author_id: input.author_id,
+            content: input.content,
             status: "pending".into(),
+            staff_note: None,
             upvotes: 0,
             downvotes: 0,
         })
@@ -821,7 +826,12 @@ impl ModuleServices for FakeModuleServices {
             });
         Ok(Some(SuggestionResult {
             id: suggestion_id,
+            channel_id: 20,
+            message_id: Some(50),
+            author_id: Some(40),
+            content: "Add game night".into(),
             status: "pending".into(),
+            staff_note: None,
             upvotes: u64::from(direction == 1),
             downvotes: u64::from(direction == -1),
         }))
@@ -847,7 +857,12 @@ impl ModuleServices for FakeModuleServices {
             });
         Ok(Some(SuggestionResult {
             id: suggestion_id,
+            channel_id: 20,
+            message_id: Some(50),
+            author_id: Some(40),
+            content: "Add game night".into(),
             status: status.into(),
+            staff_note: staff_note.map(str::to_owned),
             upvotes: 0,
             downvotes: 0,
         }))
