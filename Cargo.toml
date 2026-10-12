@@ -1,0 +1,64 @@
+[workspace]
+members = [
+    "apps/api",
+    "apps/gateway",
+    "crates/bot-core",
+    "crates/bot-discord",
+    "crates/bot-test-support",
+    "crates/bot-module-api",
+    "modules/utility",
+    "modules/welcome",
+    "modules/autorole",
+    "modules/logging",
+    "modules/moderation",
+    "modules/automod",
+    "modules/leveling",
+    "modules/starboard",
+    "modules/tickets",
+    "modules/custom-commands",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.94"
+
+[workspace.dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+axum = "0.8"
+bot-core = { path = "crates/bot-core" }
+bot-discord = { path = "crates/bot-discord" }
+bot-test-support = { path = "crates/bot-test-support" }
+bot-module-api = { path = "crates/bot-module-api" }
+bot-module-utility = { path = "modules/utility" }
+bot-module-welcome = { path = "modules/welcome" }
+bot-module-autorole = { path = "modules/autorole" }
+bot-module-logging = { path = "modules/logging" }
+bot-module-moderation = { path = "modules/moderation" }
+bot-module-automod = { path = "modules/automod" }
+bot-module-leveling = { path = "modules/leveling" }
+bot-module-starboard = { path = "modules/starboard" }
+bot-module-tickets = { path = "modules/tickets" }
+bot-module-custom-commands = { path = "modules/custom-commands" }
+chrono = { version = "0.4", features = ["serde"] }
+redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "chrono", "json", "derive", "macros", "migrate"] }
+sqlx08 = { package = "sqlx", version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+thiserror = "2.0"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "signal"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+twilight-gateway = "0.17.1"
+twilight-http = "0.17.1"
+twilight-model = "0.17.1"
+twilight-util = { version = "0.17.0", features = ["builder"] }
+lucid-auth = { git = "https://github.com/lucid-softworks/auth", rev = "d16c16bfa2050e5ac08cf7e18521576f41a214f0", features = ["postgres"] }
+openssl = { version = "0.10", features = ["vendored"] }
+

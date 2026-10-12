@@ -1,0 +1,31 @@
+[package]
+name = "discord-bot-gateway"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+bot-core.workspace = true
+bot-discord.workspace = true
+bot-module-api.workspace = true
+bot-module-autorole.workspace = true
+bot-module-logging.workspace = true
+bot-module-utility.workspace = true
+bot-module-welcome.workspace = true
+bot-module-moderation.workspace = true
+bot-module-automod.workspace = true
+bot-module-leveling.workspace = true
+bot-module-starboard.workspace = true
+bot-module-tickets.workspace = true
+bot-module-custom-commands.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+twilight-gateway.workspace = true
+twilight-model.workspace = true
+
+

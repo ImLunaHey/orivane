@@ -1,0 +1,6 @@
+/target
+.env
+.DS_Store
+.legacy-web-git/
+.openai/
+

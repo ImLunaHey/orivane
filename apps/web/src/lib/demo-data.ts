@@ -1,0 +1,38 @@
+import type { AnalyticsEvent, GuildConfig } from '../types'
+
+export const demoGuildId = '901256781234567890'
+
+export const defaultConfig: GuildConfig = {
+  guild_id: demoGuildId,
+  modules: {
+    automod: { enabled: true, blocked_words: ['spoiler-link'], max_mentions: 5 },
+    leveling: {
+      enabled: true,
+      xp_per_message_min: 15,
+      xp_per_message_max: 25,
+      cooldown_seconds: 60,
+    },
+    welcome: {
+      enabled: true,
+      channel_id: '901256781234567891',
+      message: 'Welcome {user} to {server}!',
+    },
+    logging: { enabled: true, channel_id: '901256781234567892' },
+    utility: { enabled: true, ephemeral_responses: false },
+    moderation: { enabled: true, dm_on_action: true, default_reason: 'No reason provided' },
+    autorole: { enabled: false, role_ids: [], delay_seconds: 0 },
+    starboard: { enabled: false, channel_id: null, emoji: '⭐', threshold: 3 },
+    tickets: { enabled: false, category_id: null, support_role_ids: [], transcript_channel_id: null },
+    custom_commands: { enabled: false, max_commands: 25 },
+  },
+}
+
+export const analyticsEvents: AnalyticsEvent[] = [
+  { id: 'evt_01', event: '/rank', module: 'Leveling', outcome: 'success', latency: 42, occurredAt: '2 min ago' },
+  { id: 'evt_02', event: 'mention-spam', module: 'Automod', outcome: 'blocked', latency: 18, occurredAt: '4 min ago' },
+  { id: 'evt_03', event: '/warn', module: 'Moderation', outcome: 'success', latency: 87, occurredAt: '9 min ago' },
+  { id: 'evt_04', event: 'member.joined', module: 'Welcome', outcome: 'success', latency: 64, occurredAt: '12 min ago' },
+  { id: 'evt_05', event: '/settings', module: 'Core', outcome: 'failed', latency: 312, occurredAt: '18 min ago' },
+]
+
+export const commandSeries = [38, 52, 45, 71, 64, 86, 96, 83, 112, 104, 129, 121, 145, 138, 166, 157, 184, 176, 194, 188, 213, 207, 226, 241]

@@ -1,0 +1,25 @@
+[package]
+name = "discord-bot-api"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+bot-core.workspace = true
+bot-discord.workspace = true
+bot-module-utility.workspace = true
+lucid-auth.workspace = true
+openssl.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx08.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
