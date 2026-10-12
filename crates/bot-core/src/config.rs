@@ -1237,9 +1237,9 @@ impl GuildConfig {
                 .any(|message| message.trim().is_empty() || message.chars().count() > 2_000)
             || self.modules.welcome.embed_title.chars().count() > 256
             || self.modules.welcome.embed_color > 0x00ff_ffff
-            || (!self.modules.welcome.image_url.is_empty()
-                && !(self.modules.welcome.image_url.starts_with("https://")
-                    || self.modules.welcome.image_url.starts_with("http://")))
+            || !(self.modules.welcome.image_url.is_empty()
+                || self.modules.welcome.image_url.starts_with("https://")
+                || self.modules.welcome.image_url.starts_with("http://"))
             || self.modules.welcome.goodbye_message.chars().count() > 2_000
             || self.modules.welcome.goodbye_additional_messages.len() > 20
             || self
