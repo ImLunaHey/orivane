@@ -983,6 +983,7 @@ dependencies = [
  "async-trait",
  "bot-core",
  "bot-module-api",
+ "bot-module-managed-embeds",
  "bot-test-support",
  "tokio",
 ]

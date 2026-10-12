@@ -10,6 +10,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 bot-core.workspace = true
 bot-module-api.workspace = true
+bot-module-managed-embeds.workspace = true
 
 [dev-dependencies]
 bot-test-support.workspace = true

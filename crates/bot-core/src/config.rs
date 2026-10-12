@@ -740,9 +740,21 @@ pub struct ScheduledMessageConfig {
     pub id: String,
     pub channel_id: String,
     pub message: String,
+    #[serde(default = "default_schedule_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub weekdays: Vec<u8>,
+    #[serde(default)]
+    pub timezone_offset_minutes: i16,
+    #[serde(default)]
+    pub embed_template_id: Option<i64>,
     pub starts_at_unix: u64,
     pub interval_minutes: u32,
     pub ends_at_unix: Option<u64>,
+}
+
+fn default_schedule_kind() -> String {
+    "interval".into()
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -1392,7 +1404,21 @@ impl GuildConfig {
                     || !valid_snowflake(&schedule.channel_id)
                     || schedule.message.trim().is_empty()
                     || schedule.message.chars().count() > 2_000
-                    || !(1..=525_600).contains(&schedule.interval_minutes)
+                    || !matches!(schedule.kind.as_str(), "once" | "interval" | "weekdays")
+                    || (schedule.kind == "interval"
+                        && !(1..=525_600).contains(&schedule.interval_minutes))
+                    || (schedule.kind == "weekdays"
+                        && (schedule.weekdays.is_empty()
+                            || schedule.weekdays.len() > 7
+                            || schedule.weekdays.iter().any(|day| !(1..=7).contains(day))
+                            || schedule
+                                .weekdays
+                                .iter()
+                                .collect::<std::collections::HashSet<_>>()
+                                .len()
+                                != schedule.weekdays.len()))
+                    || !(-840..=840).contains(&schedule.timezone_offset_minutes)
+                    || schedule.embed_template_id.is_some_and(|id| id <= 0)
                     || schedule.starts_at_unix == 0
                     || schedule
                         .ends_at_unix

@@ -670,6 +670,12 @@ small { font-size: 14px !important; line-height: 1.45; }
 .logging-category-card > header small { color: var(--muted); line-height: 1.5; }
 .logging-category-channel { display: grid; gap: 10px; padding: 16px; border-top: 1px solid var(--border); }
 .logging-category-channel .text-link { width: max-content; padding: 0; border: 0; background: transparent; cursor: pointer; font: inherit; }
+.weekday-picker { border: 1px solid var(--border); padding: 16px; }
+.weekday-picker legend { padding: 0 6px; font-weight: 700; }
+.weekday-picker small { display: block; color: var(--muted); margin-bottom: 10px; }
+.weekday-picker > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.weekday-picker button { min-width: 52px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 0; background: var(--surface); color: var(--text); font: inherit; }
+.weekday-picker button[aria-pressed="true"] { border-color: var(--violet); background: color-mix(in srgb, var(--violet) 18%, var(--surface)); }
 
 @media (max-width: 1050px) {
   .embed-editor-layout { grid-template-columns: 1fr; }
