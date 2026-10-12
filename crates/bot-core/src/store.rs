@@ -1173,6 +1173,40 @@ impl Infrastructure {
         Ok(acquired.is_some())
     }
 
+    pub async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
+        guild_id: &str,
+        user_id: &str,
+        cooldown_seconds: u32,
+    ) -> Result<bool, StoreError> {
+        if cooldown_seconds == 0 {
+            return Ok(true);
+        }
+        let safe = |value: &str| {
+            value
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+                .take(64)
+                .collect::<String>()
+        };
+        let mut cache = self.redis.clone();
+        let acquired: Option<String> = redis::cmd("SET")
+            .arg(format!(
+                "module-cooldown:{}:{}:{guild_id}:{user_id}",
+                safe(module),
+                safe(rule)
+            ))
+            .arg("1")
+            .arg("EX")
+            .arg(cooldown_seconds)
+            .arg("NX")
+            .query_async(&mut cache)
+            .await?;
+        Ok(acquired.is_some())
+    }
+
     pub async fn set_suggestion_message_id(
         &self,
         guild_id: &str,

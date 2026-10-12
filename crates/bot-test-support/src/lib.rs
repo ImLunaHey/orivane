@@ -46,6 +46,11 @@ pub enum DiscordCall {
         channel_id: u64,
         content: String,
     },
+    AddReaction {
+        channel_id: u64,
+        message_id: u64,
+        emoji: String,
+    },
     SendMessageWithButtons {
         channel_id: u64,
         content: String,
@@ -300,6 +305,13 @@ pub enum ServiceCall {
     CreateFormSubmission(FormSubmissionInput),
     CreateSuggestion(SuggestionInput),
     ClaimSuggestionCooldown {
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    },
+    ClaimModuleCooldown {
+        module: String,
+        rule: String,
         guild_id: u64,
         user_id: u64,
         cooldown_seconds: u32,
@@ -768,6 +780,27 @@ impl ModuleServices for FakeModuleServices {
             .lock()
             .expect("fake lock poisoned")
             .push(ServiceCall::ClaimSuggestionCooldown {
+                guild_id,
+                user_id,
+                cooldown_seconds,
+            });
+        Ok(true)
+    }
+
+    async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> anyhow::Result<bool> {
+        self.calls
+            .lock()
+            .expect("fake lock poisoned")
+            .push(ServiceCall::ClaimModuleCooldown {
+                module: module.into(),
+                rule: rule.into(),
                 guild_id,
                 user_id,
                 cooldown_seconds,
@@ -1939,6 +1972,19 @@ impl DiscordApi for FakeDiscord {
         self.record(DiscordCall::SendMessage {
             channel_id,
             content: content.to_owned(),
+        })
+    }
+
+    async fn add_reaction(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::AddReaction {
+            channel_id,
+            message_id,
+            emoji: emoji.into(),
         })
     }
 

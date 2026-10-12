@@ -559,6 +559,14 @@ pub trait ModuleServices: Send + Sync {
         user_id: u64,
         cooldown_seconds: u32,
     ) -> Result<bool>;
+    async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> Result<bool>;
     async fn set_suggestion_message_id(
         &self,
         guild_id: u64,

@@ -605,9 +605,15 @@ pub struct CustomCommandConfig {
     pub description: String,
     pub response: String,
     #[serde(default)]
+    pub additional_responses: Vec<String>,
+    #[serde(default)]
     pub ephemeral: bool,
     #[serde(default)]
     pub allowed_channel_ids: Vec<String>,
+    #[serde(default)]
+    pub allowed_role_ids: Vec<String>,
+    #[serde(default)]
+    pub cooldown_seconds: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -684,6 +690,14 @@ pub struct AutoresponseConfig {
     pub allowed_channel_ids: Vec<String>,
     #[serde(default)]
     pub ignored_role_ids: Vec<String>,
+    #[serde(default)]
+    pub cooldown_seconds: u32,
+    #[serde(default)]
+    pub reactions: Vec<String>,
+    #[serde(default)]
+    pub embed_title: String,
+    #[serde(default)]
+    pub embed_color: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1302,7 +1316,13 @@ impl GuildConfig {
                     || command.description.chars().count() > 100
                     || command.response.is_empty()
                     || command.response.chars().count() > 2_000
+                    || command.additional_responses.len() > 20
+                    || command.additional_responses.iter().any(|response| {
+                        response.trim().is_empty() || response.chars().count() > 2_000
+                    })
                     || invalid_snowflake_list(&command.allowed_channel_ids, 100)
+                    || invalid_snowflake_list(&command.allowed_role_ids, 100)
+                    || command.cooldown_seconds > 86_400
             })
         {
             return Err(ConfigValidationError::InvalidCustomCommands);
@@ -1375,10 +1395,24 @@ impl GuildConfig {
                     || response.response.chars().count() > 2_000
                     || !matches!(
                         response.match_mode.as_str(),
-                        "exact" | "contains" | "starts_with"
+                        "exact" | "contains" | "starts_with" | "regex"
                     )
+                    || response.match_mode == "regex"
+                        && regex::RegexBuilder::new(&response.trigger)
+                            .case_insensitive(!response.case_sensitive)
+                            .size_limit(256 * 1024)
+                            .build()
+                            .is_err()
                     || invalid_snowflake_list(&response.allowed_channel_ids, 100)
                     || invalid_snowflake_list(&response.ignored_role_ids, 100)
+                    || response.cooldown_seconds > 86_400
+                    || response.reactions.len() > 5
+                    || response
+                        .reactions
+                        .iter()
+                        .any(|reaction| reaction.trim().is_empty() || reaction.chars().count() > 32)
+                    || response.embed_title.chars().count() > 256
+                    || response.embed_color > 0x00ff_ffff
             })
         {
             return Err(ConfigValidationError::InvalidAutoresponder);

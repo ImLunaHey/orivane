@@ -7,7 +7,10 @@ use std::{
 use async_trait::async_trait;
 use serde::Serialize;
 use thiserror::Error;
-use twilight_http::{Client, request::AuditLogReason};
+use twilight_http::{
+    Client,
+    request::{AuditLogReason, channel::reaction::RequestReactionType},
+};
 use twilight_model::{
     application::command::{
         CommandOption, CommandOptionType, CommandOptionValue as TwilightCommandOptionValue,
@@ -411,6 +414,13 @@ pub trait DiscordApi: Send + Sync {
     ) -> Result<(), DiscordError>;
 
     async fn send_message(&self, channel_id: u64, content: &str) -> Result<(), DiscordError>;
+
+    async fn add_reaction(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<(), DiscordError>;
 
     async fn send_message_with_buttons(
         &self,
@@ -866,6 +876,23 @@ impl DiscordApi for TwilightDiscord {
         self.http
             .create_message(Id::<ChannelMarker>::new(channel_id))
             .content(content)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn add_reaction(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        emoji: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .create_reaction(
+                Id::<ChannelMarker>::new(channel_id),
+                Id::<MessageMarker>::new(message_id),
+                &RequestReactionType::Unicode { name: emoji },
+            )
             .await
             .map_err(request_error)?;
         Ok(())

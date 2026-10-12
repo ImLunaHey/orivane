@@ -102,7 +102,7 @@ export type WarningThreshold = { warnings:number;action:'timeout'|'kick'|'ban';t
 export type AutomodRule = { id:string;enabled:boolean;kind:'blocked_terms'|'mention_spam'|'invite_links'|'external_links'|'caps'|'lines'|'duplicate_spam'|'rapid_spam'|'attachments'|'stickers'|'emoji_spam'|'zalgo'|'phishing';action:'delete'|'warn'|'timeout'|'ban';timeout_seconds:number;threshold:number;window_seconds:number;patterns:string[] }
 export type ReactionRoleOption = { id:string;label:string;description:string;emoji:string;role_id:string }
 export type ReactionRolePanel = { id:string;enabled:boolean;name:string;title:string;description:string;channel_id:string;message_id:string|null;component_type:'buttons'|'select';mode:'toggle'|'add_only'|'remove_only';exclusive:boolean;required_role_ids:string[];blocked_role_ids:string[];options:ReactionRoleOption[] }
-export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[] }
+export type Autoresponse = { enabled: boolean; trigger: string; response: string; match_mode: 'exact' | 'contains' | 'starts_with' | 'regex'; case_sensitive: boolean; allowed_channel_ids: string[]; ignored_role_ids: string[]; cooldown_seconds:number; reactions:string[]; embed_title:string; embed_color:number }
 export type ScheduledMessage = { enabled: boolean; id: string; channel_id: string; message: string; kind: 'once' | 'interval' | 'weekdays'; weekdays: number[]; timezone_offset_minutes: number; embed_template_id: number | null; starts_at_unix: number; interval_minutes: number; ends_at_unix: number | null }
 export type FormQuestion = { id: string; label: string; style: 'short' | 'paragraph'; required: boolean; min_length: number; max_length: number; placeholder: string }
 export type ServerForm = { enabled: boolean; id: string; name: string; description: string; destination_channel_id: string; allowed_role_ids: string[]; anonymous: boolean; questions: FormQuestion[] }
@@ -134,8 +134,11 @@ export type CustomCommand = {
   name: string
   description: string
   response: string
+  additional_responses: string[]
   ephemeral: boolean
   allowed_channel_ids: string[]
+  allowed_role_ids: string[]
+  cooldown_seconds: number
 }
 
 export type GuildChannel = {

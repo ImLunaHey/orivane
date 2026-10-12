@@ -676,6 +676,26 @@ impl ModuleServices for GatewayModuleServices {
             .await?)
     }
 
+    async fn claim_module_cooldown(
+        &self,
+        module: &str,
+        rule: &str,
+        guild_id: u64,
+        user_id: u64,
+        cooldown_seconds: u32,
+    ) -> Result<bool> {
+        Ok(self
+            .infrastructure
+            .claim_module_cooldown(
+                module,
+                rule,
+                &guild_id.to_string(),
+                &user_id.to_string(),
+                cooldown_seconds,
+            )
+            .await?)
+    }
+
     async fn create_suggestion(&self, input: SuggestionInput) -> Result<SuggestionResult> {
         let suggestion = self
             .infrastructure
