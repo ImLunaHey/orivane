@@ -9,6 +9,9 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     allowedHosts: ['lake.tail3275e2.ts.net'],
+    watch: {
+      ignored: ['**/coverage/**', '**/dist/**'],
+    },
     proxy: {
       '/v1': 'http://127.0.0.1:3010',
       '/api': 'http://127.0.0.1:3010',
