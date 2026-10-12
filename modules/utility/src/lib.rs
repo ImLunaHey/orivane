@@ -11,16 +11,22 @@ pub const COMMANDS: &[CommandDefinition] = &[
         name: "ping",
         description: "Check whether the bot is responding",
         guild_only: true,
+        default_permissions: None,
+        options: &[],
     },
     CommandDefinition {
         name: "help",
         description: "Show the commands enabled in this server",
         guild_only: true,
+        default_permissions: None,
+        options: &[],
     },
     CommandDefinition {
         name: "serverinfo",
         description: "Show this server's bot configuration summary",
         guild_only: true,
+        default_permissions: None,
+        options: &[],
     },
 ];
 
@@ -94,7 +100,10 @@ mod tests {
             id: 100,
             token: "test".into(),
             guild_id: 200,
+            channel_id: Some(300),
+            actor_id: 400,
             command_name: "ping".into(),
+            options: Default::default(),
         };
         UtilityModule
             .on_command(&context, &config, &interaction)

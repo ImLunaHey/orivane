@@ -1,18 +1,29 @@
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use serde::Serialize;
 use thiserror::Error;
-use twilight_http::Client;
+use twilight_http::{Client, request::AuditLogReason};
 use twilight_model::{
+    application::command::{
+        CommandOption, CommandOptionType, CommandOptionValue as TwilightCommandOptionValue,
+    },
     channel::message::MessageFlags,
+    guild::Permissions,
     http::interaction::{
         InteractionResponse as TwilightInteractionResponse, InteractionResponseType,
     },
     id::{
         Id,
-        marker::{ApplicationMarker, ChannelMarker, GuildMarker, RoleMarker, UserMarker},
+        marker::{
+            ApplicationMarker, ChannelMarker, GuildMarker, MessageMarker, RoleMarker, UserMarker,
+        },
     },
+    util::Timestamp,
 };
 use twilight_util::builder::InteractionResponseDataBuilder;
 
@@ -21,6 +32,40 @@ pub struct CommandDefinition {
     pub name: &'static str,
     pub description: &'static str,
     pub guild_only: bool,
+    pub default_permissions: Option<u64>,
+    pub options: &'static [CommandOptionDefinition],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandOptionKind {
+    String,
+    Integer,
+    Boolean,
+    User,
+    Channel,
+    Role,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandOptionDefinition {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub kind: CommandOptionKind,
+    pub required: bool,
+    pub min_value: Option<i64>,
+    pub max_value: Option<i64>,
+    pub min_length: Option<u16>,
+    pub max_length: Option<u16>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommandValue {
+    String(String),
+    Integer(i64),
+    Boolean(bool),
+    User(u64),
+    Channel(u64),
+    Role(u64),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +73,33 @@ pub struct CommandInteraction {
     pub id: u64,
     pub token: String,
     pub guild_id: u64,
+    pub channel_id: Option<u64>,
+    pub actor_id: u64,
     pub command_name: String,
+    pub options: BTreeMap<String, CommandValue>,
+}
+
+impl CommandInteraction {
+    pub fn string(&self, name: &str) -> Option<&str> {
+        match self.options.get(name) {
+            Some(CommandValue::String(value)) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn integer(&self, name: &str) -> Option<i64> {
+        match self.options.get(name) {
+            Some(CommandValue::Integer(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn user(&self, name: &str) -> Option<u64> {
+        match self.options.get(name) {
+            Some(CommandValue::User(value)) => Some(*value),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +115,14 @@ pub struct GuildChannel {
     pub kind: String,
     pub position: i32,
     pub parent_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct GuildRole {
+    pub id: String,
+    pub name: String,
+    pub position: i64,
+    pub managed: bool,
 }
 
 impl CommandResponse {
@@ -87,7 +166,54 @@ pub trait DiscordApi: Send + Sync {
         role_id: u64,
     ) -> Result<(), DiscordError>;
 
+    async fn remove_member_role(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+
+    async fn timeout_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        duration_seconds: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+
+    async fn kick_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+
+    async fn ban_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        delete_message_seconds: u32,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+
+    async fn unban_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+
+    async fn delete_message(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError>;
+
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError>;
+
+    async fn guild_roles(&self, guild_id: u64) -> Result<Vec<GuildRole>, DiscordError>;
 }
 
 pub struct TwilightDiscord {
@@ -117,12 +243,23 @@ impl DiscordApi for TwilightDiscord {
     async fn register_commands(&self, commands: &[CommandDefinition]) -> Result<(), DiscordError> {
         let client = self.http.interaction(self.application_id);
         for command in commands {
-            client
+            let options = command
+                .options
+                .iter()
+                .map(to_twilight_option)
+                .collect::<Vec<_>>();
+            let mut request = client
                 .create_global_command()
                 .chat_input(command.name, command.description)
-                .dm_permission(!command.guild_only)
-                .await
-                .map_err(request_error)?;
+                .dm_permission(!command.guild_only);
+            if !options.is_empty() {
+                request = request.command_options(&options);
+            }
+            if let Some(permissions) = command.default_permissions {
+                request = request
+                    .default_member_permissions(Permissions::from_bits_truncate(permissions));
+            }
+            request.await.map_err(request_error)?;
         }
         Ok(())
     }
@@ -174,6 +311,109 @@ impl DiscordApi for TwilightDiscord {
         Ok(())
     }
 
+    async fn remove_member_role(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .remove_guild_member_role(Id::new(guild_id), Id::new(user_id), Id::new(role_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn timeout_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        duration_seconds: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(request_error)?
+            .as_secs();
+        let expires = now
+            .checked_add(duration_seconds)
+            .context("timeout duration overflow")?;
+        let expires = i64::try_from(expires)
+            .ok()
+            .and_then(|seconds| Timestamp::from_secs(seconds).ok())
+            .context("timeout expiry is invalid")?;
+        self.http
+            .update_guild_member(Id::new(guild_id), Id::new(user_id))
+            .communication_disabled_until(Some(expires))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn kick_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .remove_guild_member(Id::new(guild_id), Id::new(user_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn ban_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        delete_message_seconds: u32,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .create_ban(Id::new(guild_id), Id::new(user_id))
+            .delete_message_seconds(delete_message_seconds)
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn unban_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .delete_ban(Id::new(guild_id), Id::new(user_id))
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
+    async fn delete_message(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.http
+            .delete_message(
+                Id::<ChannelMarker>::new(channel_id),
+                Id::<MessageMarker>::new(message_id),
+            )
+            .reason(reason)
+            .await
+            .map_err(request_error)?;
+        Ok(())
+    }
+
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError> {
         let channels = self
             .http
@@ -197,6 +437,62 @@ impl DiscordApi for TwilightDiscord {
             .collect::<Vec<_>>();
         channels.sort_by_key(|channel| channel.position);
         Ok(channels)
+    }
+
+    async fn guild_roles(&self, guild_id: u64) -> Result<Vec<GuildRole>, DiscordError> {
+        let roles = self
+            .http
+            .roles(Id::<GuildMarker>::new(guild_id))
+            .await
+            .map_err(request_error)?
+            .models()
+            .await
+            .map_err(request_error)?;
+        Ok(roles
+            .into_iter()
+            .map(|role| GuildRole {
+                id: role.id.to_string(),
+                name: role.name,
+                position: role.position,
+                managed: role.managed,
+            })
+            .collect())
+    }
+}
+
+fn to_twilight_option(option: &CommandOptionDefinition) -> CommandOption {
+    CommandOption {
+        autocomplete: None,
+        channel_types: None,
+        choices: None,
+        description: option.description.to_owned(),
+        description_localizations: None,
+        kind: match option.kind {
+            CommandOptionKind::String => CommandOptionType::String,
+            CommandOptionKind::Integer => CommandOptionType::Integer,
+            CommandOptionKind::Boolean => CommandOptionType::Boolean,
+            CommandOptionKind::User => CommandOptionType::User,
+            CommandOptionKind::Channel => CommandOptionType::Channel,
+            CommandOptionKind::Role => CommandOptionType::Role,
+        },
+        max_length: option.max_length,
+        max_value: option.max_value.map(TwilightCommandOptionValue::Integer),
+        min_length: option.min_length,
+        min_value: option.min_value.map(TwilightCommandOptionValue::Integer),
+        name: option.name.to_owned(),
+        name_localizations: None,
+        options: None,
+        required: Some(option.required),
+    }
+}
+
+trait OptionContext<T> {
+    fn context(self, message: &str) -> Result<T, DiscordError>;
+}
+
+impl<T> OptionContext<T> for Option<T> {
+    fn context(self, message: &str) -> Result<T, DiscordError> {
+        self.ok_or_else(|| DiscordError::Request(message.to_owned()))
     }
 }
 

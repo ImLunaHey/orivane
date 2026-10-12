@@ -1,8 +1,10 @@
-use std::{env, sync::Arc, time::Instant};
+use std::{collections::BTreeMap, env, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use bot_core::{Infrastructure, NewAuditEvent};
-use bot_discord::{CommandDefinition, CommandInteraction, DiscordApi, TwilightDiscord};
+use bot_discord::{
+    CommandDefinition, CommandInteraction, CommandValue, DiscordApi, TwilightDiscord,
+};
 use bot_module_api::{AuditNotice, BotModule, MemberJoin, ModuleContext};
 use bot_module_automod::AutomodModule;
 use bot_module_autorole::AutoroleModule;
@@ -15,7 +17,10 @@ use bot_module_tickets::TicketsModule;
 use bot_module_utility::UtilityModule;
 use bot_module_welcome::WelcomeModule;
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
-use twilight_model::application::interaction::InteractionData;
+use twilight_model::application::interaction::{
+    InteractionData,
+    application_command::{CommandDataOption, CommandOptionValue as TwilightCommandValue},
+};
 use twilight_model::gateway::payload::incoming::GuildCreate;
 
 #[tokio::main]
@@ -25,10 +30,6 @@ async fn main() -> Result<()> {
     let database_url = required_env("DATABASE_URL")?;
     let redis_url = required_env("REDIS_URL")?;
 
-    let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
-    register_commands(discord.as_ref()).await?;
-    let context = ModuleContext { discord };
-    let infrastructure = Infrastructure::connect(&database_url, &redis_url).await?;
     let modules: Vec<Arc<dyn BotModule>> = vec![
         Arc::new(UtilityModule),
         Arc::new(WelcomeModule),
@@ -41,6 +42,10 @@ async fn main() -> Result<()> {
         Arc::new(TicketsModule),
         Arc::new(CustomCommandsModule),
     ];
+    let discord: Arc<dyn DiscordApi> = Arc::new(TwilightDiscord::connect(token.clone()).await?);
+    register_commands(discord.as_ref(), &modules).await?;
+    let context = ModuleContext { discord };
+    let infrastructure = Infrastructure::connect(&database_url, &redis_url).await?;
     let intents = Intents::GUILDS | Intents::GUILD_MEMBERS;
     let mut shard = Shard::new(ShardId::ONE, token, intents);
 
@@ -165,13 +170,16 @@ async fn main() -> Result<()> {
                     }
                     let actor_id = interaction
                         .author_id()
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "unknown-user".to_owned());
+                        .map(|id| id.get())
+                        .unwrap_or_default();
                     let command = CommandInteraction {
                         id: interaction.id.get(),
                         token: interaction.token.clone(),
                         guild_id: guild_id.get(),
+                        channel_id: interaction.channel.as_ref().map(|channel| channel.id.get()),
+                        actor_id,
                         command_name: command.name.clone(),
+                        options: command_options(&command.options),
                     };
                     let started_at = Instant::now();
                     let module_enabled = module.enabled(&config);
@@ -194,7 +202,7 @@ async fn main() -> Result<()> {
                         started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
                     let mut audit = NewAuditEvent::guild(
                         guild_id.to_string(),
-                        actor_id,
+                        actor_id.to_string(),
                         format!("slash_command.{}", command.command_name),
                     );
                     audit.source = "discord_gateway".to_owned();
@@ -238,11 +246,35 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn register_commands(discord: &dyn DiscordApi) -> Result<()> {
-    let commands: Vec<CommandDefinition> = bot_module_utility::COMMANDS.to_vec();
+async fn register_commands(discord: &dyn DiscordApi, modules: &[Arc<dyn BotModule>]) -> Result<()> {
+    let commands: Vec<CommandDefinition> = modules
+        .iter()
+        .flat_map(|module| module.commands().iter().cloned())
+        .collect();
     discord.register_commands(&commands).await?;
-    tracing::info!("registered global application commands");
+    tracing::info!(
+        count = commands.len(),
+        "registered global application commands"
+    );
     Ok(())
+}
+
+fn command_options(options: &[CommandDataOption]) -> BTreeMap<String, CommandValue> {
+    options
+        .iter()
+        .filter_map(|option| {
+            let value = match &option.value {
+                TwilightCommandValue::String(value) => CommandValue::String(value.clone()),
+                TwilightCommandValue::Integer(value) => CommandValue::Integer(*value),
+                TwilightCommandValue::Boolean(value) => CommandValue::Boolean(*value),
+                TwilightCommandValue::User(value) => CommandValue::User(value.get()),
+                TwilightCommandValue::Channel(value) => CommandValue::Channel(value.get()),
+                TwilightCommandValue::Role(value) => CommandValue::Role(value.get()),
+                _ => return None,
+            };
+            Some((option.name.clone(), value))
+        })
+        .collect()
 }
 
 fn required_env(name: &str) -> Result<String> {

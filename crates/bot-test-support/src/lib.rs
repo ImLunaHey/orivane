@@ -6,6 +6,7 @@ use std::{
 use async_trait::async_trait;
 use bot_discord::{
     CommandDefinition, CommandInteraction, CommandResponse, DiscordApi, DiscordError, GuildChannel,
+    GuildRole,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,7 +27,43 @@ pub enum DiscordCall {
         user_id: u64,
         role_id: u64,
     },
+    RemoveMemberRole {
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        reason: String,
+    },
+    TimeoutMember {
+        guild_id: u64,
+        user_id: u64,
+        duration_seconds: u64,
+        reason: String,
+    },
+    KickMember {
+        guild_id: u64,
+        user_id: u64,
+        reason: String,
+    },
+    BanMember {
+        guild_id: u64,
+        user_id: u64,
+        delete_message_seconds: u32,
+        reason: String,
+    },
+    UnbanMember {
+        guild_id: u64,
+        user_id: u64,
+        reason: String,
+    },
+    DeleteMessage {
+        channel_id: u64,
+        message_id: u64,
+        reason: String,
+    },
     GuildChannels {
+        guild_id: u64,
+    },
+    GuildRoles {
         guild_id: u64,
     },
 }
@@ -41,6 +78,7 @@ struct FakeState {
     calls: Vec<DiscordCall>,
     failures: VecDeque<DiscordError>,
     guild_channels: Vec<GuildChannel>,
+    guild_roles: Vec<GuildRole>,
 }
 
 impl FakeDiscord {
@@ -69,6 +107,10 @@ impl FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .guild_channels = channels;
+    }
+
+    pub fn set_guild_roles(&self, roles: Vec<GuildRole>) {
+        self.state.lock().expect("fake lock poisoned").guild_roles = roles;
     }
 
     fn record(&self, call: DiscordCall) -> Result<(), DiscordError> {
@@ -120,6 +162,90 @@ impl DiscordApi for FakeDiscord {
         })
     }
 
+    async fn remove_member_role(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        role_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::RemoveMemberRole {
+            guild_id,
+            user_id,
+            role_id,
+            reason: reason.to_owned(),
+        })
+    }
+
+    async fn timeout_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        duration_seconds: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::TimeoutMember {
+            guild_id,
+            user_id,
+            duration_seconds,
+            reason: reason.to_owned(),
+        })
+    }
+
+    async fn kick_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::KickMember {
+            guild_id,
+            user_id,
+            reason: reason.to_owned(),
+        })
+    }
+
+    async fn ban_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        delete_message_seconds: u32,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::BanMember {
+            guild_id,
+            user_id,
+            delete_message_seconds,
+            reason: reason.to_owned(),
+        })
+    }
+
+    async fn unban_member(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::UnbanMember {
+            guild_id,
+            user_id,
+            reason: reason.to_owned(),
+        })
+    }
+
+    async fn delete_message(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        reason: &str,
+    ) -> Result<(), DiscordError> {
+        self.record(DiscordCall::DeleteMessage {
+            channel_id,
+            message_id,
+            reason: reason.to_owned(),
+        })
+    }
+
     async fn guild_channels(&self, guild_id: u64) -> Result<Vec<GuildChannel>, DiscordError> {
         self.record(DiscordCall::GuildChannels { guild_id })?;
         Ok(self
@@ -127,6 +253,16 @@ impl DiscordApi for FakeDiscord {
             .lock()
             .expect("fake lock poisoned")
             .guild_channels
+            .clone())
+    }
+
+    async fn guild_roles(&self, guild_id: u64) -> Result<Vec<GuildRole>, DiscordError> {
+        self.record(DiscordCall::GuildRoles { guild_id })?;
+        Ok(self
+            .state
+            .lock()
+            .expect("fake lock poisoned")
+            .guild_roles
             .clone())
     }
 }
@@ -142,7 +278,10 @@ mod tests {
             id: 1,
             token: "test-token".to_owned(),
             guild_id: 2,
+            channel_id: Some(3),
+            actor_id: 4,
             command_name: "ping".to_owned(),
+            options: Default::default(),
         };
         fake.respond_to_command(&interaction, CommandResponse::public("Pong!"))
             .await
