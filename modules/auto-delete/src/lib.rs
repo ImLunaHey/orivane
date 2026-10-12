@@ -1,41 +1,11 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bot_core::GuildConfig;
-use bot_discord::{
-    CommandDefinition, CommandInteraction, CommandOptionDefinition, CommandOptionKind,
-    CommandResponse, CommandValue,
-};
+use bot_discord::CommandDefinition;
 use bot_module_api::{BotModule, MessageCreate, ModuleContext, ModuleEventOutcome, ScheduledTick};
 
 pub struct AutoDeleteModule;
-pub const COMMANDS: &[CommandDefinition] = &[CommandDefinition {
-    name: "purge",
-    description: "Delete recent messages from a channel",
-    guild_only: true,
-    default_permissions: Some(8192),
-    options: &[
-        CommandOptionDefinition {
-            name: "amount",
-            description: "Number of recent messages",
-            kind: CommandOptionKind::Integer,
-            required: true,
-            min_value: Some(1),
-            max_value: Some(100),
-            min_length: None,
-            max_length: None,
-        },
-        CommandOptionDefinition {
-            name: "channel",
-            description: "Channel to purge",
-            kind: CommandOptionKind::Channel,
-            required: false,
-            min_value: None,
-            max_value: None,
-            min_length: None,
-            max_length: None,
-        },
-    ],
-}];
+pub const COMMANDS: &[CommandDefinition] = &[];
 
 #[async_trait]
 impl BotModule for AutoDeleteModule {
@@ -138,47 +108,6 @@ impl BotModule for AutoDeleteModule {
             });
         }
         Ok(out)
-    }
-    async fn on_command(
-        &self,
-        ctx: &ModuleContext,
-        _: &GuildConfig,
-        i: &CommandInteraction,
-    ) -> Result<()> {
-        if i.command_name != "purge" {
-            return Ok(());
-        }
-        if i.actor_permissions & 8192 != 8192 {
-            bail!("Manage Messages permission is required")
-        }
-        let amount = u16::try_from(i.integer("amount").context("amount required")?)
-            .context("invalid amount")?;
-        let channel = match i.options.get("channel") {
-            Some(CommandValue::Channel(id)) => *id,
-            _ => i.channel_id.context("channel missing")?,
-        };
-        let ids = ctx.discord.recent_message_ids(channel, amount).await?;
-        let mut deleted = 0;
-        for id in ids {
-            if ctx
-                .discord
-                .delete_message(channel, id, "Manual /purge")
-                .await
-                .is_ok()
-            {
-                deleted += 1
-            }
-        }
-        ctx.discord
-            .respond_to_command(
-                i,
-                CommandResponse::ephemeral(format!(
-                    "Deleted {deleted} message{}.",
-                    if deleted == 1 { "" } else { "s" }
-                )),
-            )
-            .await?;
-        Ok(())
     }
 }
 fn now() -> u64 {

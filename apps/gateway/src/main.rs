@@ -2469,6 +2469,14 @@ async fn register_commands(discord: &dyn DiscordApi, modules: &[Arc<dyn BotModul
         .iter()
         .flat_map(|module| module.commands().iter().cloned())
         .collect();
+    let mut names = std::collections::HashSet::new();
+    for command in &commands {
+        anyhow::ensure!(
+            names.insert(command.name),
+            "duplicate slash command name: {}",
+            command.name
+        );
+    }
     discord.register_commands(&commands).await?;
     tracing::info!(
         count = commands.len(),
