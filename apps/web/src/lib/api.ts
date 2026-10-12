@@ -6,10 +6,12 @@ import { globalUsers, type GlobalUser, type UserServerContext } from './user-dat
 import { hourlyCommands, type ChartDatum } from './analytics-data'
 
 const configuredApiBase = import.meta.env.VITE_API_BASE_URL as string | undefined
-const apiBase = configuredApiBase === 'same-origin' ? window.location.origin : configuredApiBase
+const apiBase = (configuredApiBase === 'same-origin' || !configuredApiBase) ? window.location.origin : configuredApiBase
 const demoActorId = '312058643210567680'
 
-export const isDemoMode = !configuredApiBase
+// Demo fixtures must be explicitly enabled outside the test runner. Falling back to
+// them when an API URL is omitted makes sample guilds look like real installations.
+export const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true' || import.meta.env.MODE === 'test'
 export const configuredGuildId = (import.meta.env.VITE_GUILD_ID as string | undefined) ?? demoGuildId
 
 const demoKey = (guildId: string) => `orivane:config:${guildId}`
