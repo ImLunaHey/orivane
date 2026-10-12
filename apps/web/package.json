@@ -20,7 +20,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@uiw/react-codemirror": "^4.25.12",
     "better-auth": "1.7.7",
-    "lucide-react": "^0.555.0",
+    "lucide-react": "^1.54.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
@@ -30,7 +30,7 @@
     "@tanstack/react-devtools": "0.10.13",
     "@tanstack/react-query-devtools": "5.104.2",
     "@tanstack/react-router-devtools": "1.167.2",
-    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.5",
     "@types/react": "^19.2.14",
