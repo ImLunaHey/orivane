@@ -116,7 +116,9 @@ jobs:
       - name: Create non-secret CI environment
         run: cp .env.example .env
       - name: Validate Compose model
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
       - uses: docker/setup-buildx-action@v4
       - name: Build production images
         uses: docker/bake-action@v7

@@ -25,6 +25,18 @@ versions once the project reaches `1.0.0`.
 
 ## Rolling deployment
 
+Set `ORIVANE_VERSION` to an exact released semantic version in `.env`, then use
+the production override for every Compose operation:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.production.yml pull api gateway web
+docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+```
+
+The override removes local build definitions and refuses to render without a
+configured version. Always supply a full semantic version such as `0.1.0`;
+keep the base Compose file for local source builds.
+
 1. Deploy the API first. Migrations are backwards-compatible and applied under a database advisory lock.
 2. Wait for API readiness.
 3. Deploy gateway workers one at a time. Allow each process to drain before termination so interactions and claimed jobs complete.

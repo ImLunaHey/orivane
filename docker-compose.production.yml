@@ -1,0 +1,15 @@
+services:
+  api:
+    image: ghcr.io/imlunahey/orivane-api:${ORIVANE_VERSION:?Set ORIVANE_VERSION to an exact release version}
+    build: !reset null
+    pull_policy: always
+
+  gateway:
+    image: ghcr.io/imlunahey/orivane-gateway:${ORIVANE_VERSION:?Set ORIVANE_VERSION to an exact release version}
+    build: !reset null
+    pull_policy: always
+
+  web:
+    image: ghcr.io/imlunahey/orivane-web:${ORIVANE_VERSION:?Set ORIVANE_VERSION to an exact release version}
+    build: !reset null
+    pull_policy: always
