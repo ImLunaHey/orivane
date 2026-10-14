@@ -15,6 +15,17 @@ vi.mock('../lib/auth-client', () => ({
 
 window.scrollTo = () => undefined
 
+Object.defineProperties(window, {
+  requestAnimationFrame: {
+    configurable: true,
+    value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
+  },
+  cancelAnimationFrame: {
+    configurable: true,
+    value: (handle: number) => window.clearTimeout(handle),
+  },
+})
+
 Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
   configurable: true,
   value: () => null,
