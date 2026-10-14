@@ -21,16 +21,22 @@ jobs:
           command: check advisories bans licenses sources
       - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          version: 12.4.1
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
+          cache-dependency-path: |
+            apps/web/pnpm-lock.yaml
+            apps/docs/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: apps/web
       - run: pnpm audit --audit-level high
         working-directory: apps/web
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/docs
+      - run: pnpm audit --audit-level high
+        working-directory: apps/docs
 
   secrets:
     runs-on: ubuntu-24.04
