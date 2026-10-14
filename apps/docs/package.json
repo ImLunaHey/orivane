@@ -1,0 +1,44 @@
+{
+  "name": "orivane-docs",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "oxlint src --react-plugin --jsx-a11y-plugin --import-plugin --vitest-plugin --deny-warnings --report-unused-disable-directives",
+    "doctor": "react-doctor . --yes --no-supply-chain --no-score --blocking warning --no-color",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check": "pnpm typecheck && pnpm lint && pnpm run doctor && pnpm test:coverage && pnpm build"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.170.42",
+    "lucide-react": "^1.54.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/devtools-vite": "0.8.5",
+    "@tanstack/react-devtools": "0.10.13",
+    "@tanstack/react-router-devtools": "1.167.2",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@vitest/coverage-v8": "4.1.11",
+    "axe-core": "^4.14.0",
+    "jsdom": "^30.1.2",
+    "oxlint": "^1.87.0",
+    "react-doctor": "^0.9.17",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "pnpm@12.4.1"
+}

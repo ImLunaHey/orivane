@@ -1,0 +1,9 @@
+.git
+.env
+.env.local
+.env.*.local
+.openai
+node_modules
+dist
+coverage
+*.tsbuildinfo

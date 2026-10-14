@@ -86,7 +86,7 @@ instead of writing the token directly into a tracked file:
 ## Streamable HTTP
 
 Compose starts the MCP process on the private network and publishes its health
-port only on loopback. Nginx proxies the protocol endpoint at `/mcp`, so the
+port only on loopback. Caddy proxies the protocol endpoint at `/mcp`, so the
 deployed endpoint is:
 
 ```text

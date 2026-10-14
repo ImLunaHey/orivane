@@ -107,10 +107,43 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  docs:
+    name: Documentation checks
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/docs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/docs/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: Oxc lint
+        run: pnpm lint
+      - name: React Doctor
+        run: pnpm run doctor
+      - name: Tests, accessibility checks, and coverage gates
+        run: pnpm test:coverage
+      - run: pnpm build
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: docs-coverage
+          path: apps/docs/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
   compose:
     name: Production container build and smoke test
     runs-on: ubuntu-24.04
-    needs: [rust, web]
+    needs: [rust, web, docs]
     steps:
       - uses: actions/checkout@v7
       - name: Create non-secret CI environment
@@ -125,7 +158,7 @@ jobs:
         with:
           source: .
           files: docker-compose.yml
-          targets: api,gateway,mcp,web
+          targets: api,gateway,mcp,docs,web
           load: true
           set: |
             api.tags=orivane-api:latest
@@ -137,6 +170,9 @@ jobs:
             mcp.tags=orivane-mcp:latest
             mcp.cache-from=type=gha,scope=orivane-mcp
             mcp.cache-to=type=gha,scope=orivane-mcp,mode=max
+            docs.tags=orivane-docs:latest
+            docs.cache-from=type=gha,scope=orivane-docs
+            docs.cache-to=type=gha,scope=orivane-docs,mode=max
             web.tags=orivane-web:latest
             web.cache-from=type=gha,scope=orivane-web
             web.cache-to=type=gha,scope=orivane-web,mode=max
@@ -152,10 +188,13 @@ jobs:
             exit "$status"
           }
           trap cleanup EXIT
-          docker compose up --detach --no-build --wait postgres redis api mcp web
+          docker compose up --detach --no-build --wait postgres redis api mcp docs web
           curl --fail --silent http://127.0.0.1:3010/health
           curl --fail --silent http://127.0.0.1:3012/health
+          curl --fail --silent http://127.0.0.1:5174/healthz
+          curl --fail --silent http://127.0.0.1:5174/docs/ | grep --quiet 'Orivane Docs'
           curl --fail --silent http://127.0.0.1:5173/healthz
+          curl --fail --silent http://127.0.0.1:5173/docs/ | grep --quiet 'Orivane Docs'
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
             --header 'Content-Type: application/json' \
             --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \

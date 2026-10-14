@@ -1,0 +1,28 @@
+:80 {
+	root * /srv
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+	}
+
+	route {
+		@health path /healthz
+		respond @health "ok" 200
+
+		redir /docs /docs/ 302
+
+		handle_path /docs/* {
+			try_files {path} {path}/ /index.html
+			file_server
+		}
+
+		handle {
+			try_files {path} {path}/ /index.html
+			file_server
+		}
+	}
+}

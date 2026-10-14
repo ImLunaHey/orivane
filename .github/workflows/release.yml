@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, gateway, mcp, web]
+        service: [api, gateway, mcp, web, docs]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -102,7 +102,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ steps.version.outputs.sha }}
       - id: rust
-        if: matrix.service != 'web'
+        if: matrix.service != 'web' && matrix.service != 'docs'
         shell: bash
         run: |
           case "${{ matrix.service }}" in
@@ -112,8 +112,8 @@ jobs:
           esac
       - uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.service == 'web' && 'apps/web' || '.' }}
-          file: ${{ matrix.service == 'web' && 'apps/web/Dockerfile' || 'Dockerfile.rust' }}
+          context: ${{ (matrix.service == 'web' || matrix.service == 'docs') && format('apps/{0}', matrix.service) || '.' }}
+          file: ${{ (matrix.service == 'web' || matrix.service == 'docs') && format('apps/{0}/Dockerfile', matrix.service) || 'Dockerfile.rust' }}
           build-args: |
             BINARY=${{ steps.rust.outputs.binary }}
           push: true

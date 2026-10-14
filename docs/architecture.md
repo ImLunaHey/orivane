@@ -138,6 +138,18 @@ The dashboard exposes `/audit` for the bot-wide owner view and `/servers/:server
 - Constant-time token checks, origin validation, response-size limits, and no
   redirects when contacting the API.
 
+### Documentation site
+
+- A separate client-only Vite, React, Tailwind, and TanStack Router application
+  lives in `apps/docs`; it has no session, database, or runtime API dependency.
+- Its catalog covers every serialized `GuildConfig` module field and is tested
+  against the Rust source so new configuration cannot silently remain
+  undocumented.
+- Interactive examples are deterministic browser-local models. They are
+  labelled as demos and never call Discord or save configuration.
+- The production web proxy mounts the static documentation image at `/docs/`;
+  releases also publish it independently as `orivane-docs`.
+
 ### Gateway workers
 
 - Discord shard lifecycle and event normalization.

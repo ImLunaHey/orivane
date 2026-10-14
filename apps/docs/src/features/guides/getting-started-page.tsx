@@ -1,0 +1,18 @@
+import { Link } from '@tanstack/react-router'
+import { CheckCircle2, CircleDot, ExternalLink } from 'lucide-react'
+import { CodeBlock } from '../../components/code-block'
+import { InfoPanel } from '../../components/info-panel'
+import { PageHeader } from '../../components/page-header'
+
+export function GettingStartedPage() {
+  return <div className="content-page prose-page">
+    <PageHeader eyebrow="Operator guide" title="Getting started" description="Connect Orivane, verify its Discord resources, enable one module, and confirm the full audited path before rolling features out to members." />
+    <section className="notice"><CircleDot /><div><strong>Orivane uses slash commands only.</strong><p>There is no command prefix to configure. Discord publishes the commands registered by the gateway.</p></div></section>
+    <section><h2>1. Add the application to Discord</h2><p>Install Orivane into a server you administer. Grant only the permissions required by the modules you plan to enable, then keep the bot role above every role it must assign or moderate.</p><a className="text-link" href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Open Discord Developer Portal <ExternalLink size={15} /></a></section>
+    <section><h2>2. Enable the required intents</h2><div className="two-column-list"><InfoPanel title="Server Members Intent">Required for join-driven features such as welcome, autorole, verification, anti-raid, and member identity updates.</InfoPanel><InfoPanel title="Message Content Intent">Required for Automod, leveling, autoresponder, AFK mention behavior, and other modules that inspect message text.</InfoPanel></div></section>
+    <section><h2>3. Sign in and choose a server</h2><p>The dashboard signs in with Discord OAuth. Server pages are available only when the current Discord account has Manage Server or Administrator; bot-wide fleet pages require the owner allowlist.</p><ol className="plain-steps"><li><span>1</span><p>Open the dashboard and choose <strong>Sign in with Discord</strong>.</p></li><li><span>2</span><p>Select a connected server from the server directory.</p></li><li><span>3</span><p>Open <strong>Modules</strong> and choose one feature to configure.</p></li></ol></section>
+    <section><h2>4. Use resource selectors, not raw IDs</h2><p>Channel and role settings are loaded from Discord and grouped in custom selectors. If they cannot be loaded, the dashboard shows a diagnostic state rather than silently saving an inaccessible identifier.</p><div className="check-grid"><span><CheckCircle2 />Bot can view the selected channel</span><span><CheckCircle2 />Bot can send messages and embeds</span><span><CheckCircle2 />Bot role is above managed roles</span><span><CheckCircle2 />Selected categories accept new channels</span></div></section>
+    <section><h2>5. Save, test, and inspect</h2><p>Save controls sit at the bottom of each editor. After saving, exercise one workflow in a private channel and open the server audit log to verify the actor, target, outcome, request ID, and before/after configuration.</p><CodeBlock label="Private-server smoke checklist" code={`1. Save the module configuration\n2. Run its slash command or trigger event\n3. Confirm the Discord response\n4. Inspect the server audit event\n5. Check resource diagnostics for warnings`} /></section>
+    <section className="next-links"><Link to="/modules/$moduleId" params={{ moduleId: 'automod' }}><small>Common first module</small><strong>Configure Automod →</strong></Link><Link to="/reference/audit"><small>Verify every change</small><strong>Audit and analytics →</strong></Link></section>
+  </div>
+}

@@ -1,0 +1,32 @@
+:80 {
+	root * /srv
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+	}
+
+	route {
+		@health path /healthz
+		respond @health "ok" 200
+
+		@api path /v1/* /api/*
+		reverse_proxy @api api:3010
+
+		@mcp path /mcp /mcp/*
+		reverse_proxy @mcp mcp:3012 {
+			flush_interval -1
+		}
+
+		redir /docs /docs/ 302
+
+		@docs path /docs/*
+		reverse_proxy @docs docs:80
+
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+}

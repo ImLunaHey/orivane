@@ -20,6 +20,7 @@ Vite + React dashboard + Discord OAuth2
 - **API** exposes authenticated configuration, fleet, users, moderation, audit, analytics, and health endpoints.
 - **MCP** exposes the allowlisted API surface to trusted AI agents through stdio or authenticated Streamable HTTP.
 - **Gateway** owns Discord connections and dispatches events into isolated modules.
+- **Docs** is a client-only Vite/React/Tailwind reference for every module, setting, and slash command, with browser-only interactive examples.
 
 ## Run locally
 
@@ -31,7 +32,8 @@ Vite + React dashboard + Discord OAuth2
    docker compose up --build -d
    ```
 
-   The dashboard is available at `http://127.0.0.1:5173` and the API at
+   The dashboard is available at `http://127.0.0.1:5173`, documentation at
+   `http://127.0.0.1:5173/docs/`, and the API at
    `http://127.0.0.1:3010`. The web container proxies `/api` and `/v1` to the
    API and `/mcp` to the MCP service over the private Compose network, so no
    internal service URL is baked into the UI.
@@ -45,7 +47,8 @@ Vite + React dashboard + Discord OAuth2
    cargo run -p discord-bot-api
    cargo run -p discord-bot-gateway
    MCP_TRANSPORT=stdio cargo run -p discord-bot-mcp
-   cd apps/web && VITE_API_BASE_URL=same-origin pnpm dev
+   (cd apps/web && VITE_API_BASE_URL=same-origin pnpm dev)
+   (cd apps/docs && pnpm dev)
    ```
 
 The `.env` file is passed to the Rust containers at runtime and is excluded
@@ -76,7 +79,7 @@ Each feature lives in its own crate under `modules/`. The gateway only assembles
 
 The full design—including the Vite/React/Tailwind/TanStack dashboard, logging, metrics, tracing, and analytics roadmap—is in [docs/architecture.md](docs/architecture.md). The current dashboard includes bot-wide and guild-scoped navigation, accessible shared charts, TanStack tables, audit detail pages, live dependency health, and explicit demo/live data modes.
 
-Production releases and rollback expectations are documented in [docs/deployment.md](docs/deployment.md). Tagged releases publish immutable API, gateway, MCP, and web images to GitHub Container Registry; deployments should always pin an exact version or SHA.
+Production releases and rollback expectations are documented in [docs/deployment.md](docs/deployment.md). Tagged releases publish immutable API, gateway, MCP, dashboard, and documentation images to GitHub Container Registry; deployments should always pin an exact version or SHA.
 
 Agent access, authentication, available MCP tools, and client configuration are documented in [docs/mcp.md](docs/mcp.md).
 
