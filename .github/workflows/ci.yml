@@ -200,11 +200,12 @@ jobs:
             --header 'Content-Type: application/json' \
             --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
             http://127.0.0.1:3012/mcp)" = "401"
-          set -a
-          source .env
-          set +a
+          ci_token="orv_$(printf '0%.0s' {1..64})"
+          ci_token_hash="$(printf '%s' "$ci_token" | sha256sum | cut -d' ' -f1)"
+          docker compose exec -T postgres psql -U discord -d discord -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO mcp_access_tokens (guild_id, discord_user_id, name, token_hash, expires_at) VALUES ('901234567890123456', 'ci-user', 'CI smoke test', '$ci_token_hash', now() + interval '1 hour')"
           curl --fail --silent \
-            --header "Authorization: Bearer $ORIVANE_MCP_TOKEN" \
+            --header "Authorization: Bearer $ci_token" \
             --header 'Accept: application/json, text/event-stream' \
             --header 'Content-Type: application/json' \
             --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \

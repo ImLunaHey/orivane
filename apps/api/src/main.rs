@@ -146,6 +146,38 @@ struct DashboardActivity {
 }
 
 #[derive(Deserialize)]
+struct CreateMcpAccessToken {
+    name: String,
+    #[serde(default = "default_mcp_token_lifetime_days")]
+    expires_in_days: u16,
+}
+
+#[derive(Serialize)]
+struct McpAccessTokenSummary {
+    id: i64,
+    guild_id: String,
+    name: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Serialize)]
+struct CreatedMcpAccessToken {
+    #[serde(flatten)]
+    token: McpAccessTokenSummary,
+    access_token: String,
+}
+
+#[derive(Serialize)]
+struct McpUserContext {
+    discord_user_id: String,
+    guild_id: String,
+    guild_name: String,
+    access: &'static str,
+}
+
+#[derive(Deserialize)]
 struct UpdateSuggestionStatus {
     status: String,
     staff_note: Option<String>,
@@ -266,6 +298,7 @@ async fn main() -> Result<()> {
         .route("/v1/users", get(get_users))
         .route("/v1/users/{user_id}", get(get_user))
         .route("/v1/me/privacy-export", get(get_privacy_export))
+        .route("/v1/me/mcp-context", get(get_mcp_context))
         .route("/v1/analytics/commands", get(get_global_command_volume))
         .route("/v1/audit/{event_id}", get(get_global_audit_event))
         .route("/v1/commands/sync", axum::routing::post(sync_commands))
@@ -274,6 +307,14 @@ async fn main() -> Result<()> {
             axum::routing::post(record_dashboard_activity),
         )
         .route("/v1/guilds/{guild_id}/audit", get(get_guild_audit))
+        .route(
+            "/v1/guilds/{guild_id}/mcp-tokens",
+            get(get_mcp_access_tokens).post(create_mcp_access_token),
+        )
+        .route(
+            "/v1/guilds/{guild_id}/mcp-tokens/{token_id}",
+            axum::routing::delete(revoke_mcp_access_token),
+        )
         .route(
             "/v1/guilds/{guild_id}/audit/{event_id}",
             get(get_guild_audit_event),
@@ -596,6 +637,7 @@ impl RateLimiter {
         request
             .headers()
             .get("cookie")
+            .or_else(|| request.headers().get("authorization"))
             .and_then(|value| value.to_str().ok())
             .unwrap_or("anonymous")
             .hash(&mut hasher);
@@ -811,6 +853,219 @@ async fn get_privacy_export(
             "message_content": "Orivane audit logs do not retain deleted or edited message content."
         }
     })))
+}
+
+fn default_mcp_token_lifetime_days() -> u16 {
+    90
+}
+
+async fn get_mcp_context(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<McpUserContext>, ApiError> {
+    let actor = state.auth.require_access_token(&headers).await?;
+    let guild_id = actor
+        .guild_scope
+        .clone()
+        .ok_or_else(|| ApiError::forbidden("the access token is not server scoped"))?;
+    let guild_name = state
+        .infrastructure
+        .connected_guilds()
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .find(|guild| guild.id == guild_id)
+        .map(|guild| guild.name)
+        .unwrap_or_else(|| {
+            format!(
+                "Server {}",
+                guild_id
+                    .chars()
+                    .rev()
+                    .take(4)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>()
+            )
+        });
+    Ok(Json(McpUserContext {
+        discord_user_id: actor.discord_user_id,
+        guild_id,
+        guild_name,
+        access: "manage_server",
+    }))
+}
+
+async fn get_mcp_access_tokens(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<McpAccessTokenSummary>>, ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state
+        .auth
+        .require_dashboard_guild(&headers, &guild_id)
+        .await?;
+    let rows = sqlx08::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ),
+    >(
+        "SELECT id, guild_id, name, created_at, expires_at, last_used_at \
+         FROM mcp_access_tokens WHERE guild_id = $1 AND discord_user_id = $2 \
+         AND revoked_at IS NULL ORDER BY created_at DESC",
+    )
+    .bind(&guild_id)
+    .bind(&actor.discord_user_id)
+    .fetch_all(&state.auth.pool)
+    .await
+    .map_err(internal_error)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(
+                |(id, guild_id, name, created_at, expires_at, last_used_at)| {
+                    McpAccessTokenSummary {
+                        id,
+                        guild_id,
+                        name,
+                        created_at,
+                        expires_at,
+                        last_used_at,
+                    }
+                },
+            )
+            .collect(),
+    ))
+}
+
+async fn create_mcp_access_token(
+    State(state): State<AppState>,
+    Path(guild_id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<CreateMcpAccessToken>,
+) -> Result<(StatusCode, Json<CreatedMcpAccessToken>), ApiError> {
+    validate_snowflake(&guild_id)?;
+    let actor = state
+        .auth
+        .require_dashboard_guild(&headers, &guild_id)
+        .await?;
+    let name = input.name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(ApiError::bad_request(
+            "token name must contain between 1 and 80 characters",
+        ));
+    }
+    if !(1..=365).contains(&input.expires_in_days) {
+        return Err(ApiError::bad_request(
+            "token lifetime must be between 1 and 365 days",
+        ));
+    }
+    let active_tokens = sqlx08::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM mcp_access_tokens \
+         WHERE guild_id = $1 AND discord_user_id = $2 AND revoked_at IS NULL AND expires_at > now()",
+    )
+    .bind(&guild_id)
+    .bind(&actor.discord_user_id)
+    .fetch_one(&state.auth.pool)
+    .await
+    .map_err(internal_error)?;
+    if active_tokens >= 20 {
+        return Err(ApiError::bad_request(
+            "revoke an existing MCP access token before creating another",
+        ));
+    }
+    let mut random = [0_u8; 32];
+    openssl::rand::rand_bytes(&mut random).map_err(internal_error)?;
+    let access_token = format!(
+        "orv_{}",
+        random
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    let token_hash = crate::auth::hex_sha256(access_token.as_bytes());
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(i64::from(input.expires_in_days));
+    let (id, created_at) = sqlx08::query_as::<_, (i64, chrono::DateTime<chrono::Utc>)>(
+        "INSERT INTO mcp_access_tokens (guild_id, discord_user_id, name, token_hash, expires_at) \
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at",
+    )
+    .bind(&guild_id)
+    .bind(&actor.discord_user_id)
+    .bind(name)
+    .bind(token_hash)
+    .bind(expires_at)
+    .fetch_one(&state.auth.pool)
+    .await
+    .map_err(internal_error)?;
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "mcp.token.created");
+    event.target_type = "mcp_access_token".to_owned();
+    event.target_id = Some(id.to_string());
+    event.metadata = serde_json::json!({ "name": name, "expires_at": expires_at });
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(CreatedMcpAccessToken {
+            token: McpAccessTokenSummary {
+                id,
+                guild_id,
+                name: name.to_owned(),
+                created_at,
+                expires_at,
+                last_used_at: None,
+            },
+            access_token,
+        }),
+    ))
+}
+
+async fn revoke_mcp_access_token(
+    State(state): State<AppState>,
+    Path((guild_id, token_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    validate_snowflake(&guild_id)?;
+    validate_record_id(token_id, "MCP access token")?;
+    let actor = state
+        .auth
+        .require_dashboard_guild(&headers, &guild_id)
+        .await?;
+    let revoked = sqlx08::query_scalar::<_, i64>(
+        "UPDATE mcp_access_tokens SET revoked_at = now() \
+         WHERE id = $1 AND guild_id = $2 AND discord_user_id = $3 AND revoked_at IS NULL \
+         RETURNING id",
+    )
+    .bind(token_id)
+    .bind(&guild_id)
+    .bind(&actor.discord_user_id)
+    .fetch_optional(&state.auth.pool)
+    .await
+    .map_err(internal_error)?;
+    if revoked.is_none() {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "MCP access token not found".to_owned(),
+        ));
+    }
+    let mut event = NewAuditEvent::guild(&guild_id, &actor.discord_user_id, "mcp.token.revoked");
+    event.target_type = "mcp_access_token".to_owned();
+    event.target_id = Some(token_id.to_string());
+    state
+        .infrastructure
+        .record_audit_event(&event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_global_command_volume(
@@ -4371,6 +4626,10 @@ impl IntoResponse for ApiError {
 }
 
 impl ApiError {
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self(StatusCode::BAD_REQUEST, message.into())
+    }
+
     fn unauthorized(message: impl Into<String>) -> Self {
         Self(StatusCode::UNAUTHORIZED, message.into())
     }
@@ -4501,5 +4760,26 @@ mod resource_diagnostic_tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(limiter.retry_after(&read), None);
+    }
+
+    #[test]
+    fn rate_limits_mcp_access_tokens_independently() {
+        let limiter = RateLimiter::default();
+        for _ in 0..120 {
+            let request = Request::builder()
+                .method(Method::POST)
+                .uri("/v1/guilds/1/config")
+                .header("authorization", "Bearer orv_first")
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(limiter.retry_after(&request), None);
+        }
+        let other_connection = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/guilds/1/config")
+            .header("authorization", "Bearer orv_second")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(limiter.retry_after(&other_connection), None);
     }
 }

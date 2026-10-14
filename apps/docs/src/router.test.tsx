@@ -43,7 +43,7 @@ describe('documentation routes', () => {
   it('renders static guides and references', async () => {
     const pages = [
       ['/docs/guides/getting-started', 'Getting started'],
-      ['/docs/guides/mcp', 'Model Context Protocol'],
+      ['/docs/guides/mcp', 'Connect Orivane with MCP'],
       ['/docs/reference/commands', 'Slash-command catalog'],
       ['/docs/reference/audit', 'Audit logging and analytics'],
     ] as const

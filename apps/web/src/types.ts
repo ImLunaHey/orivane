@@ -1,3 +1,14 @@
+export type McpAccessToken = {
+  id: number
+  guild_id: string
+  name: string
+  created_at: string
+  expires_at: string
+  last_used_at: string | null
+}
+
+export type CreatedMcpAccessToken = McpAccessToken & { access_token: string }
+
 export type GuildConfig = {
   guild_id: string
   modules: {

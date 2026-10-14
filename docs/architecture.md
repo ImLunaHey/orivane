@@ -131,12 +131,12 @@ The dashboard exposes `/audit` for the bot-wide owner view and `/servers/:server
 
 - Local stdio and authenticated Streamable HTTP transports.
 - Discoverable read-only resources plus separate read and mutation tools.
-- Static allowlist covering the supported `/v1` API; auth, metrics, and raw
-  database access are never exposed.
-- MCP mutations use the normal API handlers and are audited as the
-  `orivane-mcp` owner actor.
-- Constant-time token checks, origin validation, response-size limits, and no
-  redirects when contacting the API.
+- Static allowlist covering customer-facing, server-scoped `/v1` operations;
+  fleet, auth, metrics, and raw database access are never exposed.
+- MCP mutations use the normal API handlers and are audited as the Discord
+  user who created the server-scoped token.
+- Expiring, revocable, hashed tokens, origin validation, response-size limits,
+  and no redirects when contacting the API.
 
 ### Documentation site
 

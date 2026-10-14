@@ -1,6 +1,6 @@
 import { defaultConfig, demoGuildId } from './demo-data'
 import { appendDemoAuditEvent, demoAuditEvents, storedDemoAuditEvents } from './audit-data'
-import type { AfkStatusRecord, AuditEvent, CounterRunRecord, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, InviteAttributionRecord, InviteLeaderboardRecord, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, OperationalRecord, PollRecord, Reminder, ResourceDiagnostics, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel, VerificationAttemptRecord, VoiceLinkEventRecord } from '../types'
+import type { AfkStatusRecord, AuditEvent, CounterRunRecord, CreatedMcpAccessToken, EconomyAccount, EconomyTransaction, EmbedDelivery, EmbedPayload, EmbedTemplate, FormSubmission, Giveaway, GiveawayEntry, GuildChannel, GuildConfig, GuildRole, InviteAttributionRecord, InviteLeaderboardRecord, McpAccessToken, MessageDeletionJob, ModerationCase, NewGiveaway, NewModerationCase, NewTicketPanel, OperationalRecord, PollRecord, Reminder, ResourceDiagnostics, Suggestion, SuggestionStatus, TemporaryVoiceChannel, Ticket, TicketAnalytics, TicketEvent, TicketNote, TicketPanel, VerificationAttemptRecord, VoiceLinkEventRecord } from '../types'
 import { demoServers, type ConnectedServer } from './server-data'
 import { globalUsers, type GlobalUser, type UserServerContext } from './user-data'
 import { discordAccountAge } from './discord'
@@ -49,6 +49,24 @@ export async function getGuildConfig(guildId = configuredGuildId): Promise<Guild
     return demoConfig(guildId)
   }
   return request<GuildConfig>(`/v1/guilds/${guildId}/config`)
+}
+
+export async function getMcpAccessTokens(guildId: string): Promise<McpAccessToken[]> {
+  if (isDemoMode) return []
+  return request(`/v1/guilds/${guildId}/mcp-tokens`)
+}
+
+export async function createMcpAccessToken(input: { guildId: string; name: string; expiresInDays: number }): Promise<CreatedMcpAccessToken> {
+  if (isDemoMode) {
+    const now = new Date()
+    return { id: Date.now(), guild_id: input.guildId, name: input.name, created_at: now.toISOString(), expires_at: new Date(now.getTime() + input.expiresInDays * 86_400_000).toISOString(), last_used_at: null, access_token: `orv_${'demo'.padEnd(64, '0')}` }
+  }
+  return request(`/v1/guilds/${input.guildId}/mcp-tokens`, { method: 'POST', body: JSON.stringify({ name: input.name, expires_in_days: input.expiresInDays }) })
+}
+
+export async function revokeMcpAccessToken(guildId: string, tokenId: number): Promise<void> {
+  if (isDemoMode) return
+  return request(`/v1/guilds/${guildId}/mcp-tokens/${tokenId}`, { method: 'DELETE' })
 }
 
 export async function getGuildChannels(guildId: string): Promise<GuildChannel[]> {

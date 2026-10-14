@@ -1,117 +1,64 @@
-# MCP agent access
+# MCP access for Discord server owners
 
-Orivane includes a Rust Model Context Protocol server that gives trusted AI
-agents access to the same validated and audited `/v1` operations used by the
-dashboard. It does not connect directly to PostgreSQL, expose Lucid Auth
-routes, or provide arbitrary HTTP requests.
+Orivane exposes a hosted Model Context Protocol endpoint so an MCP-compatible
+assistant can help configure and operate a Discord server. Customers do not
+deploy the bot, run this repository, expose a local port, or handle Orivane's
+Discord bot token.
 
-The server implements the current Streamable HTTP transport and local stdio
-transport using the official Rust MCP SDK.
+## Create a connection
 
-## Security model
+1. Sign in to the Orivane dashboard with Discord.
+2. Select a server where you have Manage Server or Administrator.
+3. Open **Integrations → AI agent access**.
+4. Name the connection, choose an expiry, and create the access token.
+5. Copy the token into the MCP client's secret store. It is shown only once.
 
-`ORIVANE_MCP_TOKEN` is a dedicated owner-level service credential shared by
-the API and MCP process. Generate a unique random value containing at least 32
-characters. Never reuse `BETTER_AUTH_SECRET`, the Discord bot token, or an OAuth
-secret, and never commit the value.
-
-The API accepts this bearer token only as the synthetic owner actor
-`orivane-mcp`. Normal dashboard sessions continue to use Discord OAuth and
-Lucid Auth. Every MCP mutation therefore passes through the same request
-validation and audit-writing handler as its dashboard equivalent.
-
-Additional boundaries are:
-
-- a static method-and-path allowlist for supported `/v1` operations;
-- separate read and mutation tools so clients can require approval for writes;
-- no redirects when the MCP service contacts the API;
-- a 2 MiB response limit;
-- constant-time bearer-token comparisons;
-- HTTP `Origin` validation through `MCP_ALLOWED_ORIGINS` or `APP_ORIGIN`;
-- loopback-only Compose port publishing, with remote access through the
-  existing authenticated tailnet boundary.
-
-Treat the token as full bot-owner access. Rotate it immediately if it is
-exposed, then restart both the API and MCP containers.
-
-## Tools
-
-| Tool | Purpose |
-| --- | --- |
-| `api_endpoints` | Lists every allowlisted method, path template, description, and mutation flag. |
-| `api_get` | Calls an allowlisted read endpoint with URL-encoded query parameters. |
-| `api_mutate` | Calls an allowlisted `POST`, `PUT`, `PATCH`, or `DELETE` endpoint with an optional JSON body. |
-
-The result includes the HTTP status, request ID, content type, and parsed body.
-Non-success API responses become MCP tool errors while retaining the API error
-body for the agent.
-
-The MCP server also publishes these read-only resources:
-
-- `orivane://api/endpoints`
-- `orivane://fleet/health`
-- `orivane://fleet/servers`
-
-## Local stdio
-
-Build the binary, inject the two required values through the agent host's
-secret/environment configuration, and launch it as a child process:
-
-```sh
-cargo build --release -p discord-bot-mcp
-MCP_TRANSPORT=stdio \
-ORIVANE_API_BASE_URL=http://127.0.0.1:3010/ \
-ORIVANE_MCP_TOKEN="$ORIVANE_MCP_TOKEN" \
-target/release/discord-bot-mcp
-```
-
-A generic client entry looks like this; use the client's secret mechanism
-instead of writing the token directly into a tracked file:
-
-```json
-{
-  "mcpServers": {
-    "orivane": {
-      "command": "/absolute/path/to/target/release/discord-bot-mcp",
-      "env": {
-        "MCP_TRANSPORT": "stdio",
-        "ORIVANE_API_BASE_URL": "http://127.0.0.1:3010/",
-        "ORIVANE_MCP_TOKEN": "<inject-secret-here>"
-      }
-    }
-  }
-}
-```
-
-## Streamable HTTP
-
-Compose starts the MCP process on the private network and publishes its health
-port only on loopback. Caddy proxies the protocol endpoint at `/mcp`, so the
-deployed endpoint is:
+Configure the client with the hosted endpoint:
 
 ```text
-https://your-orivane-host.example/mcp
+URL: https://your-orivane-host.example/mcp
+Authorization: Bearer <server access token>
 ```
 
-Clients must send:
+## Authorization model
 
-```text
-Authorization: Bearer <ORIVANE_MCP_TOKEN>
-```
+An MCP access token represents the Discord user who created it and exactly one
+Discord server. It is not a bot-owner credential.
 
-The health endpoint is intentionally separate and returns no operational data:
+- The token cannot inspect Orivane fleet health, connected servers, global
+  users, command registration, or other operator-only data.
+- It cannot read or modify another Discord server, even when the same person
+  manages that server.
+- Token creation requires a signed-in dashboard session and live Discord
+  Manage Server or Administrator permission.
+- Tokens expire, are stored only as SHA-256 hashes, and can be revoked from the
+  server's Integrations page.
+- Mutations use the same validation and server audit path as dashboard changes
+  and are attributed to the creating Discord user.
 
-```sh
-curl --fail http://127.0.0.1:3012/health
-```
+## MCP capabilities
 
-Set `MCP_ALLOWED_ORIGINS` to a comma-separated list when browser-hosted MCP
-clients use additional trusted origins. Requests without an `Origin` header
-still require the bearer token.
+The server publishes `orivane://server/context`, the current server
+configuration, and an allowlist of supported server operations.
+`server_capabilities` describes those operations, `server_read` inspects
+state, and `server_change` changes live server configuration or performs a
+supported workflow.
 
-## Agent guidance
+Agents should:
 
-Agents should call `api_endpoints` before constructing a path, prefer
-`api_get`, and ask for explicit user confirmation before `api_mutate`. A read
-followed by a mutation should use the current returned object as the basis for
-the update rather than inventing omitted configuration fields.
+1. read `orivane://server/context` before doing other work;
+2. inspect current state before proposing a change;
+3. explain the Discord-facing effect and ask for confirmation before a write;
+4. return the API request ID so the user can find the action in the audit log.
+
+## Revocation
+
+Open **Integrations → AI agent access** for the server and choose **Revoke**.
+Revocation takes effect on the next API request. Revoke a token immediately if
+it was pasted into chat, committed to a repository, or stored on a lost device.
+
+## Maintainer-only local transport
+
+The Rust binary also supports stdio for development and automated tests. This
+is not part of the customer setup flow. It requires a server-scoped token in
+`ORIVANE_USER_TOKEN`; operator automation credentials are not accepted.

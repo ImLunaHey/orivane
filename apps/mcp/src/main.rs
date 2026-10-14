@@ -65,19 +65,10 @@ impl Endpoint {
 }
 
 const ENDPOINTS: &[Endpoint] = &[
-    Endpoint::read("/v1/audit", "List the bot-wide audit timeline"),
-    Endpoint::read("/v1/audit/{event_id}", "Get a bot-wide audit event"),
-    Endpoint::read("/v1/health", "Get fleet and dependency health"),
-    Endpoint::read("/v1/servers", "List connected Discord servers"),
-    Endpoint::read("/v1/users", "List global Discord users"),
-    Endpoint::read("/v1/users/{user_id}", "Get a global Discord user"),
     Endpoint::read(
-        "/v1/me/privacy-export",
-        "Export the MCP service actor's data",
+        "/v1/me/mcp-context",
+        "Identify the signed-in Discord user and server attached to this access token",
     ),
-    Endpoint::read("/v1/analytics/commands", "Get global command analytics"),
-    Endpoint::write("POST", "/v1/commands/sync", "Synchronize Discord commands"),
-    Endpoint::write("POST", "/v1/activity", "Record dashboard activity"),
     Endpoint::read(
         "/v1/guilds/{guild_id}/audit",
         "List a server's audit timeline",
@@ -383,13 +374,13 @@ struct MutationRequest {
 #[derive(Clone)]
 struct OrivaneMcp {
     api_base: Url,
-    token: Arc<str>,
+    stdio_token: Option<Arc<str>>,
     client: Client,
 }
 
 #[tool_router]
 impl OrivaneMcp {
-    fn new(api_base: Url, token: Arc<str>) -> Result<Self> {
+    fn new(api_base: Url, stdio_token: Option<Arc<str>>) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
@@ -399,56 +390,59 @@ impl OrivaneMcp {
             .context("build MCP API client")?;
         Ok(Self {
             api_base,
-            token,
+            stdio_token,
             client,
         })
     }
 
     #[tool(
-        description = "List every Orivane REST operation available through this MCP server, including whether it mutates state",
+        description = "List the operations available for the connected Discord server, including whether each one changes state",
         annotations(
-            title = "List Orivane API endpoints",
+            title = "List server capabilities",
             read_only_hint = true,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         )
     )]
-    async fn api_endpoints(&self) -> Result<CallToolResult, McpError> {
+    async fn server_capabilities(&self) -> Result<CallToolResult, McpError> {
         Ok(CallToolResult::structured(endpoint_catalog()))
     }
 
     #[tool(
-        description = "Read data from an allowlisted Orivane API endpoint. Use api_endpoints first to discover paths and query parameters",
+        description = "Read data for the Discord server attached to this connection. Use server_capabilities first to discover supported paths",
         annotations(
-            title = "Read Orivane API data",
+            title = "Read server data",
             read_only_hint = true,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         )
     )]
-    async fn api_get(
+    async fn server_read(
         &self,
         Parameters(request): Parameters<ReadRequest>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        self.execute(Method::GET, &request.path, request.query, None)
+        let token = self.credential(&context)?;
+        self.execute(Method::GET, &request.path, request.query, None, &token)
             .await
     }
 
     #[tool(
-        description = "Perform an allowlisted Orivane API mutation. This changes bot or server state and should require user approval",
+        description = "Change configuration or perform an operation for the Discord server attached to this connection. Requires explicit user approval",
         annotations(
-            title = "Change Orivane state",
+            title = "Change server state",
             read_only_hint = false,
             destructive_hint = true,
             idempotent_hint = false,
             open_world_hint = true
         )
     )]
-    async fn api_mutate(
+    async fn server_change(
         &self,
         Parameters(request): Parameters<MutationRequest>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let method = request
             .method
@@ -464,7 +458,8 @@ impl OrivaneMcp {
                 None,
             ));
         }
-        self.execute(method, &request.path, BTreeMap::new(), request.body)
+        let token = self.credential(&context)?;
+        self.execute(method, &request.path, BTreeMap::new(), request.body, &token)
             .await
     }
 
@@ -474,6 +469,7 @@ impl OrivaneMcp {
         path: &str,
         query: BTreeMap<String, String>,
         body: Option<Value>,
+        token: &str,
     ) -> Result<CallToolResult, McpError> {
         validate_path(path)?;
         let endpoint = find_endpoint(method.as_str(), path).ok_or_else(|| {
@@ -487,7 +483,7 @@ impl OrivaneMcp {
         })?;
         if method == Method::GET && endpoint.mutating() {
             return Err(McpError::invalid_params(
-                "mutation requires api_mutate",
+                "mutation requires server_change",
                 None,
             ));
         }
@@ -504,7 +500,7 @@ impl OrivaneMcp {
         let mut request = self
             .client
             .request(method.clone(), url)
-            .bearer_auth(self.token.as_ref())
+            .bearer_auth(token)
             .header("x-request-id", &request_id);
         if let Some(body) = body {
             request = request.json(&body);
@@ -592,7 +588,7 @@ impl ServerHandler for OrivaneMcp {
         )
         .with_server_info(Implementation::from_build_env())
         .with_instructions(
-            "Orivane MCP provides owner-authorized access to the bot REST API. Read orivane://api/endpoints or call api_endpoints before using api_get or api_mutate. api_mutate changes live Discord bot state and must be used only with explicit user approval."
+            "Orivane MCP acts for the signed-in Discord server owner or administrator. Access is limited to the single server attached to the revocable access token. Read orivane://server/context first, inspect current state before changing it, and use server_change only with explicit user approval."
                 .to_owned(),
         )
     }
@@ -604,9 +600,15 @@ impl ServerHandler for OrivaneMcp {
     ) -> Result<ListResourcesResult, McpError> {
         Ok(ListResourcesResult {
             resources: vec![
-                Resource::new("orivane://api/endpoints", "Orivane API endpoint catalog"),
-                Resource::new("orivane://fleet/health", "Orivane fleet health"),
-                Resource::new("orivane://fleet/servers", "Connected Discord servers"),
+                Resource::new(
+                    "orivane://server/capabilities",
+                    "Supported server capabilities",
+                ),
+                Resource::new(
+                    "orivane://server/context",
+                    "Authenticated Discord server context",
+                ),
+                Resource::new("orivane://server/config", "Current server configuration"),
             ],
             ..Default::default()
         })
@@ -615,12 +617,22 @@ impl ServerHandler for OrivaneMcp {
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
         let value = match request.uri.as_str() {
-            "orivane://api/endpoints" => endpoint_catalog(),
-            "orivane://fleet/health" => self.resource_get("/v1/health").await?,
-            "orivane://fleet/servers" => self.resource_get("/v1/servers").await?,
+            "orivane://server/capabilities" => endpoint_catalog(),
+            "orivane://server/context" => self.resource_get("/v1/me/mcp-context", &context).await?,
+            "orivane://server/config" => {
+                let server = self.resource_get("/v1/me/mcp-context", &context).await?;
+                let guild_id = server
+                    .pointer("/body/guild_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        McpError::internal_error("server context omitted guild_id", None)
+                    })?;
+                self.resource_get(&format!("/v1/guilds/{guild_id}/config"), &context)
+                    .await?
+            }
             _ => {
                 return Err(McpError::resource_not_found(
                     "unknown Orivane resource",
@@ -635,9 +647,29 @@ impl ServerHandler for OrivaneMcp {
 }
 
 impl OrivaneMcp {
-    async fn resource_get(&self, path: &str) -> Result<Value, McpError> {
+    fn credential(&self, context: &RequestContext<RoleServer>) -> Result<Arc<str>, McpError> {
+        if let Some(parts) = context.extensions.get::<axum::http::request::Parts>()
+            && let Some(token) = parts
+                .headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+        {
+            return Ok(Arc::from(token));
+        }
+        self.stdio_token.clone().ok_or_else(|| {
+            McpError::invalid_request("a server-scoped Orivane access token is required", None)
+        })
+    }
+
+    async fn resource_get(
+        &self,
+        path: &str,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<Value, McpError> {
+        let token = self.credential(context)?;
         let result = self
-            .execute(Method::GET, path, BTreeMap::new(), None)
+            .execute(Method::GET, path, BTreeMap::new(), None, &token)
             .await?;
         result
             .structured_content
@@ -709,8 +741,9 @@ fn unique_request_id() -> String {
 
 #[derive(Clone)]
 struct HttpAuth {
-    token: Arc<str>,
     allowed_origins: Arc<[String]>,
+    api_base: Url,
+    client: Client,
 }
 
 async fn authorize_mcp(
@@ -729,15 +762,27 @@ async fn authorize_mcp(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if provided.len() != auth.token.len()
-        || !openssl::memcmp::eq(provided.as_bytes(), auth.token.as_bytes())
-    {
+    if !provided.starts_with("orv_") || provided.len() != 68 {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let context_url = auth
+        .api_base
+        .join("v1/me/mcp-context")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let response = auth
+        .client
+        .get(context_url)
+        .bearer_auth(provided)
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    if !response.status().is_success() {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(next.run(request).await)
 }
 
-fn config() -> Result<(Url, Arc<str>)> {
+fn config() -> Result<(Url, Option<Arc<str>>)> {
     let api_base = env::var("ORIVANE_API_BASE_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:3010/".to_owned())
         .parse::<Url>()
@@ -749,11 +794,17 @@ fn config() -> Result<(Url, Arc<str>)> {
     {
         bail!("ORIVANE_API_BASE_URL must be an HTTP(S) base URL without credentials");
     }
-    let token = env::var("ORIVANE_MCP_TOKEN").context("ORIVANE_MCP_TOKEN is required")?;
-    if token.len() < 32 {
-        bail!("ORIVANE_MCP_TOKEN must contain at least 32 characters");
-    }
-    Ok((api_base, Arc::from(token)))
+    let token = env::var("ORIVANE_USER_TOKEN")
+        .ok()
+        .filter(|token| !token.trim().is_empty())
+        .map(|token| {
+            if !token.starts_with("orv_") || token.len() != 68 {
+                bail!("ORIVANE_USER_TOKEN must be a server-scoped token created in the Orivane dashboard");
+            }
+            Ok::<Arc<str>, anyhow::Error>(Arc::from(token))
+        })
+        .transpose()?;
+    Ok((api_base, token))
 }
 
 fn init_tracing(stdio_transport: bool) {
@@ -772,7 +823,10 @@ async fn main() -> Result<()> {
     let transport = env::var("MCP_TRANSPORT").unwrap_or_else(|_| "stdio".to_owned());
     init_tracing(transport == "stdio");
     let (api_base, token) = config()?;
-    let service = OrivaneMcp::new(api_base, token.clone())?;
+    if transport == "stdio" && token.is_none() {
+        bail!("ORIVANE_USER_TOKEN is required for the stdio transport");
+    }
+    let service = OrivaneMcp::new(api_base.clone(), token)?;
     match transport.as_str() {
         "stdio" => {
             tracing::info!("Orivane MCP server starting over stdio");
@@ -800,8 +854,14 @@ async fn main() -> Result<()> {
                         .with_json_response(true),
                 );
             let auth = HttpAuth {
-                token,
                 allowed_origins: allowed_origins.into(),
+                api_base,
+                client: Client::builder()
+                    .connect_timeout(Duration::from_secs(5))
+                    .timeout(Duration::from_secs(10))
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .context("build MCP authentication client")?,
             };
             let protected = Router::new()
                 .nest_service("/mcp", mcp_service)
@@ -836,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_catalog_covers_every_v1_api_path() {
+    fn endpoint_catalog_contains_only_real_customer_api_paths() {
         let api_source = include_str!("../../api/src/main.rs");
         let mut remaining = api_source;
         let mut api_paths = std::collections::HashSet::new();
@@ -856,10 +916,26 @@ mod tests {
             remaining = &remaining[quote_end + 1..];
         }
 
-        for path in api_paths {
+        for endpoint in ENDPOINTS {
             assert!(
-                ENDPOINTS.iter().any(|endpoint| endpoint.path == path),
-                "API path {path} is missing from the MCP allowlist"
+                api_paths.contains(endpoint.path),
+                "MCP path {} does not exist in the API",
+                endpoint.path,
+            );
+        }
+        for operator_path in [
+            "/v1/audit",
+            "/v1/health",
+            "/v1/servers",
+            "/v1/users",
+            "/v1/analytics/commands",
+            "/v1/commands/sync",
+        ] {
+            assert!(
+                ENDPOINTS
+                    .iter()
+                    .all(|endpoint| endpoint.path != operator_path),
+                "operator path {operator_path} leaked into the customer MCP allowlist"
             );
         }
     }
@@ -891,20 +967,20 @@ mod tests {
     #[test]
     fn tool_router_exposes_read_write_and_discovery_tools() {
         let router = OrivaneMcp::tool_router();
-        assert!(router.has_route("api_endpoints"));
-        assert!(router.has_route("api_get"));
-        assert!(router.has_route("api_mutate"));
+        assert!(router.has_route("server_capabilities"));
+        assert!(router.has_route("server_read"));
+        assert!(router.has_route("server_change"));
         assert_eq!(router.list_all().len(), 3);
 
         let read = router
-            .get("api_get")
+            .get("server_read")
             .and_then(|tool| tool.annotations.as_ref())
             .expect("read tool annotations");
         assert_eq!(read.read_only_hint, Some(true));
         assert_eq!(read.destructive_hint, Some(false));
 
         let mutation = router
-            .get("api_mutate")
+            .get("server_change")
             .and_then(|tool| tool.annotations.as_ref())
             .expect("mutation tool annotations");
         assert_eq!(mutation.read_only_hint, Some(false));

@@ -18,7 +18,7 @@ Vite + React dashboard + Discord OAuth2
 - **PostgreSQL** is the durable source of truth for guild settings, moderation cases, connected guilds, and audit history.
 - **Redis** provides a five-minute read-through configuration cache and is the natural home for cooldowns, rate limits, and queues.
 - **API** exposes authenticated configuration, fleet, users, moderation, audit, analytics, and health endpoints.
-- **MCP** exposes the allowlisted API surface to trusted AI agents through stdio or authenticated Streamable HTTP.
+- **MCP** gives Discord server owners a hosted, guild-scoped AI-agent connection through authenticated Streamable HTTP.
 - **Gateway** owns Discord connections and dispatches events into isolated modules.
 - **Docs** is a client-only Vite/React/Tailwind reference for every module, setting, and slash command, with browser-only interactive examples.
 
@@ -46,7 +46,8 @@ Vite + React dashboard + Discord OAuth2
    set -a && source .env && set +a
    cargo run -p discord-bot-api
    cargo run -p discord-bot-gateway
-   MCP_TRANSPORT=stdio cargo run -p discord-bot-mcp
+   # Create a server-scoped token in Dashboard → Integrations first.
+   MCP_TRANSPORT=stdio ORIVANE_USER_TOKEN="$ORIVANE_USER_TOKEN" cargo run -p discord-bot-mcp
    (cd apps/web && VITE_API_BASE_URL=same-origin pnpm dev)
    (cd apps/docs && pnpm dev)
    ```

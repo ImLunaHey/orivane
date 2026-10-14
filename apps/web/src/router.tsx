@@ -52,6 +52,7 @@ const membersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/serv
 const memberDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/members/$memberId', component: lazyRouteComponent(() => import('./pages/system'), 'MemberDetailPage') })
 const serverAuditRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/audit', component: lazyRouteComponent(() => import('./pages/audit'), 'ServerAuditPage') })
 const serverAuditDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/audit/$eventId', component: lazyRouteComponent(() => import('./pages/audit'), 'ServerAuditDetailPage') })
+const integrationsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/servers/$serverId/integrations', component: lazyRouteComponent(() => import('./pages/integrations'), 'IntegrationsPage') })
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -101,6 +102,7 @@ const routeTree = rootRoute.addChildren([
   memberDetailRoute,
   serverAuditRoute,
   serverAuditDetailRoute,
+  integrationsRoute,
 ])
 
 export const router = createRouter({ routeTree, defaultPreload: 'intent' })

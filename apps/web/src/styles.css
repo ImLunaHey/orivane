@@ -374,6 +374,15 @@ nav { margin-top: 22px; }
   .operational-link-panel .button { width: 100%; }
 }
 
+.token-copy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-top: 16px; }
+.token-copy-row code { min-width: 0; padding: 13px 14px; border: 1px solid #3b3b43; background: #111114; overflow-wrap: anywhere; font-size: 14px; }
+.mcp-created-token { border-color: #7657ca; }
+.mcp-token-list { display: grid; }
+.mcp-token-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 16px 0; border-top: 1px solid #2c2c32; }
+.mcp-token-list article > span:nth-child(2) { display: grid; gap: 4px; }
+.mcp-token-list article small { color: #9999a3; font-size: 13px; }
+@media (max-width: 720px) { .token-copy-row { grid-template-columns: 1fr; }.mcp-token-list article { grid-template-columns: auto minmax(0, 1fr); }.mcp-token-list article > .badge, .mcp-token-list article > .button { grid-column: 2; justify-self: start; } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
 /* Readable minimums across the dense operations UI. */

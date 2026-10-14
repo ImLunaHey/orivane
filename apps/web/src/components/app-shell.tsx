@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Activity, BarChart3, Bot, ChevronDown, Command, FileClock, LayoutDashboard, LogOut, Menu, Server, Settings2, Shield, UserRoundSearch, Users, X } from 'lucide-react'
+import { Activity, BarChart3, Bot, ChevronDown, Command, FileClock, KeyRound, LayoutDashboard, LogOut, Menu, Server, Settings2, Shield, UserRoundSearch, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getServers, isDemoMode, recordDashboardActivity } from '../lib/api'
@@ -29,6 +29,7 @@ const serverNavigation = [
   { to: '/servers/$serverId/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/servers/$serverId/members', label: 'Members', icon: Users },
   { to: '/servers/$serverId/audit', label: 'Audit log', icon: FileClock },
+  { to: '/servers/$serverId/integrations', label: 'Integrations', icon: KeyRound },
 ] as const
 
 export function AppShell() {
