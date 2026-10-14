@@ -75,6 +75,13 @@ export function AppShell() {
     void recordDashboardActivity({ action: 'dashboard.page.viewed', guild_id: scopedServerId, path: pathname })
   }, [pathname])
 
+  useEffect(() => {
+    if (!mobileOpen && !paletteOpen) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [mobileOpen, paletteOpen])
+
   return (
     <div className="app-shell">
       <aside aria-label="Primary navigation" className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
@@ -132,7 +139,7 @@ export function AppShell() {
       <main className="main-area">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
-          <div><span className="breadcrumb">{inServer ? `${selectedServer.name} · ${serverId}` : 'Orivane bot'}</span><h1>{current}</h1></div>
+          <div className="topbar-title"><span className="breadcrumb">{inServer ? `${selectedServer.name} · ${serverId}` : 'Orivane bot'}</span><h1>{current}</h1></div>
           <div className="topbar-actions">
             {isDemoMode && <Badge tone="amber">Demo data</Badge>}
             <div className="status-pill"><span />All systems operational</div>

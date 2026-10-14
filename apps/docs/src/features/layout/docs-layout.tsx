@@ -14,10 +14,17 @@ export function DocsLayout() {
         event.preventDefault()
         setSearchOpen(true)
       }
+      if (event.key === 'Escape') setMenuOpen(false)
     }
     window.addEventListener('keydown', openSearch)
     return () => window.removeEventListener('keydown', openSearch)
   }, [])
+  useEffect(() => {
+    if (!menuOpen && !searchOpen) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [menuOpen, searchOpen])
   return <div className="docs-shell">
     <a className="skip-link" href="#main-content">Skip to documentation</a>
     <header className="topbar">
@@ -42,6 +49,7 @@ export function DocsLayout() {
         <ModuleNav />
       </nav>
     </aside>
+    {menuOpen && <button className="nav-backdrop" type="button" aria-label="Close navigation overlay" onClick={() => setMenuOpen(false)} />}
     <main id="main-content" tabIndex={-1}><Outlet /></main>
     <SearchDialog open={searchOpen} onClose={closeSearch} />
   </div>

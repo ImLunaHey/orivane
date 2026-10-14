@@ -561,7 +561,9 @@ describe('module configuration pages', () => {
     await navigateTo(`/servers/${serverId}/modules`)
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
     expect(screen.getByRole('button', { name: 'Close navigation overlay' })).toBeVisible()
+    expect(document.body.style.overflow).toBe('hidden')
     fireEvent.click(screen.getByRole('button', { name: 'Close navigation overlay' }))
+    expect(document.body.style.overflow).toBe('')
 
     const guildPicker = screen.getByRole('button', { name: /Luna's studio/ })
     fireEvent.click(guildPicker)
@@ -575,7 +577,9 @@ describe('module configuration pages', () => {
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     const palette = screen.getByRole('dialog', { name: 'Command palette' })
+    expect(document.body.style.overflow).toBe('hidden')
     fireEvent.click(within(palette).getByRole('button', { name: /Servers/ }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/servers'))
+    expect(document.body.style.overflow).toBe('')
   })
 })

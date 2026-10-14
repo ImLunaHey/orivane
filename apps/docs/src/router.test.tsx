@@ -58,10 +58,26 @@ describe('documentation routes', () => {
     await renderRoute('/docs/')
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     expect(screen.getByRole('dialog', { name: 'Search documentation' })).toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('hidden')
     fireEvent.change(screen.getByPlaceholderText(/Try automod/), { target: { value: '/warn' } })
     expect(within(screen.getByRole('dialog')).getByText('Moderation')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('opens and dismisses the mobile navigation without leaving the page scrollable', async () => {
+    await renderRoute('/docs/modules')
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    expect(screen.getByRole('button', { name: 'Close navigation overlay' })).toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.click(screen.getByRole('button', { name: 'Close navigation overlay' }))
+    expect(screen.queryByRole('button', { name: 'Close navigation overlay' })).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('button', { name: 'Close navigation overlay' })).not.toBeInTheDocument()
   })
 
   it('renders module and route not-found states', async () => {
