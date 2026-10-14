@@ -9,6 +9,11 @@ services:
     build: !reset null
     pull_policy: always
 
+  mcp:
+    image: ghcr.io/imlunahey/orivane-mcp:${ORIVANE_VERSION:?Set ORIVANE_VERSION to an exact release version}
+    build: !reset null
+    pull_policy: always
+
   web:
     image: ghcr.io/imlunahey/orivane-web:${ORIVANE_VERSION:?Set ORIVANE_VERSION to an exact release version}
     build: !reset null

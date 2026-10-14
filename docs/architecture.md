@@ -24,6 +24,12 @@ Vite + React dashboard
                      Grafana
 ```
 
+Trusted AI agents reach the same control API through the `discord-bot-mcp`
+adapter. The adapter exposes an explicit `/v1` route allowlist over MCP rather
+than direct database access, uses a separate owner-level bearer credential,
+and preserves the API's validation, authorization, rate limiting, and audit
+boundaries.
+
 The gateway is the data plane: it stays connected to Discord and handles events. The API is the control plane: it owns configuration changes and dashboard reads. They share domain types and persistence code, but deploy independently.
 
 PostgreSQL remains the source of truth for operational data. Redis is disposable acceleration and delivery infrastructure, not the only copy of important data. ClickHouse is intentionally separate: high-volume analytics queries must not compete with moderation commands or configuration updates.
@@ -120,6 +126,17 @@ The dashboard exposes `/audit` for the bot-wide owner view and `/servers/:server
 - Moderation case and dashboard query endpoints.
 - Aggregated analytics reads; it never exposes arbitrary ClickHouse SQL.
 - Rate limits by session, user, guild, and route class.
+
+### MCP
+
+- Local stdio and authenticated Streamable HTTP transports.
+- Discoverable read-only resources plus separate read and mutation tools.
+- Static allowlist covering the supported `/v1` API; auth, metrics, and raw
+  database access are never exposed.
+- MCP mutations use the normal API handlers and are audited as the
+  `orivane-mcp` owner actor.
+- Constant-time token checks, origin validation, response-size limits, and no
+  redirects when contacting the API.
 
 ### Gateway workers
 

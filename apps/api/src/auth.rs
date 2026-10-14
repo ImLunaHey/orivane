@@ -22,6 +22,7 @@ pub(crate) struct AuthState {
     http: Client,
     pool: PgPool,
     development_bypass: bool,
+    service_token: Option<Arc<str>>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +51,16 @@ impl AuthState {
         let auth_url = env::var("BETTER_AUTH_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:3001/api/auth".to_owned());
         let development_bypass = env_flag("AUTH_DEVELOPMENT_BYPASS");
+        let service_token = env::var("ORIVANE_MCP_TOKEN")
+            .ok()
+            .filter(|token| !token.trim().is_empty())
+            .map(|token| {
+                if token.len() < 32 {
+                    bail!("ORIVANE_MCP_TOKEN must contain at least 32 characters");
+                }
+                Ok::<Arc<str>, anyhow::Error>(Arc::from(token))
+            })
+            .transpose()?;
 
         let mut config = AuthConfig::new(secret.into_bytes())?;
         config.set_base_url(&auth_url)?;
@@ -111,10 +122,14 @@ impl AuthState {
             http: Client::new(),
             pool,
             development_bypass,
+            service_token,
         })
     }
 
     pub async fn actor(&self, headers: &HeaderMap) -> Result<Actor, ApiError> {
+        if let Some(actor) = self.service_actor(headers) {
+            return Ok(actor);
+        }
         let session = self.session(headers).await?;
         let discord = self
             .service
@@ -156,6 +171,9 @@ impl AuthState {
         headers: &HeaderMap,
         guild_id: &str,
     ) -> Result<Actor, ApiError> {
+        if let Some(actor) = self.service_actor(headers) {
+            return Ok(actor);
+        }
         let session = self.session(headers).await?;
         let account = self
             .service
@@ -223,6 +241,9 @@ impl AuthState {
         headers: &HeaderMap,
         guild_id: &str,
     ) -> Result<Actor, ApiError> {
+        if let Some(actor) = self.service_actor(headers) {
+            return Ok(actor);
+        }
         let (actor, guilds) = self.guild_actor_and_guilds(headers).await?;
         if actor.is_owner || guilds.iter().any(|guild| guild.id == guild_id) {
             Ok(actor)
@@ -235,6 +256,9 @@ impl AuthState {
         &self,
         headers: &HeaderMap,
     ) -> Result<(Actor, Vec<DiscordGuild>), ApiError> {
+        if let Some(actor) = self.service_actor(headers) {
+            return Ok((actor, Vec::new()));
+        }
         let session = self.session(headers).await?;
         let account = self
             .service
@@ -285,6 +309,17 @@ impl AuthState {
         }
         let guilds = response.json().await.map_err(auth_internal)?;
         Ok((actor, guilds))
+    }
+
+    fn service_actor(&self, headers: &HeaderMap) -> Option<Actor> {
+        let expected = self.service_token.as_deref()?;
+        if !bearer_matches(headers, expected) {
+            return None;
+        }
+        Some(Actor {
+            discord_user_id: "orivane-mcp".to_owned(),
+            is_owner: true,
+        })
     }
 
     async fn session(&self, headers: &HeaderMap) -> Result<SessionWithUser, ApiError> {
@@ -363,6 +398,18 @@ impl AuthState {
     }
 }
 
+fn bearer_matches(headers: &HeaderMap, expected: &str) -> bool {
+    let Some(provided) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    else {
+        return false;
+    };
+    provided.len() == expected.len()
+        && openssl::memcmp::eq(provided.as_bytes(), expected.as_bytes())
+}
+
 fn auth_internal(error: impl std::fmt::Display) -> ApiError {
     tracing::error!(%error, "authentication request failed");
     ApiError::internal()
@@ -374,4 +421,34 @@ fn required_env(name: &str) -> Result<String> {
 
 fn env_flag(name: &str) -> bool {
     env::var(name).is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes"))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue, header::AUTHORIZATION};
+
+    use super::bearer_matches;
+
+    #[test]
+    fn service_bearer_requires_an_exact_case_sensitive_match() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer correct-token"),
+        );
+        assert!(bearer_matches(&headers, "correct-token"));
+        assert!(!bearer_matches(&headers, "wrong-token"));
+        assert!(!bearer_matches(&headers, "CORRECT-TOKEN"));
+    }
+
+    #[test]
+    fn service_bearer_rejects_missing_or_wrong_schemes() {
+        let mut headers = HeaderMap::new();
+        assert!(!bearer_matches(&headers, "correct-token"));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Basic correct-token"),
+        );
+        assert!(!bearer_matches(&headers, "correct-token"));
+    }
 }

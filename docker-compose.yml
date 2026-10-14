@@ -83,6 +83,31 @@ services:
       retries: 10
     restart: unless-stopped
 
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+      args:
+        BINARY: discord-bot-mcp
+    env_file:
+      - .env
+    environment:
+      MCP_TRANSPORT: http
+      MCP_BIND: 0.0.0.0:3012
+      ORIVANE_API_BASE_URL: http://api:3010/
+      MCP_ALLOWED_ORIGINS: ${APP_ORIGIN:-http://127.0.0.1:5173}
+    ports:
+      - "127.0.0.1:${MCP_PORT:-3012}:3012"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3012/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   web:
     build:
       context: apps/web
@@ -91,6 +116,8 @@ services:
       - "127.0.0.1:${WEB_PORT:-5173}:80"
     depends_on:
       api:
+        condition: service_healthy
+      mcp:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]

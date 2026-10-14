@@ -27,8 +27,10 @@ COPY modules ./modules
 RUN cargo build --locked --release \
       --package discord-bot-api \
       --package discord-bot-gateway \
+      --package discord-bot-mcp \
     && mkdir /orivane-binaries \
-    && cp target/release/discord-bot-api target/release/discord-bot-gateway /orivane-binaries/
+    && cp target/release/discord-bot-api target/release/discord-bot-gateway \
+      target/release/discord-bot-mcp /orivane-binaries/
 
 FROM debian:bookworm-slim AS runtime
 

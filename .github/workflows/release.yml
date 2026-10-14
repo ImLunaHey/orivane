@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, gateway, web]
+        service: [api, gateway, mcp, web]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -105,11 +105,11 @@ jobs:
         if: matrix.service != 'web'
         shell: bash
         run: |
-          if [ "${{ matrix.service }}" = api ]; then
-            echo 'binary=discord-bot-api' >> "$GITHUB_OUTPUT"
-          else
-            echo 'binary=discord-bot-gateway' >> "$GITHUB_OUTPUT"
-          fi
+          case "${{ matrix.service }}" in
+            api) echo 'binary=discord-bot-api' >> "$GITHUB_OUTPUT" ;;
+            gateway) echo 'binary=discord-bot-gateway' >> "$GITHUB_OUTPUT" ;;
+            mcp) echo 'binary=discord-bot-mcp' >> "$GITHUB_OUTPUT" ;;
+          esac
       - uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.service == 'web' && 'apps/web' || '.' }}

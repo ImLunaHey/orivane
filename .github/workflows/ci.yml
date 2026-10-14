@@ -125,7 +125,7 @@ jobs:
         with:
           source: .
           files: docker-compose.yml
-          targets: api,gateway,web
+          targets: api,gateway,mcp,web
           load: true
           set: |
             api.tags=orivane-api:latest
@@ -134,6 +134,9 @@ jobs:
             gateway.tags=orivane-gateway:latest
             gateway.cache-from=type=gha,scope=orivane-gateway
             gateway.cache-to=type=gha,scope=orivane-gateway,mode=max
+            mcp.tags=orivane-mcp:latest
+            mcp.cache-from=type=gha,scope=orivane-mcp
+            mcp.cache-to=type=gha,scope=orivane-mcp,mode=max
             web.tags=orivane-web:latest
             web.cache-from=type=gha,scope=orivane-web
             web.cache-to=type=gha,scope=orivane-web,mode=max
@@ -149,8 +152,22 @@ jobs:
             exit "$status"
           }
           trap cleanup EXIT
-          docker compose up --detach --no-build --wait postgres redis api web
+          docker compose up --detach --no-build --wait postgres redis api mcp web
           curl --fail --silent http://127.0.0.1:3010/health
+          curl --fail --silent http://127.0.0.1:3012/health
           curl --fail --silent http://127.0.0.1:5173/healthz
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            http://127.0.0.1:3012/mcp)" = "401"
+          set -a
+          source .env
+          set +a
+          curl --fail --silent \
+            --header "Authorization: Bearer $ORIVANE_MCP_TOKEN" \
+            --header 'Accept: application/json, text/event-stream' \
+            --header 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            http://127.0.0.1:3012/mcp >/dev/null
           docker compose run --rm -e GATEWAY_STARTUP_CHECK_ONLY=true gateway
 

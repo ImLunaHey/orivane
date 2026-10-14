@@ -2,6 +2,7 @@
 members = [
     "apps/api",
     "apps/gateway",
+    "apps/mcp",
     "crates/bot-core",
     "crates/bot-discord",
     "crates/bot-test-support",
@@ -87,9 +88,11 @@ chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 regex = "1.12"
+rmcp = { version = "3.5.1", features = ["transport-io", "transport-streamable-http-server"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+schemars = "1.0"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "chrono", "json", "derive", "macros", "migrate"] }
 sqlx08 = { package = "sqlx", version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
 thiserror = "2.0"

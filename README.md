@@ -4,7 +4,10 @@ A Rust foundation for a multi-purpose Discord bot in the style of MEE6 or Dyno. 
 
 ```text
 Vite + React dashboard + Discord OAuth2
-                 |
+                 |                 AI agents
+                 |                     |
+                 |            MCP (stdio / HTTP)
+                 |                    /
           Axum configuration API
               /       \
        PostgreSQL     Redis
@@ -15,13 +18,14 @@ Vite + React dashboard + Discord OAuth2
 - **PostgreSQL** is the durable source of truth for guild settings, moderation cases, connected guilds, and audit history.
 - **Redis** provides a five-minute read-through configuration cache and is the natural home for cooldowns, rate limits, and queues.
 - **API** exposes authenticated configuration, fleet, users, moderation, audit, analytics, and health endpoints.
+- **MCP** exposes the allowlisted API surface to trusted AI agents through stdio or authenticated Streamable HTTP.
 - **Gateway** owns Discord connections and dispatches events into isolated modules.
 
 ## Run locally
 
 1. Create a Discord application and bot in the Developer Portal. The bot uses application (slash) commands rather than prefix commands. Enable the privileged Server Members intent for welcome and autorole events and Message Content intent for AutoMod, leveling, and message-triggered modules.
 2. Copy `.env.example` to `.env`. Add the bot token, a random `BETTER_AUTH_SECRET` of at least 32 bytes, and the Discord OAuth client ID and secret. Add your Discord user ID to `BOT_OWNER_DISCORD_IDS` for bot-wide pages.
-3. Start the complete stack (PostgreSQL, Redis, API, gateway, and web UI):
+3. Start the complete stack (PostgreSQL, Redis, API, gateway, MCP, and web UI):
 
    ```sh
    docker compose up --build -d
@@ -29,7 +33,8 @@ Vite + React dashboard + Discord OAuth2
 
    The dashboard is available at `http://127.0.0.1:5173` and the API at
    `http://127.0.0.1:3010`. The web container proxies `/api` and `/v1` to the
-   API over the private Compose network, so no API URL is baked into the UI.
+   API and `/mcp` to the MCP service over the private Compose network, so no
+   internal service URL is baked into the UI.
 
 4. For development with hot reload, start only the infrastructure and run each
    process in its own terminal:
@@ -39,6 +44,7 @@ Vite + React dashboard + Discord OAuth2
    set -a && source .env && set +a
    cargo run -p discord-bot-api
    cargo run -p discord-bot-gateway
+   MCP_TRANSPORT=stdio cargo run -p discord-bot-mcp
    cd apps/web && VITE_API_BASE_URL=same-origin pnpm dev
    ```
 
@@ -70,7 +76,9 @@ Each feature lives in its own crate under `modules/`. The gateway only assembles
 
 The full design—including the Vite/React/Tailwind/TanStack dashboard, logging, metrics, tracing, and analytics roadmap—is in [docs/architecture.md](docs/architecture.md). The current dashboard includes bot-wide and guild-scoped navigation, accessible shared charts, TanStack tables, audit detail pages, live dependency health, and explicit demo/live data modes.
 
-Production releases and rollback expectations are documented in [docs/deployment.md](docs/deployment.md). Tagged releases publish immutable API, gateway, and web images to GitHub Container Registry; deployments should always pin an exact version or SHA.
+Production releases and rollback expectations are documented in [docs/deployment.md](docs/deployment.md). Tagged releases publish immutable API, gateway, MCP, and web images to GitHub Container Registry; deployments should always pin an exact version or SHA.
+
+Agent access, authentication, available MCP tools, and client configuration are documented in [docs/mcp.md](docs/mcp.md).
 
 Prometheus metrics, readiness, alerts, dashboards, and backup verification are documented in [docs/observability.md](docs/observability.md).
 

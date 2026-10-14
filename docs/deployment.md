@@ -2,11 +2,12 @@
 
 Release Please maintains a release pull request from Conventional Commits after
 the main-branch CI workflow passes. Merging that pull request creates the
-versioned GitHub release and publishes API, gateway, and web images to GitHub
+versioned GitHub release and publishes API, gateway, MCP, and web images to GitHub
 Container Registry:
 
 - `ghcr.io/imlunahey/orivane-api`
 - `ghcr.io/imlunahey/orivane-gateway`
+- `ghcr.io/imlunahey/orivane-mcp`
 - `ghcr.io/imlunahey/orivane-web`
 
 Each image receives the full semantic version, major/minor, major, `latest`, and
@@ -29,7 +30,7 @@ Set `ORIVANE_VERSION` to an exact released semantic version in `.env`, then use
 the production override for every Compose operation:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.production.yml pull api gateway web
+docker compose -f docker-compose.yml -f docker-compose.production.yml pull api gateway mcp web
 docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
 ```
 
@@ -40,8 +41,10 @@ keep the base Compose file for local source builds.
 1. Deploy the API first. Migrations are backwards-compatible and applied under a database advisory lock.
 2. Wait for API readiness.
 3. Deploy gateway workers one at a time. Allow each process to drain before termination so interactions and claimed jobs complete.
-4. Deploy the web image last.
-5. Verify health, shard sessions, interaction error rate, Discord REST rate limits, and job backlog.
+4. Deploy the MCP service, verify `/health`, and confirm unauthenticated MCP
+   requests are rejected.
+5. Deploy the web image last.
+6. Verify health, shard sessions, interaction error rate, Discord REST rate limits, and job backlog.
 
 ## Gateway sharding and scheduler ownership
 
@@ -57,7 +60,7 @@ Change shard totals only during a coordinated gateway restart. Confirm Discord's
 ## Rollback
 
 1. Stop rollout immediately and record the release SHA in the global audit timeline.
-2. Redeploy the previous exact API, gateway, and web image tags in reverse order: web, gateway, API.
+2. Redeploy the previous exact API, gateway, MCP, and web image tags in reverse order: web, MCP, gateway, API.
 3. Do not automatically reverse database migrations. All migrations must be additive or otherwise compatible with the preceding release.
 4. If data restoration is necessary, stop every writer, restore into a new database, validate row counts and migrations, then switch the connection string. Never restore over a live database.
 5. Re-run health and a private-guild slash-command smoke test before restoring normal traffic.
