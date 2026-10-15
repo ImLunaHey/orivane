@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.0](https://github.com/ImLunaHey/orivane/compare/orivane-v0.1.0...orivane-v0.2.0) (2026-10-15)
+
+
+### Features
+
+* **docs:** add interactive documentation site ([cea289f](https://github.com/ImLunaHey/orivane/commit/cea289faf88fea6501a24658531040077fba6a96))
+* **mcp:** add server-scoped user access ([b966bd5](https://github.com/ImLunaHey/orivane/commit/b966bd5570dcfb38f65c84df01e1b270f3077c42))
+* **mcp:** expose bot API to trusted agents ([69851d6](https://github.com/ImLunaHey/orivane/commit/69851d6e635b56809f591b6746090d54052dbc91))
+
+
+### Bug fixes
+
+* **deps:** update rustls security patch ([4ea750b](https://github.com/ImLunaHey/orivane/commit/4ea750bf8e567fe1a9148f541645e97dd59586e0))
+* **ui:** make dashboard and docs mobile friendly ([7200875](https://github.com/ImLunaHey/orivane/commit/7200875b1e6653f51f0ccc684bd66fad5692918f))
+* **web:** tidy integrations layout ([be254e1](https://github.com/ImLunaHey/orivane/commit/be254e1435b461aaa3b0cf08afa8705929772af3))
+
+
+### Continuous integration
+
+* audit documentation dependencies ([30dff5c](https://github.com/ImLunaHey/orivane/commit/30dff5ce61055d33b3ebd459319add6b5bafa3f7))
+* separate API build from readiness probe ([b732ea9](https://github.com/ImLunaHey/orivane/commit/b732ea9ad91b1e7d766b00738a3fc876d37a4f10))
+
 ## [0.1.0](https://github.com/ImLunaHey/orivane/compare/orivane-v0.0.1...orivane-v0.1.0) (2026-10-12)
 
 
